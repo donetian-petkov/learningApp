@@ -1,5 +1,3 @@
-const STORAGE_KEY = "pop-culture-japanese-state";
-
 const defaultState = {
   view: "learn",
   activeLessonId: "anime-intro",
@@ -107,6 +105,8 @@ const defaultState = {
     siteHealth: "Green",
     maintenanceMode: false,
     announcements: "Practice 5 minutes a day to keep the streak alive.",
+    authenticated: false,
+    sessionUser: null,
     auditLog: [
       "Published anime dialogue module",
       "Approved 12 grammar explanations",
@@ -132,7 +132,7 @@ const defaultState = {
   },
 };
 
-const state = loadState();
+let state = structuredClone(defaultState);
 
 const app = document.querySelector("#app");
 const navButtons = document.querySelectorAll(".nav-item");
@@ -156,30 +156,30 @@ toggleButtons.forEach((button) => {
 });
 
 render();
+init();
 
-function loadState() {
+async function init() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return structuredClone(defaultState);
-    return mergeState(defaultState, JSON.parse(saved));
+    state = await loadState();
+    render();
   } catch {
-    return structuredClone(defaultState);
+    state = structuredClone(defaultState);
+    render();
   }
 }
 
-function mergeState(base, saved) {
-  if (Array.isArray(base)) return saved ?? base;
-  if (typeof base !== "object" || base === null) return saved ?? base;
-
-  const result = { ...base };
-  for (const [key, value] of Object.entries(base)) {
-    result[key] = mergeState(value, saved?.[key]);
-  }
-  return { ...saved, ...result };
+async function loadState() {
+  const response = await fetch("/api/state");
+  if (!response.ok) throw new Error("Failed to load state");
+  return mergeState(defaultState, await response.json());
 }
 
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  fetch("/api/state", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(state),
+  }).catch(() => {});
 }
 
 function render() {
@@ -519,6 +519,33 @@ function renderProgress() {
 }
 
 function renderAdmin() {
+  if (!state.admin.authenticated) {
+    return `
+      <section class="panel">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h2>Sign in to manage content and settings</h2>
+          </div>
+          <p>SQLite-backed admin access is local-only for the MVP.</p>
+        </div>
+        <div class="grid-card">
+          <label class="field">
+            <span>Username</span>
+            <input type="text" data-field="admin-username" value="admin" />
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" data-field="admin-password" value="fieldguide123" />
+          </label>
+          <div class="button-row">
+            <button class="primary" data-action="admin-login">Sign in</button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   return `
     <section class="panel">
       <div class="section-title">
@@ -526,7 +553,9 @@ function renderAdmin() {
           <p class="eyebrow">Admin</p>
           <h2>Manage content, AI usage, and system health</h2>
         </div>
-        <p>Role-based permissions and audit logs are modeled in the UI.</p>
+        <div class="button-row">
+          <button class="secondary" data-action="admin-logout">Sign out</button>
+        </div>
       </div>
       <div class="admin-grid">
         <div class="grid-card">
@@ -608,7 +637,7 @@ function practiceCard(title, description, steps, body = "") {
 
 function wireActions() {
   document.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const action = button.dataset.action;
       if (action === "select-lesson") {
         state.activeLessonId = button.dataset.id;
@@ -779,6 +808,27 @@ function wireActions() {
           render();
         }
       }
+
+      if (action === "admin-login") {
+        const username = app.querySelector('[data-field="admin-username"]')?.value?.trim() || "admin";
+        const password = app.querySelector('[data-field="admin-password"]')?.value?.trim() || "fieldguide123";
+        const response = await fetch("/api/admin/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        if (response.ok) {
+          state = mergeState(state, await response.json());
+        } else {
+          window.alert("Admin sign-in failed.");
+        }
+        await refreshState();
+      }
+
+      if (action === "admin-logout") {
+        await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+        await refreshState();
+      }
     });
   });
 }
@@ -936,6 +986,11 @@ function speakText(text) {
   speechSynthesis.speak(new SpeechSynthesisUtterance(text));
 }
 
+async function refreshState() {
+  state = await loadState();
+  render();
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -943,4 +998,15 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function mergeState(base, saved) {
+  if (Array.isArray(base)) return saved ?? base;
+  if (typeof base !== "object" || base === null) return saved ?? base;
+
+  const result = { ...base };
+  for (const [key, value] of Object.entries(base)) {
+    result[key] = mergeState(value, saved?.[key]);
+  }
+  return { ...saved, ...result };
 }
