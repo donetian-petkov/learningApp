@@ -379,6 +379,19 @@ export function createApiHandler(store) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/admin/content-review-actions/import") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    const imported = store.importContentReviewActions(body.actions ?? body.action ?? body, {
+      recordImport: body.recordImport !== false,
+    });
+    respondJson(res, 200, { imported: imported.length, actions: imported });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/admin/content-review") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });

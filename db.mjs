@@ -3068,7 +3068,7 @@ export class SqliteStorageAdapter {
       createdAt: item.createdAt ?? nowIso(),
     };
     this.enqueueContentReviewRow(payload);
-    this.recordContentReviewAction({
+    this.upsertContentReviewAction({
       queueItemId: payload.id,
       itemType: payload.itemType,
       itemId: payload.itemId,
@@ -3094,7 +3094,7 @@ export class SqliteStorageAdapter {
       "UPDATE content_review_queue SET status = ?, notes = ?, decision_reason = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?"
     )
       .run(nextStatus, nextNotes, nextReason, nextReviewedBy, nextReviewedAt, itemId);
-    this.recordContentReviewAction({
+    this.upsertContentReviewAction({
       queueItemId: itemId,
       itemType: current.item_type,
       itemId: current.item_id,
@@ -3123,6 +3123,44 @@ export class SqliteStorageAdapter {
       notes: row.notes ?? "",
       createdAt: row.created_at,
     }));
+  }
+
+  importContentReviewActions(actions, options = {}) {
+    const list = Array.isArray(actions) ? actions : [actions];
+    const imported = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      list.forEach((action, index) => {
+        if (!action) return;
+        const normalized = {
+          id: action.id ?? index + 1,
+          queueItemId: action.queueItemId ?? action.queue_item_id ?? "",
+          itemType: action.itemType ?? action.item_type ?? "lesson",
+          itemId: action.itemId ?? action.item_id ?? "",
+          status: normalizeReviewStatus(action.status ?? "pending"),
+          decisionReason: action.decisionReason ?? action.decision_reason ?? "",
+          reviewedBy: action.reviewedBy ?? action.reviewed_by ?? "",
+          reviewedAt: action.reviewedAt ?? action.reviewed_at ?? nowIso(),
+          notes: action.notes ?? "",
+          createdAt: action.createdAt ?? action.created_at ?? nowIso(),
+        };
+        this.upsertContentReviewAction(normalized);
+        imported.push(normalized);
+      });
+      if (imported.length && options.recordImport !== false) {
+        this.recordDatasetImport({
+          sourceType: "moderation-history",
+          label: `Moderation history import: ${imported.length} action${imported.length === 1 ? "" : "s"}`,
+          counts: { moderationActions: imported.length },
+          notes: "Imported through the moderation history workflow",
+        });
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return imported;
   }
 
   getPermissionMatrix() {
@@ -3873,15 +3911,26 @@ export class SqliteStorageAdapter {
     );
   }
 
-  recordContentReviewAction(action = {}) {
+  upsertContentReviewAction(action = {}) {
     this.db.prepare(
       `
         INSERT INTO content_review_actions (
-          queue_item_id, item_type, item_id, status, decision_reason, reviewed_by, reviewed_at, notes, created_at
+          id, queue_item_id, item_type, item_id, status, decision_reason, reviewed_by, reviewed_at, notes, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          queue_item_id = excluded.queue_item_id,
+          item_type = excluded.item_type,
+          item_id = excluded.item_id,
+          status = excluded.status,
+          decision_reason = excluded.decision_reason,
+          reviewed_by = excluded.reviewed_by,
+          reviewed_at = excluded.reviewed_at,
+          notes = excluded.notes,
+          created_at = excluded.created_at
       `
     ).run(
+      action.id ?? null,
       action.queueItemId ?? "",
       action.itemType ?? "lesson",
       action.itemId ?? "",

@@ -1906,11 +1906,18 @@ function renderAdmin() {
                 <input type="text" data-field="moderation-filter-reviewer" value="${escapeHtml(moderationFilters.reviewer)}" placeholder="admin" />
               </label>
             </div>
-            <div class="button-row">
-              <button class="primary" data-action="apply-moderation-filters">Apply filters</button>
-              <button class="secondary" data-action="clear-moderation-filters">Clear</button>
-              <button class="secondary" data-action="export-moderation-history">Export JSON</button>
-            </div>
+          <div class="button-row">
+            <button class="primary" data-action="apply-moderation-filters">Apply filters</button>
+            <button class="secondary" data-action="clear-moderation-filters">Clear</button>
+            <button class="secondary" data-action="export-moderation-history">Export JSON</button>
+          </div>
+          <label class="field spaced">
+            <span>Import moderation JSON</span>
+            <textarea data-field="moderation-import-json" rows="5" placeholder='[{"queueItemId":"content-review-1","itemType":"lesson","itemId":"anime-intro","status":"published","decisionReason":"Ready","reviewedBy":"admin","notes":"Imported from another install"}]'></textarea>
+          </label>
+          <div class="button-row">
+            <button class="secondary" data-action="import-moderation-history">Import moderation JSON</button>
+          </div>
           </div>
           <div class="list">
             ${(filteredModerationActions ?? [])
@@ -3219,6 +3226,33 @@ function wireActions() {
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
+      }
+
+      if (action === "import-moderation-history") {
+        const moderationInput = app.querySelector('[data-field="moderation-import-json"]');
+        const raw = moderationInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Moderation JSON is not valid.");
+          return;
+        }
+        const result = await apiJson("/api/admin/content-review-actions/import", {
+          method: "POST",
+          body: { actions: Array.isArray(parsed) ? parsed : [parsed] },
+        });
+        if (moderationInput) {
+          moderationInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Imported moderation history: ${result.imported} actions` },
+        });
+        await refreshState();
       }
 
       if (action === "import-backup") {

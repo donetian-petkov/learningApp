@@ -482,6 +482,34 @@ test("admin content review queue and permissions persist", () => {
   }
 });
 
+test("moderation history imports and records dataset registry entries", () => {
+  const temp = createTempStore();
+  try {
+    const imported = temp.store.importContentReviewActions([
+      {
+        id: 9001,
+        queueItemId: "content-review-1",
+        itemType: "lesson",
+        itemId: "anime-intro",
+        status: "published",
+        decisionReason: "Ready to ship",
+        reviewedBy: "admin",
+        reviewedAt: "2025-01-01T10:00:00.000Z",
+        notes: "Imported history entry",
+        createdAt: "2025-01-01T10:00:00.000Z",
+      },
+    ]);
+    assert.equal(imported.length, 1);
+    const actions = temp.store.getContentReviewActions(5);
+    assert.equal(actions.some((item) => item.id === 9001 && item.reviewedBy === "admin"), true);
+    const imports = temp.store.getDatasetImports(1);
+    assert.equal(imports[0].sourceType, "moderation-history");
+    assert.equal(imports[0].counts.moderationActions, 1);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("analytics summary is derived from persisted activity", async () => {
   const temp = createTempStore();
   try {
