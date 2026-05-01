@@ -504,12 +504,28 @@ test("snapshot export and restore preserve persisted state", () => {
   const temp = createTempStore();
   try {
     temp.store.completeLesson("food-ramen");
+    temp.store.recordDatasetImport({
+      sourceType: "bundle",
+      label: "Seed bundle import",
+      sourceUri: "https://example.com/bundle.json",
+      counts: { lessons: 1 },
+      notes: "Before export",
+    });
+    temp.store.enqueueContentReview({
+      itemType: "lesson",
+      itemId: "anime-intro",
+      status: "pending",
+      notes: "Before export",
+      source: "manual",
+    });
     const snapshot = temp.store.getSnapshot();
     temp.store.resetDatabase();
     const restored = temp.store.saveAppState(snapshot);
     assert.equal(restored.progress.completedLessons.includes("food-ramen"), true);
     assert.equal(restored.lessons.some((lesson) => lesson.id === "anime-intro"), true);
     assert.equal(restored.admin.maintenanceMode, false);
+    assert.equal(restored.admin.datasetImports.length >= 1, true);
+    assert.equal(restored.admin.moderationActions.length >= 1, true);
   } finally {
     cleanupTempStore(temp);
   }

@@ -2544,6 +2544,8 @@ export class SqliteStorageAdapter {
       DELETE FROM user_cosmetics;
       DELETE FROM site_settings;
       DELETE FROM content_review_queue;
+      DELETE FROM content_review_actions;
+      DELETE FROM dataset_imports;
       DELETE FROM users;
       DELETE FROM dictionary_entries;
       DELETE FROM challenge_progress;
@@ -2852,6 +2854,61 @@ export class SqliteStorageAdapter {
         source: item.source ?? "seed",
         createdAt: nowIso(),
       });
+    });
+
+    (Array.isArray(snapshot.admin?.datasetImports) ? snapshot.admin.datasetImports : []).forEach((item, index) => {
+      this.db.prepare(
+        `
+          INSERT INTO dataset_imports (id, source_type, label, source_uri, counts_json, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            source_type = excluded.source_type,
+            label = excluded.label,
+            source_uri = excluded.source_uri,
+            counts_json = excluded.counts_json,
+            notes = excluded.notes,
+            created_at = excluded.created_at
+        `
+      ).run(
+        item.id ?? `dataset-import-${index + 1}`,
+        item.sourceType ?? "bundle",
+        item.label ?? "Dataset import",
+        item.sourceUri ?? "",
+        toJson(item.counts ?? {}),
+        item.notes ?? "",
+        item.createdAt ?? nowIso()
+      );
+    });
+
+    (Array.isArray(snapshot.admin?.moderationActions) ? snapshot.admin.moderationActions : []).forEach((item, index) => {
+      this.db.prepare(
+        `
+          INSERT INTO content_review_actions (
+            id, queue_item_id, item_type, item_id, status, decision_reason, reviewed_by, reviewed_at, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            queue_item_id = excluded.queue_item_id,
+            item_type = excluded.item_type,
+            item_id = excluded.item_id,
+            status = excluded.status,
+            decision_reason = excluded.decision_reason,
+            reviewed_by = excluded.reviewed_by,
+            reviewed_at = excluded.reviewed_at,
+            notes = excluded.notes,
+            created_at = excluded.created_at
+        `
+      ).run(
+        item.id ?? index + 1,
+        item.queueItemId ?? "",
+        item.itemType ?? "lesson",
+        item.itemId ?? "",
+        item.status ?? "pending",
+        item.decisionReason ?? "",
+        item.reviewedBy ?? "",
+        item.reviewedAt ?? item.createdAt ?? nowIso(),
+        item.notes ?? "",
+        item.createdAt ?? nowIso()
+      );
     });
   }
 
@@ -3586,7 +3643,7 @@ export class SqliteStorageAdapter {
   }
 
   resetDatabase() {
-    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_review_history; DROP TABLE IF EXISTS kanji_review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_migrations; DROP TABLE IF EXISTS schema_meta;");
+    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_actions; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS dataset_imports; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_review_history; DROP TABLE IF EXISTS kanji_review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_migrations; DROP TABLE IF EXISTS schema_meta;");
     this.migrate();
     this.seedIfNeeded();
     return this.getSnapshot();
