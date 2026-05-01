@@ -245,6 +245,7 @@ let lessonExerciseIndex = 0;
 let lessonExerciseFeedback = "";
 let lessonExerciseDraftAnswer = "";
 let lessonDialogueIndex = 0;
+let roleplayDraft = "";
 let permissionDraft = null;
 
 const listeningScenarios = [
@@ -871,8 +872,13 @@ function renderPractice() {
                 )
                 .join("")}
             </div>
+            <label class="field spaced">
+              <span>Your reply</span>
+              <textarea rows="3" data-field="roleplay-input">${escapeHtml(roleplayDraft)}</textarea>
+            </label>
             <div class="button-row">
               <button class="primary" data-action="send-roleplay">Reply naturally</button>
+              <button class="secondary" data-action="roleplay-reset">Reset scene</button>
             </div>
           `
         )}
@@ -1923,10 +1929,24 @@ function wireActions() {
 
       if (action === "send-roleplay") {
         const select = app.querySelector('[data-field="roleplay-scenario"]');
+        const input = app.querySelector('[data-field="roleplay-input"]');
         const scenario = select?.value ?? "restaurant";
+        roleplayDraft = input?.value ?? roleplayDraft;
         await apiJson("/api/practice", {
           method: "POST",
-          body: { kind: "roleplay", scenario },
+          body: { kind: "roleplay", scenario, input: roleplayDraft },
+        });
+        roleplayDraft = "";
+        await refreshState();
+      }
+
+      if (action === "roleplay-reset") {
+        roleplayDraft = "";
+        const active = app.querySelector('[data-field="roleplay-input"]');
+        if (active) active.value = "";
+        await apiJson("/api/practice", {
+          method: "POST",
+          body: { kind: "roleplay", scenario: app.querySelector('[data-field="roleplay-scenario"]')?.value ?? "restaurant" },
         });
         await refreshState();
       }

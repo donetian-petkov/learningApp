@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -306,6 +306,14 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
 
     const writing = temp.store.recordPracticeSession("writing", { input: "私は毎日日本語を勉強します" });
     assert.equal(writing.tutor.answer.includes("Natural correction:"), true);
+
+    const roleplay = temp.store.recordPracticeSession("roleplay", {
+      scenario: "travel",
+      input: "切符売り場はどこですか。",
+    });
+    assert.equal(roleplay.roleplay.transcript[1].speaker, "You");
+    assert.equal(roleplay.roleplay.transcript[1].text, "切符売り場はどこですか。");
+    assert.equal(roleplay.roleplay.transcript.some((line) => line.speaker === "Tutor"), true);
   } finally {
     cleanupTempStore(temp);
   }
@@ -655,6 +663,15 @@ test("writing submission evaluation returns score and guidance", () => {
   assert.ok(evaluation.correction.startsWith("Natural correction:"));
   assert.ok(Array.isArray(evaluation.issues));
   assert.ok(evaluation.issues.some((issue) => issue.includes("period")));
+});
+
+test("roleplay follow-up generates a learner turn and reply", () => {
+  const transcript = buildRoleplayFollowUp("travel", "切符売り場はどこですか。");
+  assert.equal(transcript[0].speaker, "System");
+  assert.equal(transcript[1].speaker, "You");
+  assert.equal(transcript[2].speaker, "Server");
+  assert.equal(transcript[3].speaker, "Tutor");
+  assert.ok(transcript[2].text.includes("左"));
 });
 
 test("lesson exercise evaluation handles multiple choice and translation", () => {

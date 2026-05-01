@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildLessonStudyMaterials, buildRoleplayTranscript, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonStudyMaterials, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -1695,15 +1695,22 @@ export class SqliteStorageAdapter {
     } else if (kind === "roleplay") {
       const scenario = String(payload.scenario ?? current.roleplay.scenario);
       updated.roleplay.scenario = scenario;
-      updated.roleplay.transcript = answerAiFeature("roleplay", scenario, { scenario })
-        .split("\n")
-        .map((line, index) => {
-          const [speaker, ...rest] = line.split(": ");
-          return {
-            speaker: speaker || ["System", "You", "Server", "You"][index] || "System",
-            text: rest.join(": ") || line,
-          };
-        });
+      const learnerLine = String(payload.input ?? "").trim();
+      const transcript = learnerLine
+        ? buildRoleplayFollowUp(scenario, learnerLine)
+        : answerAiFeature("roleplay", scenario, { scenario })
+            .split("\n")
+            .map((line, index) => {
+              const [speaker, ...rest] = line.split(": ");
+              return {
+                speaker: speaker || ["System", "You", "Server", "You"][index] || "System",
+                text: rest.join(": ") || line,
+              };
+            });
+      updated.roleplay.transcript = transcript;
+      if (learnerLine) {
+        updated.tutor.answer = transcript.map((line) => `${line.speaker}: ${line.text}`).join("\n");
+      }
       updated.progress.xp += 20;
       updated.progress.credits += 5;
       audit = `Roleplay scenario updated: ${scenario}`;

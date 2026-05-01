@@ -61,7 +61,11 @@ export function answerAiFeature(feature, prompt, context = {}) {
 
   if (feature === "roleplay") {
     const scenario = String(context.scenario ?? "restaurant");
-    return buildRoleplayTranscript(scenario).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+    const learnerLine = String(context.prompt ?? "").trim();
+    const lines = learnerLine
+      ? buildRoleplayFollowUp(scenario, learnerLine)
+      : buildRoleplayTranscript(scenario);
+    return lines.map((line) => `${line.speaker}: ${line.text}`).join("\n");
   }
 
   if (feature === "correction" || feature === "writing") {
@@ -128,6 +132,34 @@ export function buildLessonStudyMaterials(japanese, translation, grammar, title,
       },
     ],
   };
+}
+
+export function buildRoleplayFollowUp(scenario, learnerLine) {
+  const scripts = {
+    restaurant: {
+      system: "You are at a ramen shop.",
+      reply: "かしこまりました。スープはあっさりでよろしいですか？",
+      coaching: "Good. A polite request fits this setting.",
+    },
+    travel: {
+      system: "You are asking for directions at a station.",
+      reply: "はい、まっすぐ行って左です。",
+      coaching: "Good. Directions should stay short and clear.",
+    },
+    anime: {
+      system: "You are in an anime-style training scene.",
+      reply: "いい気合いだ。次の一手を見せてくれ。",
+      coaching: "Good. Strong tone works for anime-style roleplay.",
+    },
+  };
+  const script = scripts[String(scenario ?? "restaurant")] ?? scripts.restaurant;
+  const reply = String(learnerLine ?? "").trim();
+  return [
+    { speaker: "System", text: script.system },
+    { speaker: "You", text: reply || "..." },
+    { speaker: "Server", text: script.reply },
+    { speaker: "Tutor", text: script.coaching },
+  ];
 }
 
 export function evaluateSpeakingSubmission(sentence, prompt = "") {
