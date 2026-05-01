@@ -359,9 +359,11 @@ function renderPractice() {
               <input type="text" data-field="speaking-input" value="ラーメンをください。" />
             </label>
             <div class="button-row">
+              <button class="secondary" data-action="transcribe-speaking">Transcribe</button>
               <button class="primary" data-action="check-speaking">Check speech</button>
               <button class="secondary" data-action="play-sample">Play sample</button>
             </div>
+            <p class="muted" data-output="transcription-feedback">No transcript yet. Use browser speech recognition when available.</p>
             <p class="muted" data-output="speaking-feedback">${escapeHtml(state.tutor.answer)}</p>
           `
         )}
@@ -801,6 +803,36 @@ function wireActions() {
         }
       }
 
+      if (action === "transcribe-speaking") {
+        const transcriptOutput = app.querySelector('[data-output="transcription-feedback"]');
+        const speakingInput = app.querySelector('[data-field="speaking-input"]');
+        const recognition = createSpeechRecognition();
+        if (!recognition) {
+          const fallback = speakingInput?.value?.trim() || "ラーメンをください。";
+          if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+          if (speakingInput) speakingInput.value = fallback;
+          return;
+        }
+        if (transcriptOutput) transcriptOutput.textContent = "Listening for speech...";
+        recognition.onresult = (event) => {
+          const transcript = Array.from(event.results)
+            .map((result) => result[0]?.transcript ?? "")
+            .join(" ")
+            .trim();
+          if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript || "No speech detected."}`;
+          if (speakingInput && transcript) speakingInput.value = transcript;
+        };
+        recognition.onerror = () => {
+          if (transcriptOutput) transcriptOutput.textContent = "Speech recognition failed. Use the text box instead.";
+        };
+        recognition.onend = () => {
+          if (transcriptOutput && transcriptOutput.textContent === "Listening for speech...") {
+            transcriptOutput.textContent = "Speech recognition ended without a result.";
+          }
+        };
+        recognition.start();
+      }
+
       if (action === "open-feature") {
         state.view = "practice";
         persist();
@@ -1130,6 +1162,16 @@ function speakText(text) {
   if (!("speechSynthesis" in window)) return;
   speechSynthesis.cancel();
   speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+
+function createSpeechRecognition() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return null;
+  const recognition = new Recognition();
+  recognition.lang = "ja-JP";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  return recognition;
 }
 
 async function refreshState() {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -204,6 +204,7 @@ test("shared helpers are deterministic and safe", () => {
   assert.equal(normalizeSentence("今日は勉強します"), "今日は勉強します。");
   assert.equal(answerTutor("Explain particle usage"), "Use は for topic framing and が for focus or emphasis. In short: は sets the scene, が spotlights the subject.");
   assert.equal(buildRoleplayTranscript("travel").length, 4);
+  assert.equal(answerAiFeature("grammar", "Explain より", { lessonTitle: "Samurai History" }).includes("Samurai History"), true);
   const sm2Hard = sm2Next({ interval_days: 1, repetitions: 0, ease: 2.5, mistakes: 0 }, 2);
   const sm2Easy = sm2Next({ interval_days: 1, repetitions: 0, ease: 2.5, mistakes: 0 }, 5);
   assert.equal(sm2Hard.repetitions, 0);
