@@ -516,6 +516,13 @@ test("analytics summary is derived from persisted activity", async () => {
     temp.store.completeLesson("food-ramen");
     temp.store.recordStudySession("lesson", 10, 40, 5);
     temp.store.recordStudySession("review", 6, 20, 0);
+    temp.store.recordDatasetImport({
+      sourceType: "bundle",
+      label: "Analytics bundle",
+      counts: { lessons: 1 },
+      notes: "Analytics test",
+    });
+    temp.store.reviewContentItem(temp.store.getContentReviewQueue()[0].id, { status: "published", notes: "Analytics review", decisionReason: "ok" }, "admin");
     await temp.store.aiResponse("tutor", "Explain は", { lessonTitle: "Anime" });
     const analytics = temp.store.getSnapshot().admin.analytics;
     assert.ok(analytics.xpEvents >= 1);
@@ -523,6 +530,9 @@ test("analytics summary is derived from persisted activity", async () => {
     assert.ok(analytics.aiRequests >= 1);
     assert.ok(Array.isArray(analytics.sessionKinds));
     assert.ok(Array.isArray(analytics.dailyAi));
+    assert.ok(Array.isArray(analytics.moderationStatus));
+    assert.ok(Array.isArray(analytics.moderationTypes));
+    assert.ok(Array.isArray(analytics.importSources));
   } finally {
     cleanupTempStore(temp);
   }

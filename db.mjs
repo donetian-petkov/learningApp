@@ -3735,6 +3735,18 @@ export class SqliteStorageAdapter {
     const kanjiReviewRow = this.db.prepare("SELECT COUNT(*) AS count FROM kanji_review_history").get();
     const aiRow = this.db.prepare("SELECT COUNT(*) AS count FROM ai_usage_log").get();
     const aiCacheRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CASE WHEN hits > 0 THEN hits - 1 ELSE 0 END), 0) AS hits FROM ai_response_cache").get();
+    const moderationStatus = this.db.prepare(
+      "SELECT status, COUNT(*) AS count FROM content_review_actions GROUP BY status ORDER BY count DESC, status LIMIT 6"
+    ).all();
+    const moderationTypes = this.db.prepare(
+      "SELECT item_type, COUNT(*) AS count FROM content_review_actions GROUP BY item_type ORDER BY count DESC, item_type LIMIT 6"
+    ).all();
+    const moderationReviewers = this.db.prepare(
+      "SELECT reviewed_by, COUNT(*) AS count FROM content_review_actions WHERE reviewed_by <> '' GROUP BY reviewed_by ORDER BY count DESC, reviewed_by LIMIT 6"
+    ).all();
+    const importSources = this.db.prepare(
+      "SELECT source_type, COUNT(*) AS count FROM dataset_imports GROUP BY source_type ORDER BY count DESC, source_type LIMIT 6"
+    ).all();
     const sessionKinds = this.db.prepare(
       "SELECT kind, COUNT(*) AS count, COALESCE(SUM(duration_minutes), 0) AS duration FROM study_sessions GROUP BY kind ORDER BY count DESC, kind LIMIT 6"
     ).all();
@@ -3771,6 +3783,22 @@ export class SqliteStorageAdapter {
       topKanji: topKanji.map((row) => ({
         character: row.character,
         reviewCount: row.count,
+      })),
+      moderationStatus: moderationStatus.map((row) => ({
+        status: row.status,
+        count: row.count,
+      })),
+      moderationTypes: moderationTypes.map((row) => ({
+        itemType: row.item_type,
+        count: row.count,
+      })),
+      moderationReviewers: moderationReviewers.map((row) => ({
+        reviewer: row.reviewed_by,
+        count: row.count,
+      })),
+      importSources: importSources.map((row) => ({
+        sourceType: row.source_type,
+        count: row.count,
       })),
       dailyAi: dailyAi.map((row) => ({
         dateKey: row.date_key,

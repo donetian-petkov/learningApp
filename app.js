@@ -1667,6 +1667,10 @@ function renderAdmin() {
           ${renderBarChart("Top study kinds", state.admin.analytics?.sessionKinds ?? [], (item) => item.kind, (item) => item.count, (item) => `${item.count} sessions · ${item.durationMinutes} min`, "No study sessions yet.")}
           ${renderBarChart("AI requests by day", state.admin.analytics?.dailyAi ?? [], (item) => item.dateKey, (item) => item.count, (item) => `${item.count} requests`, "No AI usage yet.")}
           ${renderBarChart("Top kanji", state.admin.analytics?.topKanji ?? [], (item) => item.character, (item) => item.reviewCount, (item) => `${item.reviewCount} reviews`, "No kanji reviews yet.")}
+          ${renderBarChart("Moderation status", state.admin.analytics?.moderationStatus ?? [], (item) => item.status, (item) => item.count, (item) => `${item.count} actions`, "No moderation actions yet.")}
+          ${renderBarChart("Moderation types", state.admin.analytics?.moderationTypes ?? [], (item) => item.itemType, (item) => item.count, (item) => `${item.count} actions`, "No moderation types yet.")}
+          ${renderBarChart("Moderators", state.admin.analytics?.moderationReviewers ?? [], (item) => item.reviewer, (item) => item.count, (item) => `${item.count} actions`, "No moderator activity yet.")}
+          ${renderBarChart("Import sources", state.admin.analytics?.importSources ?? [], (item) => item.sourceType, (item) => item.count, (item) => `${item.count} imports`, "No imports yet.")}
         </div>
         <div class="grid-card">
           <h3>Site health</h3>
