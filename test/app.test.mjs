@@ -156,6 +156,11 @@ test("lesson CRUD works through the SQLite adapter", () => {
         { title: "Topic particle", explanation: "Use は to mark the topic.", example: "駅はどこですか。" },
         { title: "Direction", explanation: "Use ですか for a polite question.", example: "駅はどこですか。" },
       ],
+      dialogueLines: [
+        { speaker: "Narration", text: "At the station" },
+        { speaker: "Speaker A", text: "駅はどこですか。" },
+        { speaker: "Speaker B", text: "あちらです。" },
+      ],
       exercises: [
         { type: "multiple-choice", prompt: "Pick the meaning of 駅", choices: ["station", "ticket", "platform"], answer: "station", explanation: "駅 means station." },
         { type: "translation", prompt: "Translate the line", choices: [], answer: "Where is the station?", explanation: "Direction question." },
@@ -165,6 +170,7 @@ test("lesson CRUD works through the SQLite adapter", () => {
     assert.equal(temp.store.getLessons().some((lesson) => lesson.id === "travel-station"), true);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.grammarPoints.length, 2);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.length, 2);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.dialogueLines.length, 3);
 
     const updated = temp.store.updateLesson("travel-station", {
       title: "Travel: Station Directions",
@@ -219,11 +225,13 @@ test("lesson imports batch upsert through the SQLite adapter", () => {
       translation: "Welcome.",
       grammar: "Greeting used by shop staff.",
       grammarPoints: [{ title: "Greeting", explanation: "Use いらっしゃいませ as a welcome line.", example: "いらっしゃいませ。" }],
+      dialogueLines: [{ speaker: "Clerk", text: "いらっしゃいませ。" }, { speaker: "Customer", text: "おすすめをください。" }],
       exercises: [{ type: "multiple-choice", prompt: "What does いらっしゃいませ mean?", choices: ["welcome", "thank you"], answer: "welcome", explanation: "It is a store greeting." }],
     });
     assert.equal(updated.length, 1);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.title, "Anime: Store Greeting");
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.grammarPoints[0]?.title, "Greeting");
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.dialogueLines.length, 2);
   } finally {
     cleanupTempStore(temp);
   }

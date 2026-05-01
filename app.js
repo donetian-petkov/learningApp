@@ -244,6 +244,7 @@ let kanjiReviewFeedback = "";
 let lessonExerciseIndex = 0;
 let lessonExerciseFeedback = "";
 let lessonExerciseDraftAnswer = "";
+let lessonDialogueIndex = 0;
 let permissionDraft = null;
 
 const listeningScenarios = [
@@ -410,6 +411,14 @@ function renderLearn() {
   const grammarPoints = Array.isArray(activeLesson.grammarPoints) && activeLesson.grammarPoints.length
     ? activeLesson.grammarPoints
     : [{ title: "Grammar note", explanation: activeLesson.grammar, example: activeLesson.japanese }];
+  const dialogueLines = Array.isArray(activeLesson.dialogueLines) && activeLesson.dialogueLines.length
+    ? activeLesson.dialogueLines
+    : [
+        { speaker: "Narration", text: `${activeLesson.title} (${activeLesson.theme})` },
+        { speaker: "Speaker A", text: activeLesson.japanese },
+        { speaker: "Speaker B", text: activeLesson.translation },
+      ].filter((line) => line.text);
+  const activeDialogueLine = dialogueLines.length ? dialogueLines[lessonDialogueIndex % dialogueLines.length] : null;
   const exercises = Array.isArray(activeLesson.exercises) && activeLesson.exercises.length
     ? activeLesson.exercises
     : [{ type: "multiple-choice", prompt: `Which meaning best fits: ${activeLesson.japanese}`, choices: [activeLesson.translation, activeLesson.grammar, activeLesson.theme].filter(Boolean), answer: activeLesson.translation, explanation: activeLesson.grammar }];
@@ -483,6 +492,37 @@ function renderLearn() {
               )
               .join("")}
           </div>
+        </div>
+        <div class="grid-card spaced">
+          <h3>Dialogue scene</h3>
+          <p class="muted">Step through the lesson like a scene instead of reading it as a single block.</p>
+          <div class="chat">
+            ${dialogueLines
+              .map(
+                (line, index) => `
+                  <button class="chat-line ${index === lessonDialogueIndex % dialogueLines.length ? "active" : ""}" data-action="select-dialogue-line" data-index="${index}" data-line-text="${escapeHtml(line.text)}">
+                    <span class="chat-speaker">${escapeHtml(line.speaker || "Speaker")}</span>
+                    <span>${escapeHtml(line.text || "")}</span>
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+          ${
+            activeDialogueLine
+              ? `
+                <div class="detail-card spaced">
+                  <strong>${escapeHtml(activeDialogueLine.speaker || "Speaker")}</strong>
+                  <p>${escapeHtml(activeDialogueLine.text || "")}</p>
+                </div>
+                <div class="button-row">
+                  <button class="secondary" data-action="dialogue-prev">Previous line</button>
+                  <button class="secondary" data-action="dialogue-next">Next line</button>
+                  <button class="primary" data-action="speak-dialogue-line">Play line</button>
+                </div>
+              `
+              : ""
+          }
         </div>
         <div class="button-row">
           <button class="primary" data-action="complete-lesson" data-id="${activeLesson.id}">Complete lesson</button>
@@ -1542,6 +1582,7 @@ function wireActions() {
         lessonExerciseIndex = 0;
         lessonExerciseFeedback = "";
         lessonExerciseDraftAnswer = "";
+        lessonDialogueIndex = 0;
         persist();
         render();
       }
@@ -1561,6 +1602,44 @@ function wireActions() {
         const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
         if (lesson) {
           void speakText(lesson.japanese);
+        }
+      }
+
+      if (action === "dialogue-prev" || action === "dialogue-next") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const lines = Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+          ? activeLesson.dialogueLines
+          : [];
+        if (lines.length) {
+          if (action === "dialogue-prev") {
+            lessonDialogueIndex = (lessonDialogueIndex - 1 + lines.length) % lines.length;
+          } else {
+            lessonDialogueIndex = (lessonDialogueIndex + 1) % lines.length;
+          }
+        }
+        render();
+      }
+
+      if (action === "select-dialogue-line") {
+        const index = Number(button.dataset.index ?? 0);
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const lines = Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+          ? activeLesson.dialogueLines
+          : [];
+        if (lines.length) {
+          lessonDialogueIndex = index % lines.length;
+        }
+        render();
+      }
+
+      if (action === "speak-dialogue-line") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const lines = Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+          ? activeLesson.dialogueLines
+          : [];
+        const line = lines.length ? lines[lessonDialogueIndex % lines.length] : null;
+        if (line?.text) {
+          void speakText(line.text);
         }
       }
 

@@ -74,6 +74,12 @@ function normalizeLesson(lesson, index = 0) {
     exercises: Array.isArray(lesson.exercises)
       ? lesson.exercises.map(normalizeExerciseItem)
       : [],
+    dialogueLines: Array.isArray(lesson.dialogueLines)
+      ? lesson.dialogueLines.map((line, lineIndex) => ({
+        speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
+        text: String(line?.text ?? "").trim(),
+      }))
+      : [],
   };
 }
 
@@ -327,6 +333,34 @@ function buildKanjiReviewItem(entry, index = 0) {
   };
 }
 
+function buildLessonDialogueLines(lesson) {
+  const title = String(lesson?.title ?? "Lesson").trim() || "Lesson";
+  const japanese = String(lesson?.japanese ?? "").trim();
+  const translation = String(lesson?.translation ?? "").trim();
+  const grammar = String(lesson?.grammar ?? "").trim();
+  const theme = String(lesson?.theme ?? "custom").trim() || "custom";
+  const firstVocab = Array.isArray(lesson?.vocab) && lesson.vocab.length ? lesson.vocab[0] : null;
+  const secondVocab = Array.isArray(lesson?.vocab) && lesson.vocab.length > 1 ? lesson.vocab[1] : firstVocab;
+
+  return [
+    {
+      speaker: "Narration",
+      text: `${title} (${theme})`,
+    },
+    {
+      speaker: "Speaker A",
+      text: japanese || translation || `${title} begins.`,
+    },
+    {
+      speaker: "Speaker B",
+      text:
+        firstVocab && secondVocab
+          ? `${firstVocab.word} and ${secondVocab.word} help anchor the meaning.`
+          : translation || grammar || `${theme} context keeps the line memorable.`,
+    },
+  ];
+}
+
 function normalizeKanjiReviewItem(item, index = 0) {
   return buildKanjiReviewItem(item, index);
 }
@@ -340,6 +374,13 @@ function normalizeState(snapshot) {
   state.progress.completedLessons ??= [];
   state.progress.completedExercises ??= [];
   state.lessons = Array.isArray(state.lessons) ? state.lessons.map(normalizeLesson) : [];
+  state.lessons = state.lessons.map((lesson) => ({
+    ...lesson,
+    dialogueLines: Array.isArray(lesson.dialogueLines) ? lesson.dialogueLines.map((line, index) => ({
+      speaker: String(line?.speaker ?? `Speaker ${index + 1}`).trim() || `Speaker ${index + 1}`,
+      text: String(line?.text ?? "").trim(),
+    })) : [],
+  }));
   state.reviews = Array.isArray(state.reviews) ? state.reviews.map(normalizeReviewItem) : [];
   state.achievements = Array.isArray(state.achievements) ? state.achievements.map(normalizeAchievement) : [];
   state.dailyTasks = Array.isArray(state.dailyTasks) ? state.dailyTasks.map(normalizeTask) : [];
@@ -1755,6 +1796,7 @@ export class SqliteStorageAdapter {
         .prepare("SELECT kanji FROM lesson_kanji WHERE lesson_id = ? ORDER BY order_index, id")
         .all(lesson.id)
         .map((row) => row.kanji),
+      dialogueLines: this.loadLessonDialogueLines(lesson.id),
       grammarPoints: this.loadLessonGrammarPoints(lesson.id),
       exercises: this.loadLessonExercises(lesson.id),
     }));
@@ -2181,12 +2223,20 @@ export class SqliteStorageAdapter {
       const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
       const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
       const exercises = lesson.exercises?.length ? lesson.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+      const dialogueLines = Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length
+        ? lesson.dialogueLines.map((line, lineIndex) => ({
+          speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
+          text: String(line?.text ?? "").trim(),
+        }))
+        : buildLessonDialogueLines(lesson);
       grammarPoints.forEach((point, grammarIndex) => {
         this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
           .run(lesson.id, point.title, point.explanation, point.example, grammarIndex);
       });
-      this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
-        .run(lesson.id, "Narration", lesson.japanese, 0);
+      dialogueLines.forEach((line, dialogueIndex) => {
+        this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
+          .run(lesson.id, line.speaker, line.text, dialogueIndex);
+      });
       exercises.forEach((exercise, exerciseIndex) => {
         this.db.prepare(
           "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
@@ -3178,10 +3228,23 @@ export class SqliteStorageAdapter {
     }));
   }
 
+  loadLessonDialogueLines(lessonId) {
+    return this.db.prepare("SELECT speaker, text FROM lesson_dialogue_lines WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId).map((row) => ({
+      speaker: row.speaker,
+      text: row.text,
+    }));
+  }
+
   replaceLessonChildren(lessonId, lesson) {
     const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
     const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
     const exercises = lesson.exercises?.length ? lesson.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+    const dialogueLines = Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length
+      ? lesson.dialogueLines.map((line, index) => ({
+        speaker: String(line?.speaker ?? `Speaker ${index + 1}`).trim() || `Speaker ${index + 1}`,
+        text: String(line?.text ?? "").trim(),
+      }))
+      : buildLessonDialogueLines(lesson);
     this.db.prepare("DELETE FROM lesson_vocab WHERE lesson_id = ?").run(lessonId);
     this.db.prepare("DELETE FROM lesson_kanji WHERE lesson_id = ?").run(lessonId);
     this.db.prepare("DELETE FROM lesson_grammar WHERE lesson_id = ?").run(lessonId);
@@ -3199,7 +3262,10 @@ export class SqliteStorageAdapter {
       this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
         .run(lessonId, point.title, point.explanation, point.example, index);
     });
-    this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)").run(lessonId, "Narration", lesson.japanese, 0);
+    dialogueLines.forEach((line, index) => {
+      this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
+        .run(lessonId, line.speaker, line.text, index);
+    });
     exercises.forEach((exercise, index) => {
       this.db.prepare(
         "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
