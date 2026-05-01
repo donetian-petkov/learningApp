@@ -1,4 +1,4 @@
-import { buildLessonDraft, buildLessonPack, chooseJapaneseVoice, escapeHtml, filterLessonCatalog } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, findNextLessonId } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -432,12 +432,13 @@ function renderLearn() {
   const activeExerciseKey = activeExercise?.id || `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`;
   const activeExerciseComplete = completedExercises.has(activeExerciseKey);
   const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
+  const nextLessonId = findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
   const moduleCards = filteredLessons.map(
     (lesson) => `
       <article class="grid-card">
         <p class="tag">${escapeHtml(lesson.theme)}</p>
         <h3>${escapeHtml(lesson.title)}</h3>
-        <p class="muted">${escapeHtml(lesson.difficulty)}</p>
+        <p class="muted">${escapeHtml(lesson.difficulty)} · ${state.progress.completedLessons.includes(lesson.id) ? "Completed" : "In progress"}</p>
         <div class="kana">${escapeHtml(state.toggles.furigana ? lesson.japanese : lesson.translation)}</div>
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(lesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(lesson.translation)}</p>` : ""}
@@ -448,7 +449,7 @@ function renderLearn() {
             .join("")}
         </div>
         <div class="button-row">
-          <button class="primary" data-action="select-lesson" data-id="${lesson.id}">Study lesson</button>
+          <button class="primary" data-action="select-lesson" data-id="${lesson.id}">${state.progress.completedLessons.includes(lesson.id) ? "Review lesson" : "Study lesson"}</button>
           <button class="secondary" data-action="speak-lesson" data-id="${lesson.id}">Play audio</button>
         </div>
       </article>
@@ -463,6 +464,7 @@ function renderLearn() {
         <p class="muted">Everything is local-first. Lessons are pre-generated JSON, progress lives in your browser, and the AI hooks are structured to stay optional and cheap.</p>
         <div class="button-row">
           <button class="primary" data-action="open-feature">Start a 5-minute study run</button>
+          <button class="secondary" data-action="continue-lesson" data-id="${escapeHtml(nextLessonId)}">${state.progress.completedLessons.includes(nextLessonId) ? "Review next lesson" : "Continue lesson"}</button>
           <button class="secondary" data-action="open-roleplay">Open roleplay mode</button>
         </div>
       </div>
@@ -1866,6 +1868,20 @@ function wireActions() {
         state.view = "practice";
         persist();
         render();
+      }
+
+      if (action === "continue-lesson") {
+        const lessonId = button.dataset.id ?? findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
+        if (lessonId) {
+          state.activeLessonId = lessonId;
+          state.view = "learn";
+          lessonExerciseIndex = 0;
+          lessonExerciseFeedback = "";
+          lessonExerciseDraftAnswer = "";
+          lessonDialogueIndex = 0;
+          persist();
+          render();
+        }
       }
 
       if (action === "apply-lesson-filters") {

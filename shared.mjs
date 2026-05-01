@@ -158,6 +158,15 @@ export function filterLessonCatalog(lessons, query = "", theme = "", difficulty 
   });
 }
 
+export function findNextLessonId(lessons, completedLessonIds = [], activeLessonId = "") {
+  const list = Array.isArray(lessons) ? lessons : [];
+  const completed = new Set(Array.isArray(completedLessonIds) ? completedLessonIds : []);
+  const active = String(activeLessonId ?? "").trim();
+  const incomplete = list.find((lesson) => !completed.has(lesson.id));
+  if (incomplete) return incomplete.id;
+  return active || (list[0]?.id ?? "");
+}
+
 export function buildLessonDialogueLines(title, japanese, translation, theme) {
   const safeTitle = String(title ?? "Lesson").trim() || "Lesson";
   const safeJapanese = String(japanese ?? "").trim();

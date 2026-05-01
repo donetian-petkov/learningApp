@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -733,6 +733,18 @@ test("lesson catalog filters by query, theme, and difficulty", () => {
   assert.equal(filterLessonCatalog(lessons, "", "anime").length, 1);
   assert.equal(filterLessonCatalog(lessons, "", "", "N5").length >= 1, true);
   assert.equal(filterLessonCatalog(lessons, "request", "etiquette", "N5").length, 1);
+});
+
+test("next lesson helper prefers incomplete lessons", () => {
+  const lessons = [
+    buildLessonDraft("Train Station", "travel"),
+    buildLessonDraft("Anime Scene", "anime"),
+    buildLessonDraft("Polite Request", "etiquette"),
+  ];
+  const next = findNextLessonId(lessons, [lessons[0].id]);
+  assert.equal(next, lessons[1].id);
+  const fallback = findNextLessonId(lessons, lessons.map((lesson) => lesson.id), "anime-scene");
+  assert.equal(fallback, "anime-scene");
 });
 
 test("lesson exercise completion persists and awards study progress", () => {
