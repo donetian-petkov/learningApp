@@ -28,8 +28,9 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 3);
+    assert.equal(temp.store.getSchemaVersion(), 4);
     assert.equal(snapshot.admin.users.length, 3);
+    assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
     cleanupTempStore(temp);
   }
@@ -177,7 +178,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 3);
+    assert.equal(temp.store.getSchemaVersion(), 4);
   } finally {
     cleanupTempStore(temp);
   }
@@ -197,6 +198,21 @@ test("dictionary lookup and ai responses are available locally", () => {
     const sessions = temp.store.recordStudySession("lesson", 5, 80, 20);
     assert.equal(Array.isArray(sessions), true);
     assert.equal(temp.store.getStudySessions(1).length, 1);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
+test("challenges persist and can be claimed", () => {
+  const temp = createTempStore();
+  try {
+    temp.store.bumpChallenges("lesson", 5);
+    const before = temp.store.getChallenges();
+    assert.equal(before.length, 3);
+    const after = temp.store.claimChallenge("challenge-anime-dialogue");
+    const claimed = after.find((challenge) => challenge.id === "challenge-anime-dialogue");
+    assert.equal(claimed.claimed, true);
+    assert.equal(temp.store.getGamification().challenges.length, 3);
   } finally {
     cleanupTempStore(temp);
   }

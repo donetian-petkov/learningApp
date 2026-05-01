@@ -136,6 +136,17 @@ const defaultState = {
       { id: "user-2", username: "ren", email: "ren@example.com", level: 9, status: "active", credits: 220, streak: 12 },
       { id: "user-3", username: "yui", email: "yui@example.com", level: 7, status: "suspended", credits: 180, streak: 4 },
     ],
+    challenges: [
+      { id: "challenge-anime-dialogue", title: "7-Day Anime Dialogue Challenge", description: "Complete anime dialogue lessons to build streak momentum.", category: "lesson", targetCount: 3, rewardXp: 120, rewardCredits: 40, claimed: false, progress: 3 },
+      { id: "challenge-kanji-sprint", title: "Kanji Sprint", description: "Hit focused study sessions for kanji practice.", category: "study", targetCount: 5, rewardXp: 150, rewardCredits: 50, claimed: false, progress: 2 },
+      { id: "challenge-listening-week", title: "Listening Week", description: "Complete listening drills and keep the audio loop going.", category: "listening", targetCount: 4, rewardXp: 100, rewardCredits: 35, claimed: false, progress: 1 },
+    ],
+    leaderboard: [
+      { name: "You", xp: 1280, track: "Local" },
+      { name: "Mika", xp: 1110, track: "Speaking" },
+      { name: "Ren", xp: 980, track: "Kanji" },
+      { name: "Yui", xp: 930, track: "Listening" },
+    ],
   },
   roleplay: {
     scenario: "restaurant",
@@ -516,6 +527,31 @@ function renderReview() {
         <div class="grid-card">
           <h3>Weekly leaderboard</h3>
           ${renderLeaderboard()}
+        </div>
+      </div>
+      <div class="grid-card spaced">
+        <h3>Weekly challenges</h3>
+        <div class="list">
+          ${(state.admin.challenges ?? [])
+            .map(
+              (challenge) => `
+                <div class="list-item">
+                  <strong>${escapeHtml(challenge.title)}</strong>
+                  <span class="muted">${escapeHtml(challenge.description)}</span>
+                  <span class="muted">${challenge.progress}/${challenge.targetCount} · +${challenge.rewardXp} XP · +${challenge.rewardCredits} credits</span>
+                  <div class="button-row">
+                    ${
+                      challenge.claimed
+                        ? '<span class="tag">Claimed</span>'
+                        : challenge.progress >= challenge.targetCount
+                          ? `<button class="primary" data-action="claim-challenge" data-challenge-id="${escapeHtml(challenge.id)}">Claim reward</button>`
+                          : '<span class="tag">In progress</span>'
+                    }
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
         </div>
       </div>
       <div class="review-grid">${items}</div>
@@ -948,6 +984,22 @@ function wireActions() {
         render();
       }
 
+      if (action === "claim-challenge") {
+        const challengeId = button.dataset.challengeId;
+        if (challengeId) {
+          await apiJson(`/api/challenges/${encodeURIComponent(challengeId)}/claim`, { method: "POST" });
+          await refreshState();
+        }
+      }
+
+      if (action === "claim-challenge") {
+        const challengeId = button.dataset.challengeId;
+        if (challengeId) {
+          await apiJson(`/api/challenges/${encodeURIComponent(challengeId)}/claim`, { method: "POST" });
+          await refreshState();
+        }
+      }
+
       if (action === "open-chest") {
         const result = await apiJson("/api/gamification/chest", { method: "POST" });
         state.chest.lastReward = result.reward ?? state.chest.lastReward;
@@ -1131,12 +1183,14 @@ function activeLessonPreview() {
 }
 
 function renderLeaderboard() {
-  const rows = [
-    ["You", `${state.progress.xp} XP`, "Local"],
-    ["Mika", "1110 XP", "Speaking"],
-    ["Ren", "980 XP", "Kanji"],
-    ["Yui", "930 XP", "Listening"],
-  ];
+  const rows = state.admin.leaderboard?.length
+    ? state.admin.leaderboard.map((row) => [row.name, `${row.xp} XP`, row.track])
+    : [
+        ["You", `${state.progress.xp} XP`, "Local"],
+        ["Mika", "1110 XP", "Speaking"],
+        ["Ren", "980 XP", "Kanji"],
+        ["Yui", "930 XP", "Listening"],
+      ];
 
   return `
     <div class="leaderboard">

@@ -122,6 +122,13 @@ function normalizeState(snapshot) {
   state.admin.contentReviewQueue ??= [];
   state.admin.permissions ??= {};
   state.admin.users ??= Array.isArray(state.users) ? state.users : [];
+  const challengeSource = Array.isArray(state.admin.challenges)
+    ? state.admin.challenges
+    : Array.isArray(state.challenges)
+      ? state.challenges
+      : [];
+  state.challenges = challengeSource.map(normalizeChallenge);
+  state.admin.challenges = challengeSource.map(normalizeChallenge);
   state.roleplay ??= clone(INITIAL_APP_STATE.roleplay);
   state.tutor ??= clone(INITIAL_APP_STATE.tutor);
   state.chest ??= clone(INITIAL_APP_STATE.chest);
@@ -140,6 +147,29 @@ function normalizeUser(item, index = 0) {
     createdAt: item.createdAt ?? nowIso(),
     updatedAt: item.updatedAt ?? nowIso(),
   };
+}
+
+function normalizeChallenge(item, index = 0) {
+  return {
+    id: item.id ?? `challenge-${index + 1}`,
+    title: item.title ?? "Challenge",
+    description: item.description ?? "",
+    category: item.category ?? "study",
+    targetCount: Number(item.targetCount ?? 1),
+    rewardXp: Number(item.rewardXp ?? 0),
+    rewardCredits: Number(item.rewardCredits ?? 0),
+    claimed: Boolean(item.claimed),
+    progress: Number(item.progress ?? 0),
+  };
+}
+
+function resolveChallengeTriggers(category, kind) {
+  if (category === "lesson") return kind === "lesson";
+  if (category === "study") return kind === "study" || kind === "manual-award" || kind === "reward-chest" || kind === "task" || kind === "cosmetic";
+  if (category === "listening") return kind === "listening";
+  if (category === "speaking") return kind === "speaking";
+  if (category === "review") return kind === "review-pass";
+  return category === kind;
 }
 
 function applyAchievementRules(state) {
@@ -486,6 +516,25 @@ export class SqliteStorageAdapter {
         example TEXT NOT NULL,
         source TEXT NOT NULL DEFAULT 'seed'
       );
+
+      CREATE TABLE IF NOT EXISTS challenge_definitions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL,
+        target_count INTEGER NOT NULL,
+        reward_xp INTEGER NOT NULL,
+        reward_credits INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS challenge_progress (
+        challenge_id TEXT PRIMARY KEY,
+        progress_count INTEGER NOT NULL DEFAULT 0,
+        claimed INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        claimed_at TEXT,
+        FOREIGN KEY (challenge_id) REFERENCES challenge_definitions(id) ON DELETE CASCADE
+      );
     `);
     if (getSchemaVersion(this.db) < 1) setSchemaVersion(this.db, 1);
     if (getSchemaVersion(this.db) < 2) {
@@ -518,6 +567,29 @@ export class SqliteStorageAdapter {
       `);
       setSchemaVersion(this.db, 3);
     }
+    if (getSchemaVersion(this.db) < 4) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS challenge_definitions (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          category TEXT NOT NULL,
+          target_count INTEGER NOT NULL,
+          reward_xp INTEGER NOT NULL,
+          reward_credits INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS challenge_progress (
+          challenge_id TEXT PRIMARY KEY,
+          progress_count INTEGER NOT NULL DEFAULT 0,
+          claimed INTEGER NOT NULL DEFAULT 0,
+          completed_at TEXT,
+          claimed_at TEXT,
+          FOREIGN KEY (challenge_id) REFERENCES challenge_definitions(id) ON DELETE CASCADE
+        );
+      `);
+      setSchemaVersion(this.db, 4);
+    }
   }
 
   seedIfNeeded() {
@@ -542,6 +614,30 @@ export class SqliteStorageAdapter {
         normalized.streak,
         normalized.createdAt,
         normalized.updatedAt
+      );
+    });
+
+    snapshot.challenges.forEach((challenge, index) => {
+      const normalized = normalizeChallenge(challenge, index);
+      this.db.prepare(
+        "INSERT OR REPLACE INTO challenge_definitions (id, title, description, category, target_count, reward_xp, reward_credits) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        normalized.id,
+        normalized.title,
+        normalized.description,
+        normalized.category,
+        normalized.targetCount,
+        normalized.rewardXp,
+        normalized.rewardCredits
+      );
+      this.db.prepare(
+        "INSERT OR REPLACE INTO challenge_progress (challenge_id, progress_count, claimed, completed_at, claimed_at) VALUES (?, ?, ?, ?, ?)"
+      ).run(
+        normalized.id,
+        normalized.progress,
+        normalized.claimed ? 1 : 0,
+        normalized.progress >= normalized.targetCount ? nowIso() : null,
+        normalized.claimed ? nowIso() : null
       );
     });
     const roles = [
@@ -1060,6 +1156,22 @@ export class SqliteStorageAdapter {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+    const challenges = this.db.prepare("SELECT * FROM challenge_definitions ORDER BY reward_xp DESC, target_count").all().map((row) => {
+      const progressRow = this.db.prepare("SELECT * FROM challenge_progress WHERE challenge_id = ?").get(row.id);
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        category: row.category,
+        targetCount: row.target_count,
+        rewardXp: row.reward_xp,
+        rewardCredits: row.reward_credits,
+        progress: progressRow?.progress_count ?? 0,
+        claimed: Boolean(progressRow?.claimed),
+        completedAt: progressRow?.completed_at ?? null,
+        claimedAt: progressRow?.claimed_at ?? null,
+      };
+    });
     const contentReviewQueue = this.db.prepare("SELECT * FROM content_review_queue ORDER BY created_at DESC, id DESC").all().map((row) => ({
       id: row.id,
       itemType: row.item_type,
@@ -1115,6 +1227,7 @@ export class SqliteStorageAdapter {
       contentReviewQueue,
       permissions,
       users,
+      challenges,
       studySessions: this.getStudySessions(10),
       leaderboard: this.getLatestLeaderboard(),
     };
@@ -1141,7 +1254,90 @@ export class SqliteStorageAdapter {
     this.db.prepare(
       "INSERT INTO study_sessions (kind, duration_minutes, xp_delta, credits_delta, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run(kind, durationMinutes, xpDelta, creditsDelta, nowIso());
+    this.bumpChallenges(kind, 1);
     return this.getStudySessions(20);
+  }
+
+  bumpChallenges(kind, amount = 1) {
+    const definitions = this.db.prepare("SELECT * FROM challenge_definitions").all();
+    definitions.forEach((definition) => {
+      if (!resolveChallengeTriggers(definition.category, kind)) return;
+      const progressRow = this.db.prepare("SELECT * FROM challenge_progress WHERE challenge_id = ?").get(definition.id);
+      const currentProgress = Number(progressRow?.progress_count ?? 0);
+      const claimed = Boolean(progressRow?.claimed);
+      const nextProgress = currentProgress + amount;
+      const completedAt = nextProgress >= definition.target_count ? nowIso() : progressRow?.completed_at ?? null;
+      this.db.prepare(
+        `
+          INSERT INTO challenge_progress (challenge_id, progress_count, claimed, completed_at, claimed_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(challenge_id) DO UPDATE SET
+            progress_count = excluded.progress_count,
+            claimed = excluded.claimed,
+            completed_at = excluded.completed_at,
+            claimed_at = excluded.claimed_at
+        `
+      ).run(
+        definition.id,
+        nextProgress,
+        claimed ? 1 : 0,
+        completedAt,
+        progressRow?.claimed_at ?? null
+      );
+    });
+  }
+
+  claimChallenge(challengeId, sessionUser = null) {
+    const definition = this.db.prepare("SELECT * FROM challenge_definitions WHERE id = ?").get(challengeId);
+    if (!definition) return null;
+    const progressRow = this.db.prepare("SELECT * FROM challenge_progress WHERE challenge_id = ?").get(challengeId);
+    const progressCount = Number(progressRow?.progress_count ?? 0);
+    const claimed = Boolean(progressRow?.claimed);
+    if (claimed || progressCount < definition.target_count) {
+      return this.getChallenges();
+    }
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const next = {
+      ...current,
+      progress: {
+        ...current.progress,
+        xp: current.progress.xp + definition.reward_xp,
+        credits: current.progress.credits + definition.reward_credits,
+      },
+      admin: {
+        ...current.admin,
+        challenges: current.admin.challenges.map((challenge) =>
+          challenge.id === challengeId
+            ? { ...challenge, claimed: true, claimedAt: nowIso() }
+            : challenge
+        ),
+      },
+    };
+    this.db.prepare(
+      "UPDATE challenge_progress SET claimed = 1, claimed_at = ? WHERE challenge_id = ?"
+    ).run(nowIso(), challengeId);
+    this.saveAppState(next, sessionUser ?? current.admin.sessionUser ?? null);
+    this.appendAudit(`Claimed challenge: ${definition.title}`);
+    return this.getChallenges();
+  }
+
+  getChallenges() {
+    return this.db.prepare("SELECT * FROM challenge_definitions ORDER BY reward_xp DESC, target_count").all().map((row) => {
+      const progressRow = this.db.prepare("SELECT * FROM challenge_progress WHERE challenge_id = ?").get(row.id);
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        category: row.category,
+        targetCount: row.target_count,
+        rewardXp: row.reward_xp,
+        rewardCredits: row.reward_credits,
+        progress: progressRow?.progress_count ?? 0,
+        claimed: Boolean(progressRow?.claimed),
+        completedAt: progressRow?.completed_at ?? null,
+        claimedAt: progressRow?.claimed_at ?? null,
+      };
+    });
   }
 
   saveAppState(nextSnapshot, sessionUser = null) {
@@ -1229,6 +1425,8 @@ export class SqliteStorageAdapter {
       DELETE FROM content_review_queue;
       DELETE FROM users;
       DELETE FROM dictionary_entries;
+      DELETE FROM challenge_progress;
+      DELETE FROM challenge_definitions;
     `);
 
     this.db.prepare(
@@ -1387,6 +1585,35 @@ export class SqliteStorageAdapter {
       );
     });
 
+    const challengeSource = Array.isArray(snapshot.challenges)
+      ? snapshot.challenges
+      : Array.isArray(snapshot.admin?.challenges)
+        ? snapshot.admin.challenges
+        : [];
+    const challenges = challengeSource.map(normalizeChallenge);
+    challenges.forEach((challenge) => {
+      this.db.prepare(
+        "INSERT INTO challenge_definitions (id, title, description, category, target_count, reward_xp, reward_credits) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        challenge.id,
+        challenge.title,
+        challenge.description,
+        challenge.category,
+        challenge.targetCount,
+        challenge.rewardXp,
+        challenge.rewardCredits
+      );
+      this.db.prepare(
+        "INSERT INTO challenge_progress (challenge_id, progress_count, claimed, completed_at, claimed_at) VALUES (?, ?, ?, ?, ?)"
+      ).run(
+        challenge.id,
+        challenge.progress,
+        challenge.claimed ? 1 : 0,
+        challenge.progress >= challenge.targetCount ? nowIso() : null,
+        challenge.claimed ? nowIso() : null
+      );
+    });
+
     const reviewQueue = snapshot.admin.contentReviewQueue.length
       ? snapshot.admin.contentReviewQueue
       : [{
@@ -1442,6 +1669,7 @@ export class SqliteStorageAdapter {
       achievements: snapshot.achievements,
       dailyTasks: snapshot.dailyTasks,
       cosmetics: snapshot.cosmetics,
+      challenges: snapshot.admin.challenges,
       leaderboard: this.getLatestLeaderboard(),
     };
   }

@@ -151,6 +151,17 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/challenges") {
+    respondJson(res, 200, store.getChallenges());
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname.startsWith("/api/challenges/") && url.pathname.endsWith("/claim")) {
+    const challengeId = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+    respondJson(res, 200, store.claimChallenge(challengeId, session?.sessionUser ?? null));
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/study-sessions") {
     const limit = Number(url.searchParams.get("limit") ?? 20);
     respondJson(res, 200, store.getStudySessions(limit));
