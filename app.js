@@ -237,6 +237,7 @@ let adminUserFilters = {
   level: "",
 };
 let adminAiPlayground = null;
+let systemStatus = null;
 let listeningScenarioIndex = 0;
 let speakingPromptIndex = 0;
 let readingSelection = null;
@@ -409,10 +410,13 @@ init();
 
 async function init() {
   try {
-    state = await loadState();
+    const [loadedState, loadedSystemStatus] = await Promise.all([loadState(), loadSystemStatus()]);
+    state = loadedState;
+    systemStatus = loadedSystemStatus;
     render();
   } catch {
     state = structuredClone(defaultState);
+    systemStatus = null;
     render();
   }
 }
@@ -421,6 +425,16 @@ async function loadState() {
   const response = await fetch("/api/state");
   if (!response.ok) throw new Error("Failed to load state");
   return mergeState(defaultState, await response.json());
+}
+
+async function loadSystemStatus() {
+  try {
+    const response = await fetch("/api/system/status");
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
 }
 
 async function apiJson(path, options = {}) {
@@ -1604,6 +1618,17 @@ function renderAdmin() {
               <pre class="code-block">${escapeHtml(adminAiPlayground.response ?? "")}</pre>
             </div>
           ` : ""}
+        </div>
+        <div class="grid-card">
+          <h3>Runtime status</h3>
+          <p>Database schema: ${systemStatus?.database?.schemaVersion ?? "unknown"}</p>
+          <p>Lessons: ${systemStatus?.database?.lessons ?? state.lessons.length} · Reviews: ${systemStatus?.database?.reviews ?? state.reviews.length}</p>
+          <p>Kanji: ${systemStatus?.database?.kanjiEntries ?? state.kanjiEntries.length} · Kanji reviews: ${systemStatus?.database?.kanjiReviews ?? state.kanjiReviews.length}</p>
+          <p>Users: ${systemStatus?.database?.users ?? state.admin.users.length}</p>
+          <p>AI: ${escapeHtml(systemStatus?.ai?.provider ?? state.admin.aiUsage.provider ?? "fallback")} ${systemStatus?.ai?.ready ? `· ${escapeHtml(systemStatus.ai.model ?? "")}` : "· fallback"}</p>
+          <p>Speech: ${systemStatus?.speech?.available ? `available (${escapeHtml(systemStatus.speech.provider ?? "whisper")})` : "unavailable"}</p>
+          <p>TTS: ${systemStatus?.tts?.available ? `available (${escapeHtml(systemStatus.tts.provider ?? "browser")})` : "unavailable"}</p>
+          <p>Maintenance: ${systemStatus?.maintenanceMode ? "On" : "Off"}</p>
         </div>
         <div class="grid-card">
           <h3>Analytics</h3>
@@ -3372,7 +3397,9 @@ function createSpeechRecognition() {
 }
 
 async function refreshState() {
-  state = await loadState();
+  const [loadedState, loadedSystemStatus] = await Promise.all([loadState(), loadSystemStatus()]);
+  state = loadedState;
+  systemStatus = loadedSystemStatus;
   render();
 }
 

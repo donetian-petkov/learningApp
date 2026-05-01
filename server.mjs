@@ -538,6 +538,25 @@ export function createApiHandler(store) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/system/status") {
+    const snapshot = store.getSnapshot(session);
+    respondJson(res, 200, {
+      database: {
+        schemaVersion: store.getSchemaVersion(),
+        lessons: snapshot.lessons.length,
+        reviews: snapshot.reviews.length,
+        kanjiEntries: snapshot.kanjiEntries.length,
+        kanjiReviews: snapshot.kanjiReviews.length,
+        users: snapshot.admin.users.length,
+      },
+      ai: snapshot.admin.aiUsage,
+      speech: getSpeechStatus(),
+      tts: getTtsStatus(),
+      maintenanceMode: snapshot.admin.maintenanceMode,
+    });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/audit-log") {
     const body = await readJson(req);
     respondJson(res, 200, store.appendAudit(body.entry ?? "audit event"));

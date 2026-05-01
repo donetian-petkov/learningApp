@@ -78,7 +78,18 @@ test("api handler can be imported without starting the server", async () => {
         return null;
       },
       getSnapshot() {
-        return { ok: true };
+        return {
+          ok: true,
+          lessons: [],
+          reviews: [],
+          kanjiEntries: [],
+          kanjiReviews: [],
+          admin: {
+            users: [],
+            aiUsage: {},
+            maintenanceMode: false,
+          },
+        };
       },
       getLessons() {
         return [];
@@ -125,6 +136,9 @@ test("api handler can be imported without starting the server", async () => {
       getPermissionMatrix() {
         return { roles: [], permissions: [] };
       },
+      getSchemaVersion() {
+        return 13;
+      },
       buyStreakFreeze() {
         return { progress: { streakFreezeCount: 1 } };
       },
@@ -163,6 +177,14 @@ test("api handler can be imported without starting the server", async () => {
       new URL("http://127.0.0.1/api/gamification/streak-freeze")
     );
     assert.equal(freezeRes.statusCode, 200);
+    const statusRes = createMockResponse();
+    await handler(
+      createMockRequest("GET", "/api/system/status"),
+      statusRes,
+      new URL("http://127.0.0.1/api/system/status")
+    );
+    assert.equal(statusRes.statusCode, 200);
+    assert.equal(JSON.parse(statusRes.body).database.schemaVersion, 13);
   } finally {
     if (previous == null) delete process.env.LEARNINGAPP_DISABLE_SERVER;
     else process.env.LEARNINGAPP_DISABLE_SERVER = previous;
