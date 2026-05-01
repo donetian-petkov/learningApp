@@ -28,7 +28,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 7);
+    assert.equal(temp.store.getSchemaVersion(), 8);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
@@ -54,9 +54,19 @@ test("lesson CRUD works through the SQLite adapter", () => {
       grammar: "Question form for directions.",
       vocab: [{ word: "駅", kana: "えき", meaning: "station" }],
       kanji: ["駅"],
+      grammarPoints: [
+        { title: "Topic particle", explanation: "Use は to mark the topic.", example: "駅はどこですか。" },
+        { title: "Direction", explanation: "Use ですか for a polite question.", example: "駅はどこですか。" },
+      ],
+      exercises: [
+        { type: "multiple-choice", prompt: "Pick the meaning of 駅", choices: ["station", "ticket", "platform"], answer: "station", explanation: "駅 means station." },
+        { type: "translation", prompt: "Translate the line", choices: [], answer: "Where is the station?", explanation: "Direction question." },
+      ],
     });
     assert.equal(created.id, "travel-station");
     assert.equal(temp.store.getLessons().some((lesson) => lesson.id === "travel-station"), true);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.grammarPoints.length, 2);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.length, 2);
 
     const updated = temp.store.updateLesson("travel-station", {
       title: "Travel: Station Directions",
@@ -110,9 +120,12 @@ test("lesson imports batch upsert through the SQLite adapter", () => {
       romaji: "Irasshaimase.",
       translation: "Welcome.",
       grammar: "Greeting used by shop staff.",
+      grammarPoints: [{ title: "Greeting", explanation: "Use いらっしゃいませ as a welcome line.", example: "いらっしゃいませ。" }],
+      exercises: [{ type: "multiple-choice", prompt: "What does いらっしゃいませ mean?", choices: ["welcome", "thank you"], answer: "welcome", explanation: "It is a store greeting." }],
     });
     assert.equal(updated.length, 1);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.title, "Anime: Store Greeting");
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.grammarPoints[0]?.title, "Greeting");
   } finally {
     cleanupTempStore(temp);
   }
@@ -441,7 +454,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 7);
+    assert.equal(temp.store.getSchemaVersion(), 8);
   } finally {
     cleanupTempStore(temp);
   }
@@ -501,6 +514,8 @@ test("lesson draft generation returns theme-based content", () => {
   assert.equal(draft.theme, "travel");
   assert.ok(draft.japanese.includes("切符売り場") || draft.japanese.includes("どこ"));
   assert.ok(Array.isArray(draft.vocab));
+  assert.ok(Array.isArray(draft.grammarPoints));
+  assert.ok(Array.isArray(draft.exercises));
 });
 
 test("lesson pack generation returns multiple imported lessons", () => {
@@ -509,6 +524,7 @@ test("lesson pack generation returns multiple imported lessons", () => {
   assert.equal(new Set(pack.map((lesson) => lesson.id)).size, 4);
   assert.ok(pack.every((lesson) => lesson.title.startsWith("Travel Pack")));
   assert.ok(pack.some((lesson) => lesson.japanese.includes("切符売り場")));
+  assert.ok(pack.every((lesson) => Array.isArray(lesson.grammarPoints) && lesson.grammarPoints.length >= 2));
 });
 
 test("lesson draft generation covers broader themes", () => {

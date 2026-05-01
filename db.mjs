@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonStudyMaterials, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -55,6 +55,32 @@ function normalizeLesson(lesson, index = 0) {
     grammar: lesson.grammar ?? "",
     vocab: Array.isArray(lesson.vocab) ? lesson.vocab : [],
     kanji: Array.isArray(lesson.kanji) ? lesson.kanji : [],
+    grammarPoints: Array.isArray(lesson.grammarPoints)
+      ? lesson.grammarPoints.map(normalizeGrammarPoint)
+      : [],
+    exercises: Array.isArray(lesson.exercises)
+      ? lesson.exercises.map(normalizeExerciseItem)
+      : [],
+  };
+}
+
+function normalizeGrammarPoint(item = {}, index = 0) {
+  return {
+    title: String(item.title ?? `Grammar point ${index + 1}`).trim() || `Grammar point ${index + 1}`,
+    explanation: String(item.explanation ?? item.note ?? "").trim(),
+    example: String(item.example ?? "").trim(),
+  };
+}
+
+function normalizeExerciseItem(item = {}, index = 0) {
+  const choices = Array.isArray(item.choices) ? item.choices : Array.isArray(parseJson(item.choices_json, [])) ? parseJson(item.choices_json, []) : [];
+  return {
+    id: String(item.id ?? `exercise-${index}`).trim() || `exercise-${index}`,
+    type: String(item.type ?? "multiple-choice").trim() || "multiple-choice",
+    prompt: String(item.prompt ?? "").trim(),
+    choices,
+    answer: String(item.answer ?? "").trim(),
+    explanation: String(item.explanation ?? "").trim(),
   };
 }
 
@@ -826,6 +852,15 @@ export class SqliteStorageAdapter {
       `);
       setSchemaVersion(this.db, 7);
     }
+    if (getSchemaVersion(this.db) < 8) {
+      try {
+        this.db.exec("ALTER TABLE lesson_grammar ADD COLUMN title TEXT NOT NULL DEFAULT ''");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE lesson_grammar ADD COLUMN example TEXT NOT NULL DEFAULT ''");
+      } catch {}
+      setSchemaVersion(this.db, 8);
+    }
   }
 
   seedIfNeeded() {
@@ -1537,6 +1572,8 @@ export class SqliteStorageAdapter {
         .prepare("SELECT kanji FROM lesson_kanji WHERE lesson_id = ? ORDER BY order_index, id")
         .all(lesson.id)
         .map((row) => row.kanji),
+      grammarPoints: this.loadLessonGrammarPoints(lesson.id),
+      exercises: this.loadLessonExercises(lesson.id),
     }));
     const reviews = this.db.prepare("SELECT * FROM review_items ORDER BY due, id").all().map((row) => ({
       id: row.id,
@@ -1951,22 +1988,29 @@ export class SqliteStorageAdapter {
         this.db.prepare("INSERT INTO lesson_kanji (lesson_id, kanji, order_index) VALUES (?, ?, ?)")
           .run(lesson.id, kanji, kanjiIndex);
       });
-      this.db.prepare("INSERT INTO lesson_grammar (lesson_id, explanation, order_index) VALUES (?, ?, ?)")
-        .run(lesson.id, lesson.grammar, 0);
+      const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
+      const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
+      const exercises = lesson.exercises?.length ? lesson.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+      grammarPoints.forEach((point, grammarIndex) => {
+        this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
+          .run(lesson.id, point.title, point.explanation, point.example, grammarIndex);
+      });
       this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
         .run(lesson.id, "Narration", lesson.japanese, 0);
-      this.db.prepare(
-        "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        `${lesson.id}-exercise`,
-        lesson.id,
-        "multiple-choice",
-        `Which meaning best fits: ${lesson.japanese}`,
-        toJson([lesson.translation, lesson.grammar, lesson.theme]),
-        lesson.translation,
-        lesson.grammar,
-        0
-      );
+      exercises.forEach((exercise, exerciseIndex) => {
+        this.db.prepare(
+          "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          exercise.id || `${lesson.id}-exercise-${exerciseIndex + 1}`,
+          lesson.id,
+          exercise.type,
+          exercise.prompt,
+          toJson(exercise.choices ?? []),
+          exercise.answer,
+          exercise.explanation,
+          exerciseIndex
+        );
+      });
     });
 
     const kanjiSet = new Map();
@@ -2864,7 +2908,31 @@ export class SqliteStorageAdapter {
     return this.db.prepare("SELECT kanji FROM lesson_kanji WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId).map((row) => row.kanji);
   }
 
+  loadLessonGrammarPoints(lessonId) {
+    return this.db.prepare("SELECT title, explanation, example FROM lesson_grammar WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId).map((row, index) => ({
+      title: row.title || `Grammar point ${index + 1}`,
+      explanation: row.explanation,
+      example: row.example,
+    }));
+  }
+
+  loadLessonExercises(lessonId) {
+    return this.db.prepare("SELECT * FROM exercise_items WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId).map((row) => ({
+      id: row.id,
+      lesson_id: row.lesson_id,
+      type: row.type,
+      prompt: row.prompt,
+      choices: parseJson(row.choices_json, []),
+      answer: row.answer,
+      explanation: row.explanation,
+      order_index: row.order_index,
+    }));
+  }
+
   replaceLessonChildren(lessonId, lesson) {
+    const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
+    const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
+    const exercises = lesson.exercises?.length ? lesson.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
     this.db.prepare("DELETE FROM lesson_vocab WHERE lesson_id = ?").run(lessonId);
     this.db.prepare("DELETE FROM lesson_kanji WHERE lesson_id = ?").run(lessonId);
     this.db.prepare("DELETE FROM lesson_grammar WHERE lesson_id = ?").run(lessonId);
@@ -2878,20 +2946,25 @@ export class SqliteStorageAdapter {
       this.db.prepare("INSERT INTO lesson_kanji (lesson_id, kanji, order_index) VALUES (?, ?, ?)")
         .run(lessonId, item, index);
     });
-    this.db.prepare("INSERT INTO lesson_grammar (lesson_id, explanation, order_index) VALUES (?, ?, ?)").run(lessonId, lesson.grammar, 0);
+    grammarPoints.forEach((point, index) => {
+      this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
+        .run(lessonId, point.title, point.explanation, point.example, index);
+    });
     this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)").run(lessonId, "Narration", lesson.japanese, 0);
-    this.db.prepare(
-      "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      `${lessonId}-exercise`,
-      lessonId,
-      "multiple-choice",
-      `Which meaning best fits: ${lesson.japanese}`,
-      toJson([lesson.translation, lesson.grammar, lesson.theme]),
-      lesson.translation,
-      lesson.grammar,
-      0
-    );
+    exercises.forEach((exercise, index) => {
+      this.db.prepare(
+        "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        exercise.id || `${lessonId}-exercise-${index + 1}`,
+        lessonId,
+        exercise.type,
+        exercise.prompt,
+        toJson(exercise.choices ?? []),
+        exercise.answer,
+        exercise.explanation,
+        index
+      );
+    });
   }
 
   insertLessonRow(lesson, orderIndex = 0) {

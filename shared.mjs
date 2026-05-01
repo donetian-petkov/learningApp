@@ -88,6 +88,48 @@ export function answerAiFeature(feature, prompt, context = {}) {
   return "Local AI fallback: short, contextual, and deterministic.";
 }
 
+export function buildLessonStudyMaterials(japanese, translation, grammar, title, theme) {
+  const safeJapanese = String(japanese ?? "").trim();
+  const safeTranslation = String(translation ?? "").trim();
+  const safeGrammar = String(grammar ?? "").trim();
+  const safeTitle = String(title ?? "New Lesson").trim() || "New Lesson";
+  const safeTheme = String(theme ?? "custom").trim() || "custom";
+
+  return {
+    grammarPoints: [
+      {
+        title: "Core grammar",
+        explanation: safeGrammar || `Use the ${safeTheme} scene to anchor the sentence in context.`,
+        example: safeJapanese || safeTranslation || safeTitle,
+      },
+      {
+        title: "Scene usage",
+        explanation:
+          safeTheme === "custom"
+            ? "Reuse the key phrase in your own study sentence."
+            : `Apply the ${safeTheme} setting to make the meaning memorable.`,
+        example: safeTranslation || safeJapanese || safeTitle,
+      },
+    ],
+    exercises: [
+      {
+        type: "multiple-choice",
+        prompt: `Which meaning best fits: ${safeJapanese || safeTitle}?`,
+        choices: [safeTranslation || safeTitle, safeGrammar || safeTheme, safeTitle].filter(Boolean),
+        answer: safeTranslation || safeTitle,
+        explanation: safeGrammar || `This line belongs to the ${safeTheme} context.`,
+      },
+      {
+        type: "translation",
+        prompt: `Translate the scene line: ${safeJapanese || safeTitle}`,
+        choices: [],
+        answer: safeTranslation || safeTitle,
+        explanation: safeGrammar || `Practice the ${safeTheme} expression in a short answer.`,
+      },
+    ],
+  };
+}
+
 export function evaluateSpeakingSubmission(sentence, prompt = "") {
   const raw = String(sentence ?? "").trim();
   const transcript = normalizeSentence(raw || "ラーメンをください");
@@ -293,6 +335,7 @@ export function buildLessonDraft(title, theme) {
       ? "history"
       : "travel";
   const template = templates[key];
+  const activities = buildLessonStudyMaterials(template.japanese, template.translation, template.grammar, normalizedTitle, normalizedTheme);
   return {
     id: `lesson-${String(normalizedTitle).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "new"}`,
     title: normalizedTitle,
@@ -304,6 +347,8 @@ export function buildLessonDraft(title, theme) {
     grammar: template.grammar,
     vocab: template.vocab,
     kanji: template.kanji,
+    grammarPoints: activities.grammarPoints,
+    exercises: activities.exercises,
   };
 }
 
@@ -384,6 +429,13 @@ export function buildLessonPack(title, theme, count = 3) {
   for (let index = 0; index < size; index += 1) {
     const variant = packVariants[index % packVariants.length];
     const lesson = buildLessonDraft(`${normalizedTitle}: ${variant.suffix}`, normalizedTheme);
+    const activities = buildLessonStudyMaterials(
+      variant.japanese,
+      variant.translation,
+      variant.grammar,
+      `${normalizedTitle}: ${variant.suffix}`,
+      normalizedTheme
+    );
     lessons.push({
       ...lesson,
       id: `${lesson.id}-${String(index + 1).padStart(2, "0")}`,
@@ -392,6 +444,8 @@ export function buildLessonPack(title, theme, count = 3) {
       romaji: variant.romaji,
       translation: variant.translation,
       grammar: variant.grammar,
+      grammarPoints: activities.grammarPoints,
+      exercises: activities.exercises,
     });
   }
 

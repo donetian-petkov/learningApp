@@ -391,6 +391,12 @@ function syncHeader() {
 function renderLearn() {
   const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
   const selectedKanjiEntry = kanjiSelection ?? state.kanjiEntries?.find((entry) => activeLesson.kanji.includes(entry.character)) ?? state.kanjiEntries?.[0] ?? null;
+  const grammarPoints = Array.isArray(activeLesson.grammarPoints) && activeLesson.grammarPoints.length
+    ? activeLesson.grammarPoints
+    : [{ title: "Grammar note", explanation: activeLesson.grammar, example: activeLesson.japanese }];
+  const exercises = Array.isArray(activeLesson.exercises) && activeLesson.exercises.length
+    ? activeLesson.exercises
+    : [{ type: "multiple-choice", prompt: `Which meaning best fits: ${activeLesson.japanese}`, choices: [activeLesson.translation, activeLesson.grammar, activeLesson.theme].filter(Boolean), answer: activeLesson.translation, explanation: activeLesson.grammar }];
   const moduleCards = state.lessons.map(
     (lesson) => `
       <article class="grid-card">
@@ -441,12 +447,49 @@ function renderLearn() {
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(activeLesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(activeLesson.translation)}</p>` : ""}
         <p>${escapeHtml(activeLesson.grammar)}</p>
+        <div class="grid-card spaced">
+          <h3>Grammar points</h3>
+          <div class="list">
+            ${grammarPoints
+              .map(
+                (point) => `
+                  <article class="list-item">
+                    <div>
+                      <strong>${escapeHtml(point.title || "Grammar point")}</strong>
+                      <span>${escapeHtml(point.explanation || "")}</span>
+                      ${point.example ? `<span class="muted">${escapeHtml(point.example)}</span>` : ""}
+                    </div>
+                  </article>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
         <div class="button-row">
           <button class="primary" data-action="complete-lesson" data-id="${activeLesson.id}">Complete lesson</button>
           <button class="secondary" data-action="speak-lesson" data-id="${activeLesson.id}">Listen to line</button>
           <button class="secondary" data-action="explain-grammar" data-id="${activeLesson.id}">Explain grammar</button>
         </div>
         <p class="muted" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
+        <div class="grid-card spaced">
+          <h3>Lesson exercises</h3>
+          <div class="list">
+            ${exercises
+              .map(
+                (exercise) => `
+                  <article class="list-item">
+                    <div>
+                      <strong>${escapeHtml(exercise.type || "exercise")}</strong>
+                      <span>${escapeHtml(exercise.prompt || "")}</span>
+                      ${Array.isArray(exercise.choices) && exercise.choices.length ? `<span class="muted">Choices: ${escapeHtml(exercise.choices.join(" · "))}</span>` : ""}
+                      <span class="muted">Answer: ${escapeHtml(exercise.answer || "")}</span>
+                    </div>
+                  </article>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
         <div class="grid-card spaced">
           <h3>Tap-through reading</h3>
           <div class="list">
@@ -963,16 +1006,7 @@ function renderAdmin() {
     `;
   }
 
-  const lessonDraft = adminLessonEditor ?? {
-    id: "",
-    title: "",
-    theme: "custom",
-    difficulty: "N5",
-    japanese: "",
-    romaji: "",
-    translation: "",
-    grammar: "",
-  };
+  const lessonDraft = adminLessonEditor ?? buildLessonDraft("New Lesson", "custom");
   const users = adminUserDirectory ?? state.admin.users ?? [];
   const userDraft = adminUserEditor ?? {
     id: "",
@@ -1165,6 +1199,14 @@ function renderAdmin() {
           <label class="field">
             <span>Grammar</span>
             <input type="text" data-field="lesson-grammar" value="${escapeHtml(lessonDraft.grammar)}" placeholder="Custom lesson created from the admin panel." />
+          </label>
+          <label class="field">
+            <span>Grammar points JSON</span>
+            <textarea data-field="lesson-grammar-points" rows="4" placeholder='[{"title":"Core grammar","explanation":"Explain the point.","example":"今日はよろしくお願いします。"}]'>${escapeHtml(JSON.stringify(lessonDraft.grammarPoints ?? [], null, 2))}</textarea>
+          </label>
+          <label class="field">
+            <span>Exercises JSON</span>
+            <textarea data-field="lesson-exercises" rows="5" placeholder='[{"type":"multiple-choice","prompt":"Which meaning best fits?","choices":["A","B"],"answer":"A","explanation":"Why A is correct."}]'>${escapeHtml(JSON.stringify(lessonDraft.exercises ?? [], null, 2))}</textarea>
           </label>
           <div class="field-row">
             <label class="field">
@@ -1799,12 +1841,23 @@ function wireActions() {
         const romajiInput = app.querySelector('[data-field="lesson-romaji"]');
         const translationInput = app.querySelector('[data-field="lesson-translation"]');
         const grammarInput = app.querySelector('[data-field="lesson-grammar"]');
+        const grammarPointsInput = app.querySelector('[data-field="lesson-grammar-points"]');
+        const exercisesInput = app.querySelector('[data-field="lesson-exercises"]');
         const title = titleInput?.value?.trim();
         if (!title && !adminLessonEditor) {
           return;
         }
         const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "custom";
         const baseLesson = buildLesson(title || adminLessonEditor?.title || "New Lesson", theme);
+        const parseCollection = (value, fallback) => {
+          if (!value) return fallback;
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : fallback;
+          } catch {
+            return fallback;
+          }
+        };
         const payload = {
           ...baseLesson,
           id: adminLessonEditor?.id ?? baseLesson.id,
@@ -1815,6 +1868,8 @@ function wireActions() {
           romaji: romajiInput?.value?.trim() || adminLessonEditor?.romaji || baseLesson.romaji,
           translation: translationInput?.value?.trim() || adminLessonEditor?.translation || baseLesson.translation,
           grammar: grammarInput?.value?.trim() || adminLessonEditor?.grammar || baseLesson.grammar,
+          grammarPoints: parseCollection(grammarPointsInput?.value, adminLessonEditor?.grammarPoints ?? baseLesson.grammarPoints),
+          exercises: parseCollection(exercisesInput?.value, adminLessonEditor?.exercises ?? baseLesson.exercises),
         };
         if (adminLessonEditor?.id) {
           await apiJson(`/api/lessons/${encodeURIComponent(adminLessonEditor.id)}`, {
