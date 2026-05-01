@@ -545,6 +545,7 @@ export function createApiHandler(store) {
       database: {
         schemaVersion: store.getSchemaVersion(),
         migrations: store.getMigrationHistory(5),
+        imports: snapshot.admin.datasetImports.length,
         lessons: snapshot.lessons.length,
         reviews: snapshot.reviews.length,
         kanjiEntries: snapshot.kanjiEntries.length,

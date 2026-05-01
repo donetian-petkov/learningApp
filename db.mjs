@@ -579,6 +579,10 @@ function getSchemaVersion(db) {
 
 function setSchemaVersion(db, version) {
   db.prepare("INSERT INTO schema_meta (key, value) VALUES ('version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(version));
+  recordMigrationVersion(db, version);
+}
+
+function recordMigrationVersion(db, version) {
   db.prepare(
     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)"
   ).run(Number(version), nowIso());
@@ -933,6 +937,15 @@ export class SqliteStorageAdapter {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS dataset_imports (
+        id TEXT PRIMARY KEY,
+        source_type TEXT NOT NULL,
+        label TEXT NOT NULL,
+        counts_json TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS admin_users (
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
@@ -1175,6 +1188,9 @@ export class SqliteStorageAdapter {
     }
     if (getSchemaVersion(this.db) < 14) {
       setSchemaVersion(this.db, 14);
+    }
+    if (getSchemaVersion(this.db) < 15) {
+      setSchemaVersion(this.db, 15);
     }
   }
 
@@ -1451,7 +1467,7 @@ export class SqliteStorageAdapter {
     return normalized;
   }
 
-  importLessons(lessons) {
+  importLessons(lessons, options = {}) {
     const snapshot = this.getSnapshot();
     const next = clone(snapshot);
     const entries = Array.isArray(lessons) ? lessons : [lessons];
@@ -1476,6 +1492,14 @@ export class SqliteStorageAdapter {
 
     if (imported.length) {
       this.saveAppState(next);
+      if (options.recordImport !== false) {
+        this.recordDatasetImport({
+          sourceType: "lesson",
+          label: `Lesson import: ${imported.length} lesson${imported.length === 1 ? "" : "s"}`,
+          counts: { lessons: imported.length },
+          notes: "Imported through the lesson import workflow",
+        });
+      }
     }
 
     return imported;
@@ -1492,7 +1516,7 @@ export class SqliteStorageAdapter {
     return snapshot.reviews;
   }
 
-  importReviewItems(items) {
+  importReviewItems(items, options = {}) {
     const list = Array.isArray(items) ? items : [items];
     const imported = [];
     this.db.exec("BEGIN IMMEDIATE");
@@ -1531,6 +1555,14 @@ export class SqliteStorageAdapter {
       });
       if (imported.length) {
         this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported review items: ${imported.length}`, nowIso());
+        if (options.recordImport !== false) {
+          this.recordDatasetImport({
+            sourceType: "review",
+            label: `Review import: ${imported.length} item${imported.length === 1 ? "" : "s"}`,
+            counts: { reviews: imported.length },
+            notes: "Imported through the review import workflow",
+          });
+        }
       }
       this.db.exec("COMMIT");
     } catch (error) {
@@ -1994,6 +2026,30 @@ export class SqliteStorageAdapter {
     return this.getAuditLog();
   }
 
+  recordDatasetImport(entry = {}) {
+    const id = entry.id ?? `dataset-import-${randomUUID()}`;
+    this.db.prepare(
+      `
+        INSERT INTO dataset_imports (id, source_type, label, counts_json, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          source_type = excluded.source_type,
+          label = excluded.label,
+          counts_json = excluded.counts_json,
+          notes = excluded.notes,
+          created_at = excluded.created_at
+      `
+    ).run(
+      id,
+      String(entry.sourceType ?? "bundle").trim() || "bundle",
+      String(entry.label ?? "Dataset import").trim() || "Dataset import",
+      toJson(entry.counts ?? {}),
+      String(entry.notes ?? "").trim(),
+      String(entry.createdAt ?? nowIso())
+    );
+    return this.getDatasetImports();
+  }
+
   claimRewardChest() {
     const current = this.getSnapshot();
     const rewards = ["+60 XP", "+15 credits", "Rare badge: Ramen Star", "Cosmetic token: Shrine Night"];
@@ -2167,6 +2223,7 @@ export class SqliteStorageAdapter {
       reviewedAt: row.reviewed_at ?? null,
       createdAt: row.created_at,
     }));
+    const datasetImports = this.getDatasetImports(10);
     const appState = {
       ...(stateRow ? {
         view: stateRow.view,
@@ -2219,6 +2276,7 @@ export class SqliteStorageAdapter {
       sessionUser: session?.sessionUser ?? null,
       auditLog,
       contentReviewQueue,
+      datasetImports,
       permissions,
       users,
       challenges,
@@ -2860,6 +2918,19 @@ export class SqliteStorageAdapter {
     return this.getSnapshot().admin.contentReviewQueue;
   }
 
+  getDatasetImports(limit = 10) {
+    return this.db.prepare(
+      "SELECT id, source_type, label, counts_json, notes, created_at FROM dataset_imports ORDER BY created_at DESC, label DESC LIMIT ?"
+    ).all(Math.max(1, Number(limit) || 10)).map((row) => ({
+      id: row.id,
+      sourceType: row.source_type,
+      label: row.label,
+      counts: parseJson(row.counts_json, {}),
+      notes: row.notes ?? "",
+      createdAt: row.created_at,
+    }));
+  }
+
   enqueueContentReview(item = {}) {
     const payload = {
       id: item.id ?? `content-review-${randomUUID()}`,
@@ -3005,7 +3076,7 @@ export class SqliteStorageAdapter {
     return this.getSnapshot().kanjiReviews;
   }
 
-  importKanjiEntries(entries) {
+  importKanjiEntries(entries, options = {}) {
     const list = Array.isArray(entries) ? entries : [entries];
     const imported = [];
     this.db.exec("BEGIN IMMEDIATE");
@@ -3079,6 +3150,14 @@ export class SqliteStorageAdapter {
       });
       if (imported.length) {
         this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported kanji entries: ${imported.length}`, nowIso());
+        if (options.recordImport !== false) {
+          this.recordDatasetImport({
+            sourceType: "kanji",
+            label: `Kanji import: ${imported.length} item${imported.length === 1 ? "" : "s"}`,
+            counts: { kanjiEntries: imported.length },
+            notes: "Imported through the kanji import workflow",
+          });
+        }
       }
       this.db.exec("COMMIT");
     } catch (error) {
@@ -3088,7 +3167,7 @@ export class SqliteStorageAdapter {
     return imported;
   }
 
-  importDictionaryEntries(entries) {
+  importDictionaryEntries(entries, options = {}) {
     const list = Array.isArray(entries) ? entries : [entries];
     const imported = [];
     this.db.exec("BEGIN IMMEDIATE");
@@ -3121,6 +3200,14 @@ export class SqliteStorageAdapter {
       });
       if (imported.length) {
         this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported dictionary entries: ${imported.length}`, nowIso());
+        if (options.recordImport !== false) {
+          this.recordDatasetImport({
+            sourceType: "dictionary",
+            label: `Dictionary import: ${imported.length} entry${imported.length === 1 ? "" : "ies"}`,
+            counts: { dictionaryEntries: imported.length },
+            notes: "Imported through the dictionary import workflow",
+          });
+        }
       }
       this.db.exec("COMMIT");
     } catch (error) {
@@ -3143,15 +3230,26 @@ export class SqliteStorageAdapter {
     const lessonEntries = Array.isArray(payload.lessons) ? payload.lessons : [];
     const reviewEntries = Array.isArray(payload.reviews) ? payload.reviews : [];
 
-    const importedLessons = lessonEntries.length ? this.importLessons(lessonEntries) : [];
-    const importedDictionary = dictionaryEntries.length ? this.importDictionaryEntries(dictionaryEntries) : [];
-    const importedKanji = kanjiEntries.length ? this.importKanjiEntries(kanjiEntries) : [];
-    const importedReviews = reviewEntries.length ? this.importReviewItems(reviewEntries) : [];
+    const importedLessons = lessonEntries.length ? this.importLessons(lessonEntries, { recordImport: false }) : [];
+    const importedDictionary = dictionaryEntries.length ? this.importDictionaryEntries(dictionaryEntries, { recordImport: false }) : [];
+    const importedKanji = kanjiEntries.length ? this.importKanjiEntries(kanjiEntries, { recordImport: false }) : [];
+    const importedReviews = reviewEntries.length ? this.importReviewItems(reviewEntries, { recordImport: false }) : [];
 
     if (importedLessons.length || importedDictionary.length || importedKanji.length || importedReviews.length) {
       this.appendAudit(
         `Imported dataset bundle: ${importedLessons.length} lessons, ${importedDictionary.length} dictionary entries, ${importedKanji.length} kanji entries, ${importedReviews.length} review items`
       );
+      this.recordDatasetImport({
+        sourceType: "bundle",
+        label: "Dataset bundle import",
+        counts: {
+          lessons: importedLessons.length,
+          dictionaryEntries: importedDictionary.length,
+          kanjiEntries: importedKanji.length,
+          reviewItems: importedReviews.length,
+        },
+        notes: "Imported through the dataset bundle workflow",
+      });
     }
 
     return {

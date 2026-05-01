@@ -56,7 +56,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 14);
+    assert.equal(temp.store.getSchemaVersion(), 15);
     assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
@@ -88,6 +88,7 @@ test("api handler can be imported without starting the server", async () => {
           admin: {
             users: [],
             aiUsage: {},
+            datasetImports: [],
             maintenanceMode: false,
           },
         };
@@ -134,14 +135,17 @@ test("api handler can be imported without starting the server", async () => {
       getContentReviewQueue() {
         return [];
       },
+      getDatasetImports() {
+        return [];
+      },
       getPermissionMatrix() {
         return { roles: [], permissions: [] };
       },
       getSchemaVersion() {
-        return 14;
+        return 15;
       },
       getMigrationHistory() {
-        return [{ version: 14, applied_at: new Date().toISOString() }];
+        return [{ version: 15, applied_at: new Date().toISOString() }];
       },
       buyStreakFreeze() {
         return { progress: { streakFreezeCount: 1 } };
@@ -189,7 +193,8 @@ test("api handler can be imported without starting the server", async () => {
     );
     assert.equal(statusRes.statusCode, 200);
     const status = JSON.parse(statusRes.body);
-    assert.equal(status.database.schemaVersion, 14);
+    assert.equal(status.database.schemaVersion, 15);
+    assert.equal(status.database.imports, 0);
     assert.equal(Array.isArray(status.database.migrations), true);
   } finally {
     if (previous == null) delete process.env.LEARNINGAPP_DISABLE_SERVER;
@@ -566,6 +571,10 @@ test("dataset bundles import JMdict and KANJIDIC shaped entries", () => {
     assert.equal(temp.store.lookupDictionary("感謝")?.meaning, "gratitude");
     assert.equal(temp.store.lookupKanji("駅")?.meaning, "station");
     assert.equal(temp.store.getSnapshot().admin.auditLog.some((entry) => entry.includes("Imported dataset bundle")), true);
+    const imports = temp.store.getDatasetImports(1);
+    assert.equal(imports.length, 1);
+    assert.equal(imports[0].sourceType, "bundle");
+    assert.equal(imports[0].counts.dictionaryEntries, 1);
   } finally {
     cleanupTempStore(temp);
   }
@@ -603,6 +612,7 @@ test("dataset bundles import raw JMdict and KANJIDIC xml", () => {
     assert.equal(result.kanjiEntries >= 1, true);
     assert.equal(temp.store.getDictionary("ありがとうございます").length >= 1, true);
     assert.equal(temp.store.getKanjiEntries("駅").length >= 1, true);
+    assert.equal(temp.store.getDatasetImports(1)[0].sourceType, "bundle");
   } finally {
     cleanupTempStore(temp);
   }
@@ -707,7 +717,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 14);
+    assert.equal(temp.store.getSchemaVersion(), 15);
   } finally {
     cleanupTempStore(temp);
   }

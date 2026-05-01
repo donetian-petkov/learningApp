@@ -1626,6 +1626,7 @@ function renderAdmin() {
           <h3>Runtime status</h3>
           <p>Database schema: ${systemStatus?.database?.schemaVersion ?? "unknown"}</p>
           <p>Applied migrations: ${(systemStatus?.database?.migrations ?? []).length}</p>
+          <p>Dataset imports: ${systemStatus?.database?.imports ?? state.admin.datasetImports?.length ?? 0}</p>
           <p>Lessons: ${systemStatus?.database?.lessons ?? state.lessons.length} · Reviews: ${systemStatus?.database?.reviews ?? state.reviews.length}</p>
           <p>Kanji: ${systemStatus?.database?.kanjiEntries ?? state.kanjiEntries.length} · Kanji reviews: ${systemStatus?.database?.kanjiReviews ?? state.kanjiReviews.length}</p>
           <p>Users: ${systemStatus?.database?.users ?? state.admin.users.length}</p>
@@ -1665,6 +1666,25 @@ function renderAdmin() {
           <p class="${state.admin.siteHealth === "Green" ? "muted" : ""}">Status: ${state.admin.siteHealth}</p>
           <p>Maintenance mode, content review, and analytics hooks are managed from the SQLite-backed admin layer.</p>
           <button class="secondary" data-action="toggle-maintenance">Toggle maintenance</button>
+        </div>
+        <div class="grid-card">
+          <h3>Import registry</h3>
+          <p class="muted">Recent bulk imports and their counts.</p>
+          <div class="list">
+            ${(state.admin.datasetImports ?? [])
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <div>
+                      <strong>${escapeHtml(item.label)}</strong>
+                      <span class="muted">${escapeHtml(item.sourceType)} · ${escapeHtml(String(item.createdAt).slice(0, 10))}</span>
+                      <span>${escapeHtml(Object.entries(item.counts ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ") || "No counts")}</span>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
         </div>
         <div class="grid-card">
           <h3>Site settings</h3>
@@ -1813,6 +1833,22 @@ function renderAdmin() {
           <p class="muted">Bundle imports accept JSON objects, raw JMdict XML, or raw KANJIDIC XML and expand them into dictionary, kanji, lesson, and review tables.</p>
           <div class="button-row">
             <button class="secondary" data-action="import-dataset">Import dataset bundle</button>
+          </div>
+          <h4 class="spaced">Recent imports</h4>
+          <div class="list">
+            ${(state.admin.datasetImports ?? [])
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <div>
+                      <strong>${escapeHtml(item.label)}</strong>
+                      <span class="muted">${escapeHtml(item.sourceType)} · ${escapeHtml(String(item.createdAt).slice(0, 10))}</span>
+                      <span>${escapeHtml(Object.entries(item.counts ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ") || "No counts")}</span>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")}
           </div>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
