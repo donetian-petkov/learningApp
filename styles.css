@@ -227,6 +227,16 @@ h1 {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.feature-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.feature-list code {
+  color: var(--accent-2);
+}
+
 .primary {
   color: #09111f;
   background: linear-gradient(135deg, var(--accent), #ffe39f);

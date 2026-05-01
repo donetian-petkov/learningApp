@@ -540,6 +540,7 @@ export function createApiHandler(store) {
 
   if (req.method === "GET" && url.pathname === "/api/system/status") {
     const snapshot = store.getSnapshot(session);
+    const aiStatus = await probeAiProvider();
     respondJson(res, 200, {
       database: {
         schemaVersion: store.getSchemaVersion(),
@@ -550,6 +551,7 @@ export function createApiHandler(store) {
         users: snapshot.admin.users.length,
       },
       ai: snapshot.admin.aiUsage,
+      aiRuntime: aiStatus,
       speech: getSpeechStatus(),
       tts: getTtsStatus(),
       maintenanceMode: snapshot.admin.maintenanceMode,
@@ -643,6 +645,49 @@ function getTtsStatus() {
     available: provider === "say" || provider === "espeak" || Boolean(process.env.TTS_BIN),
     language: process.env.TTS_LANGUAGE ?? "ja",
   };
+}
+
+async function probeAiProvider() {
+  const provider = String(process.env.AI_PROVIDER ?? (process.env.OLLAMA_HOST ? "ollama" : "fallback")).toLowerCase();
+  const host = String(process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const model = String(process.env.OLLAMA_MODEL ?? "llama3");
+  if (provider !== "ollama") {
+    return {
+      provider: "fallback",
+      host,
+      model,
+      ready: false,
+      reachable: false,
+    };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1200);
+    try {
+      const response = await fetch(`${host}/api/version`, {
+        signal: controller.signal,
+        headers: { accept: "application/json" },
+      });
+      return {
+        provider: "ollama",
+        host,
+        model,
+        ready: response.ok,
+        reachable: response.ok,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch {
+    return {
+      provider: "ollama",
+      host,
+      model,
+      ready: false,
+      reachable: false,
+    };
+  }
 }
 
 async function synthesizeWithLocalTts(text, options = {}) {

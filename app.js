@@ -410,13 +410,16 @@ init();
 
 async function init() {
   try {
-    const [loadedState, loadedSystemStatus] = await Promise.all([loadState(), loadSystemStatus()]);
-    state = loadedState;
-    systemStatus = loadedSystemStatus;
+    state = await loadState();
+    systemStatus = await loadSystemStatus();
     render();
   } catch {
-    state = structuredClone(defaultState);
-    systemStatus = null;
+    try {
+      state = await loadState();
+    } catch {
+      state = structuredClone(defaultState);
+    }
+    systemStatus = await loadSystemStatus();
     render();
   }
 }
@@ -1625,10 +1628,18 @@ function renderAdmin() {
           <p>Lessons: ${systemStatus?.database?.lessons ?? state.lessons.length} · Reviews: ${systemStatus?.database?.reviews ?? state.reviews.length}</p>
           <p>Kanji: ${systemStatus?.database?.kanjiEntries ?? state.kanjiEntries.length} · Kanji reviews: ${systemStatus?.database?.kanjiReviews ?? state.kanjiReviews.length}</p>
           <p>Users: ${systemStatus?.database?.users ?? state.admin.users.length}</p>
-          <p>AI: ${escapeHtml(systemStatus?.ai?.provider ?? state.admin.aiUsage.provider ?? "fallback")} ${systemStatus?.ai?.ready ? `· ${escapeHtml(systemStatus.ai.model ?? "")}` : "· fallback"}</p>
+          <p>AI: ${escapeHtml(systemStatus?.aiRuntime?.provider ?? state.admin.aiUsage.provider ?? "fallback")} ${systemStatus?.aiRuntime?.ready ? `· ${escapeHtml(systemStatus.aiRuntime.model ?? "")}` : "· fallback"}</p>
           <p>Speech: ${systemStatus?.speech?.available ? `available (${escapeHtml(systemStatus.speech.provider ?? "whisper")})` : "unavailable"}</p>
           <p>TTS: ${systemStatus?.tts?.available ? `available (${escapeHtml(systemStatus.tts.provider ?? "browser")})` : "unavailable"}</p>
           <p>Maintenance: ${systemStatus?.maintenanceMode ? "On" : "Off"}</p>
+          ${!systemStatus?.aiRuntime?.ready || !systemStatus?.speech?.available || !systemStatus?.tts?.available ? `
+            <p class="muted spaced">Setup hints</p>
+            <ul class="feature-list">
+              ${!systemStatus?.aiRuntime?.ready ? "<li>Start Ollama and set <code>AI_PROVIDER=ollama</code>.</li>" : ""}
+              ${!systemStatus?.speech?.available ? "<li>Install Whisper and set <code>WHISPER_BIN</code> plus <code>WHISPER_MODEL</code>.</li>" : ""}
+              ${!systemStatus?.tts?.available ? "<li>Configure <code>TTS_PROVIDER=say</code> or <code>TTS_PROVIDER=espeak</code>.</li>" : ""}
+            </ul>
+          ` : ""}
         </div>
         <div class="grid-card">
           <h3>Analytics</h3>
@@ -3397,9 +3408,8 @@ function createSpeechRecognition() {
 }
 
 async function refreshState() {
-  const [loadedState, loadedSystemStatus] = await Promise.all([loadState(), loadSystemStatus()]);
-  state = loadedState;
-  systemStatus = loadedSystemStatus;
+  state = await loadState();
+  systemStatus = await loadSystemStatus();
   render();
 }
 
