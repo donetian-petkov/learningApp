@@ -579,6 +579,9 @@ function getSchemaVersion(db) {
 
 function setSchemaVersion(db, version) {
   db.prepare("INSERT INTO schema_meta (key, value) VALUES ('version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(version));
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)"
+  ).run(Number(version), nowIso());
 }
 
 function parseRewardText(text) {
@@ -606,6 +609,11 @@ export class SqliteStorageAdapter {
       CREATE TABLE IF NOT EXISTS schema_meta (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS app_state (
@@ -1164,6 +1172,9 @@ export class SqliteStorageAdapter {
         this.db.exec("ALTER TABLE progress_snapshots ADD COLUMN lesson_notes_json TEXT NOT NULL DEFAULT '{}'");
       } catch {}
       setSchemaVersion(this.db, 13);
+    }
+    if (getSchemaVersion(this.db) < 14) {
+      setSchemaVersion(this.db, 14);
     }
   }
 
@@ -3337,7 +3348,7 @@ export class SqliteStorageAdapter {
   }
 
   resetDatabase() {
-    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_review_history; DROP TABLE IF EXISTS kanji_review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_meta;");
+    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_review_history; DROP TABLE IF EXISTS kanji_review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_migrations; DROP TABLE IF EXISTS schema_meta;");
     this.migrate();
     this.seedIfNeeded();
     return this.getSnapshot();
@@ -3437,6 +3448,12 @@ export class SqliteStorageAdapter {
 
   getSchemaVersion() {
     return getSchemaVersion(this.db);
+  }
+
+  getMigrationHistory(limit = 10) {
+    return this.db.prepare(
+      "SELECT version, applied_at FROM schema_migrations ORDER BY version DESC LIMIT ?"
+    ).all(Math.max(1, Number(limit) || 10));
   }
 
   loadLessonVocab(lessonId) {

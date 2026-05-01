@@ -56,7 +56,8 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 13);
+    assert.equal(temp.store.getSchemaVersion(), 14);
+    assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
@@ -137,7 +138,10 @@ test("api handler can be imported without starting the server", async () => {
         return { roles: [], permissions: [] };
       },
       getSchemaVersion() {
-        return 13;
+        return 14;
+      },
+      getMigrationHistory() {
+        return [{ version: 14, applied_at: new Date().toISOString() }];
       },
       buyStreakFreeze() {
         return { progress: { streakFreezeCount: 1 } };
@@ -184,7 +188,9 @@ test("api handler can be imported without starting the server", async () => {
       new URL("http://127.0.0.1/api/system/status")
     );
     assert.equal(statusRes.statusCode, 200);
-    assert.equal(JSON.parse(statusRes.body).database.schemaVersion, 13);
+    const status = JSON.parse(statusRes.body);
+    assert.equal(status.database.schemaVersion, 14);
+    assert.equal(Array.isArray(status.database.migrations), true);
   } finally {
     if (previous == null) delete process.env.LEARNINGAPP_DISABLE_SERVER;
     else process.env.LEARNINGAPP_DISABLE_SERVER = previous;
@@ -701,7 +707,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 13);
+    assert.equal(temp.store.getSchemaVersion(), 14);
   } finally {
     cleanupTempStore(temp);
   }

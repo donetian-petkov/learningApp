@@ -544,6 +544,7 @@ export function createApiHandler(store) {
     respondJson(res, 200, {
       database: {
         schemaVersion: store.getSchemaVersion(),
+        migrations: store.getMigrationHistory(5),
         lessons: snapshot.lessons.length,
         reviews: snapshot.reviews.length,
         kanjiEntries: snapshot.kanjiEntries.length,

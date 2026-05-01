@@ -1625,6 +1625,7 @@ function renderAdmin() {
         <div class="grid-card">
           <h3>Runtime status</h3>
           <p>Database schema: ${systemStatus?.database?.schemaVersion ?? "unknown"}</p>
+          <p>Applied migrations: ${(systemStatus?.database?.migrations ?? []).length}</p>
           <p>Lessons: ${systemStatus?.database?.lessons ?? state.lessons.length} · Reviews: ${systemStatus?.database?.reviews ?? state.reviews.length}</p>
           <p>Kanji: ${systemStatus?.database?.kanjiEntries ?? state.kanjiEntries.length} · Kanji reviews: ${systemStatus?.database?.kanjiReviews ?? state.kanjiReviews.length}</p>
           <p>Users: ${systemStatus?.database?.users ?? state.admin.users.length}</p>
@@ -1632,6 +1633,11 @@ function renderAdmin() {
           <p>Speech: ${systemStatus?.speech?.available ? `available (${escapeHtml(systemStatus.speech.provider ?? "whisper")})` : "unavailable"}</p>
           <p>TTS: ${systemStatus?.tts?.available ? `available (${escapeHtml(systemStatus.tts.provider ?? "browser")})` : "unavailable"}</p>
           <p>Maintenance: ${systemStatus?.maintenanceMode ? "On" : "Off"}</p>
+          ${(systemStatus?.database?.migrations ?? []).length ? `
+            <div class="tag-row spaced">
+              ${(systemStatus.database.migrations ?? []).map((migration) => `<span class="tag">v${escapeHtml(migration.version)} · ${escapeHtml(String(migration.applied_at).slice(0, 10))}</span>`).join("")}
+            </div>
+          ` : ""}
           ${!systemStatus?.aiRuntime?.ready || !systemStatus?.speech?.available || !systemStatus?.tts?.available ? `
             <p class="muted spaced">Setup hints</p>
             <ul class="feature-list">
