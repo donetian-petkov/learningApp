@@ -253,6 +253,7 @@ let reviewReveal = false;
 let savedStudyIndex = 0;
 let savedStudyReveal = false;
 let savedStudyMode = "all";
+let savedStudyFeedback = "";
 let lessonCatalogQuery = "";
 let lessonCatalogTheme = "";
 let lessonCatalogDifficulty = "";
@@ -1001,6 +1002,9 @@ function renderReview() {
       ? savedKanjiQueue
       : [...savedWordQueue, ...savedKanjiQueue];
   const activeSavedStudy = savedStudyDeck.length ? savedStudyDeck[savedStudyIndex % savedStudyDeck.length] : null;
+  const savedStudyChoices = activeSavedStudy
+    ? buildSavedStudyChoices(activeSavedStudy, savedWordQueue, savedKanjiQueue, state.reviews ?? [], state.kanjiReviews ?? [], state.lessons ?? [])
+    : [];
   const items = state.reviews
     .map(
       (item) => `
@@ -1103,6 +1107,23 @@ function renderReview() {
               </div>
               <p class="muted">${escapeHtml(activeSavedStudy.detail || "—")}</p>
               ${
+                savedStudyChoices.length
+                  ? `
+                    <div class="list spaced">
+                      ${savedStudyChoices
+                        .map(
+                          (choice) => `
+                            <button class="list-item" data-action="saved-study-answer" data-answer="${escapeHtml(choice)}">
+                              ${escapeHtml(choice)}
+                            </button>
+                          `
+                        )
+                        .join("")}
+                    </div>
+                  `
+                  : ""
+              }
+              ${
                 savedStudyReveal
                   ? `
                     <div class="detail-card spaced">
@@ -1115,6 +1136,7 @@ function renderReview() {
                     <p class="muted">Reveal the card to see the saved context and source lesson.</p>
                   `
               }
+              <div class="review-result">${escapeHtml(savedStudyFeedback || (activeSavedStudy.kind === "word" ? "Choose the meaning that matches the word." : "Choose the meaning that matches the kanji."))}</div>
               <div class="button-row">
                 <button class="secondary" data-action="saved-study-prev">Previous card</button>
                 <button class="primary" data-action="saved-study-reveal">${savedStudyReveal ? "Hide details" : "Reveal details"}</button>
@@ -1826,6 +1848,36 @@ function practiceCard(title, description, steps, body = "") {
   `;
 }
 
+function buildSavedStudyChoices(activeItem, wordDeck = [], kanjiDeck = [], reviewDeck = [], kanjiReviewDeck = [], lessons = []) {
+  const correct = activeItem?.kind === "kanji"
+    ? String(activeItem.meaning || activeItem.display || "").trim()
+    : String(activeItem.meaning || "").trim();
+  const distractors = new Set();
+  const addMeaning = (value) => {
+    const text = String(value ?? "").trim();
+    if (text && text !== correct) distractors.add(text);
+  };
+
+  [...wordDeck, ...reviewDeck]
+    .slice(0, 10)
+    .forEach((item) => addMeaning(item.meaning ?? item.answer ?? item.translation));
+  [...kanjiDeck, ...kanjiReviewDeck]
+    .slice(0, 10)
+    .forEach((item) => addMeaning(item.meaning ?? item.answer));
+  (Array.isArray(lessons) ? lessons : [])
+    .slice(0, 5)
+    .forEach((lesson) => {
+      addMeaning(lesson.translation);
+      addMeaning(lesson.grammar);
+    });
+
+  const choices = [correct, ...Array.from(distractors).filter(Boolean)].filter(Boolean).slice(0, 4);
+  while (choices.length < 4) {
+    choices.push(choices[choices.length - 1] || correct || "—");
+  }
+  return Array.from(new Set(choices));
+}
+
 function wireActions() {
   document.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -2098,6 +2150,7 @@ function wireActions() {
         savedStudyMode = button.dataset.mode ?? "all";
         savedStudyIndex = 0;
         savedStudyReveal = false;
+        savedStudyFeedback = "";
         render();
       }
 
@@ -2115,12 +2168,44 @@ function wireActions() {
             : (savedStudyIndex - 1 + deck.length) % deck.length;
         }
         savedStudyReveal = false;
+        savedStudyFeedback = "";
         render();
       }
 
       if (action === "saved-study-reveal") {
         savedStudyReveal = !savedStudyReveal;
         render();
+      }
+
+      if (action === "saved-study-answer") {
+        const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word", display: item.term }));
+        const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji", display: item.character }));
+        const deck = savedStudyMode === "words"
+          ? savedWordQueue
+          : savedStudyMode === "kanji"
+            ? savedKanjiQueue
+            : [...savedWordQueue, ...savedKanjiQueue];
+        const active = deck.length ? deck[savedStudyIndex % deck.length] : null;
+        const correct = active?.kind === "kanji" ? String(active.meaning || active.display || "") : String(active?.meaning || "");
+        const selected = String(button.dataset.answer ?? "");
+        const isCorrect = selected === correct;
+        savedStudyFeedback = isCorrect
+          ? `Correct. ${active?.display || "This item"} means ${correct}.`
+          : `Not quite. ${active?.display || "This item"} means ${correct}.`;
+        savedStudyReveal = true;
+        if (isCorrect) {
+          await apiJson("/api/gamification/award", {
+            method: "POST",
+            body: { source: "saved-study-pass", delta: { xp: 12, credits: 3, streak: 0 } },
+          });
+          await apiJson("/api/study-sessions", {
+            method: "POST",
+            body: { kind: "saved-study", durationMinutes: 4, xpDelta: 12, creditsDelta: 3 },
+          });
+          await refreshState();
+        } else {
+          render();
+        }
       }
 
       if (action === "kanji-quiz-answer") {
