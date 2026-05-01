@@ -1,8 +1,24 @@
 # Pop Culture Japanese
 
-Zero-cost, local-first Japanese learning MVP focused on pop culture modules, SRS review, gamification, and admin tooling.
+Local-first Japanese learning MVP focused on pop culture modules, SQLite persistence, spaced repetition, gamification, and admin tooling.
 
-## Run locally
+## Requirements
+
+### Required
+- Node.js 22 or newer
+- A POSIX-like shell for the provided scripts
+- SQLite support through Node’s built-in `node:sqlite` module
+
+### Recommended
+- macOS or Linux for local system TTS support
+- A browser with `SpeechRecognition` support for the best speaking fallback path
+
+### Optional local AI / speech tools
+- `whisper` CLI for local speech-to-text
+- `say` on macOS or `espeak` for local text-to-speech
+- Ollama if you want the AI tutor / correction paths to use a local model
+
+## Run
 
 ```bash
 npm run dev
@@ -10,15 +26,79 @@ npm run dev
 
 Then open `http://127.0.0.1:4173`.
 
-## What ships in this first slice
+## Test
+
+```bash
+npm test
+```
+
+## Check
+
+```bash
+npm run check
+```
+
+## What the app includes
 
 - Learn, Practice, Review, Progress, and Admin screens
-- SQLite persistence through a local Node API
-- Static lesson content for anime, food, and samurai/history
+- SQLite persistence with a local Node API
+- Pop-culture lesson content for anime dialogue, food, samurai/history, manga, daily life, and school/workplace themes
 - Furigana, romaji, and translation toggles
-- Browser TTS for lesson playback
-- Local Whisper-backed speech transcription when `whisper` and a model are available
-- Bulk dataset bundle import for JMdict / KANJIDIC-shaped JSON
-- Simple SRS review interactions
-- XP, credits, achievements, daily tasks, and cosmetics
-- Local admin login, site settings, and audit logs
+- Lesson dialogue scenes, grammar points, exercises, bookmarks, notes, and mastery checklist
+- Review queues for vocabulary and kanji with SM-2 scheduling
+- Saved study deck for bookmarked words and kanji
+- XP, credits, achievements, streaks, streak freezes, daily tasks, cosmetics, and reward chests
+- Lesson import, dictionary import, kanji import, review import, and dataset bundle import
+- Local admin login, permissions, moderation queue, analytics, AI playground, and backup/restore
+- Browser TTS with local system TTS fallback
+- Local Whisper-backed transcription when configured
+
+## Data storage
+
+The app stores everything in a local SQLite database under:
+
+```text
+data/learning-app.sqlite
+```
+
+It is created automatically on first run.
+
+## Environment variables
+
+### Server
+- `PORT`: HTTP port, default `4173`
+- `LEARNINGAPP_DISABLE_SERVER=1`: import the API handler without starting the HTTP server
+
+### Local AI
+- `AI_PROVIDER`: set to `ollama` to prefer a local Ollama model
+- `OLLAMA_HOST`: Ollama host URL, if different from the default
+- `OLLAMA_MODEL`: model name to request
+
+### Speech-to-text
+- `WHISPER_BIN`: path to the Whisper CLI binary
+- `WHISPER_MODEL`: Whisper model name, default `tiny`
+- `WHISPER_MODEL_DIR`: model directory, if needed
+- `WHISPER_LANGUAGE`: transcription language, default `ja`
+
+### Text-to-speech
+- `TTS_PROVIDER`: set to `say` or `espeak`
+- `TTS_BIN`: explicit path to the TTS binary
+- `TTS_LANGUAGE`: language code for system TTS
+
+## Content imports
+
+The admin tools accept:
+- lesson JSON packs
+- raw JMdict XML
+- raw KANJIDIC XML
+- dictionary entry batches
+- kanji entry batches
+- review item batches
+- full dataset bundles
+
+## Notes
+
+- Core learning still works without any local AI service.
+- Browser TTS remains the default if system TTS is unavailable.
+- Whisper and Ollama are optional, not required for the MVP.
+- Cosmetics are cosmetic only and do not unlock core learning content.
