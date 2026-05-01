@@ -167,6 +167,63 @@ export function findNextLessonId(lessons, completedLessonIds = [], activeLessonI
   return active || (list[0]?.id ?? "");
 }
 
+export function buildLessonProgressChecklist(lesson, progress = {}, kanjiReviews = [], savedWords = [], savedKanji = []) {
+  const safeLesson = lesson ?? {};
+  const completedLessons = new Set(Array.isArray(progress.completedLessons) ? progress.completedLessons : []);
+  const completedExercises = new Set(Array.isArray(progress.completedExercises) ? progress.completedExercises : []);
+  const lessonExercises = Array.isArray(safeLesson.exercises) ? safeLesson.exercises : [];
+  const lessonVocab = Array.isArray(safeLesson.vocab) ? safeLesson.vocab : [];
+  const lessonKanji = Array.isArray(safeLesson.kanji) ? safeLesson.kanji : [];
+  const exerciseCount = lessonExercises.length;
+  const completedExerciseCount = lessonExercises.filter((exercise, index) => completedExercises.has(exercise.id ?? `${safeLesson.id}-exercise-${index + 1}`)).length;
+  const savedWordCount = lessonVocab.filter((item) =>
+    Array.isArray(savedWords)
+      ? savedWords.some((saved) => String(saved?.term ?? "").trim() === String(item.word ?? item.term ?? "").trim())
+      : false
+  ).length;
+  const savedKanjiCount = lessonKanji.filter((character) =>
+    Array.isArray(savedKanji)
+      ? savedKanji.some((saved) => String(saved?.character ?? "").trim() === String(character ?? "").trim())
+      : false
+  ).length;
+  const reviewedKanjiCount = Array.isArray(kanjiReviews)
+    ? kanjiReviews.filter((entry) => lessonKanji.includes(entry.character)).length
+    : 0;
+
+  return [
+    {
+      key: "complete-lesson",
+      label: "Complete lesson",
+      detail: safeLesson.title || "Mark the lesson as finished to lock in the scene.",
+      complete: completedLessons.has(safeLesson.id),
+    },
+    {
+      key: "finish-exercises",
+      label: "Finish exercises",
+      detail: `${completedExerciseCount}/${exerciseCount || 1} lesson exercises completed.`,
+      complete: exerciseCount > 0 ? completedExerciseCount >= exerciseCount : true,
+    },
+    {
+      key: "save-vocab",
+      label: "Save a vocab item",
+      detail: savedWordCount > 0 ? `${savedWordCount}/${lessonVocab.length} vocab items saved.` : "Bookmark a word from this lesson.",
+      complete: savedWordCount > 0 || lessonVocab.length === 0,
+    },
+    {
+      key: "save-kanji",
+      label: "Save a kanji",
+      detail: savedKanjiCount > 0 ? `${savedKanjiCount}/${lessonKanji.length} kanji saved.` : "Bookmark a kanji from this lesson.",
+      complete: savedKanjiCount > 0 || lessonKanji.length === 0,
+    },
+    {
+      key: "review-kanji",
+      label: "Review kanji",
+      detail: reviewedKanjiCount > 0 ? `${reviewedKanjiCount} lesson kanji already have review cards.` : "Open the kanji drill to rehearse the scene characters.",
+      complete: reviewedKanjiCount > 0 || lessonKanji.length === 0,
+    },
+  ];
+}
+
 export function buildLessonDialogueLines(title, japanese, translation, theme) {
   const safeTitle = String(title ?? "Lesson").trim() || "Lesson";
   const safeJapanese = String(japanese ?? "").trim();

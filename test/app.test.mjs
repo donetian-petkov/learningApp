@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -783,6 +783,27 @@ test("next lesson helper prefers incomplete lessons", () => {
   assert.equal(next, lessons[1].id);
   const fallback = findNextLessonId(lessons, lessons.map((lesson) => lesson.id), "anime-scene");
   assert.equal(fallback, "anime-scene");
+});
+
+test("lesson mastery checklist reflects completed and saved study state", () => {
+  const lesson = buildLessonDraft("Train Station", "travel");
+  const completedExercises = (lesson.exercises ?? []).map((exercise, index) => exercise.id ?? `${lesson.id}-exercise-${index + 1}`);
+  const savedWords = (lesson.vocab ?? []).map((item) => ({ term: item.word, reading: item.kana }));
+  const savedKanji = (lesson.kanji ?? []).map((character) => ({ character }));
+  const kanjiReviews = (lesson.kanji ?? []).map((character) => ({ character }));
+  const checklist = buildLessonProgressChecklist(
+    lesson,
+    {
+      completedLessons: [lesson.id],
+      completedExercises,
+    },
+    kanjiReviews,
+    savedWords,
+    savedKanji
+  );
+  assert.equal(checklist.length >= 5, true);
+  assert.equal(checklist.every((item) => item.complete), true);
+  assert.equal(checklist[0].label, "Complete lesson");
 });
 
 test("lesson exercise completion persists and awards study progress", () => {

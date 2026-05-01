@@ -1,4 +1,4 @@
-import { buildLessonDraft, buildLessonPack, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, findNextLessonId } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, findNextLessonId } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -500,6 +500,8 @@ function renderLearn() {
   const activeExercise = exercises.length ? exercises[lessonExerciseIndex % exercises.length] : null;
   const activeExerciseKey = activeExercise?.id || `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`;
   const activeExerciseComplete = completedExercises.has(activeExerciseKey);
+  const lessonChecklist = buildLessonProgressChecklist(activeLesson, state.progress, state.kanjiReviews ?? [], state.progress.savedWords ?? [], state.progress.savedKanji ?? []);
+  const lessonChecklistCompleteCount = lessonChecklist.filter((item) => item.complete).length;
   const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
   const nextLessonId = findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
   const moduleCards = filteredLessons.map(
@@ -553,6 +555,23 @@ function renderLearn() {
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(activeLesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(activeLesson.translation)}</p>` : ""}
         <p>${escapeHtml(activeLesson.grammar)}</p>
+        <div class="grid-card spaced">
+          <h3>Lesson mastery</h3>
+          <p class="muted">${lessonChecklistCompleteCount}/${lessonChecklist.length} goals complete</p>
+          <div class="meter"><span style="width: ${Math.round((lessonChecklistCompleteCount / Math.max(lessonChecklist.length, 1)) * 100)}%"></span></div>
+          <div class="list spaced">
+            ${lessonChecklist
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <strong>${item.complete ? "✓" : "○"} ${escapeHtml(item.label)}</strong>
+                    <span class="muted">${escapeHtml(item.detail)}</span>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
         <div class="grid-card spaced">
           <h3>Grammar points</h3>
           <div class="list">
