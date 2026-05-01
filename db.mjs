@@ -923,6 +923,54 @@ export class SqliteStorageAdapter {
     return snapshot.reviews;
   }
 
+  importReviewItems(items) {
+    const list = Array.isArray(items) ? items : [items];
+    const imported = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      list.forEach((item, index) => {
+        if (!item) return;
+        const normalized = normalizeReviewItem(item, index);
+        this.db.prepare(
+          `
+            INSERT INTO review_items (id, prompt, answer, meaning, due, ease, interval_days, repetitions, mistakes, source_lesson_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              prompt = excluded.prompt,
+              answer = excluded.answer,
+              meaning = excluded.meaning,
+              due = excluded.due,
+              ease = excluded.ease,
+              interval_days = excluded.interval_days,
+              repetitions = excluded.repetitions,
+              mistakes = excluded.mistakes,
+              source_lesson_id = excluded.source_lesson_id
+          `
+        ).run(
+          normalized.id,
+          normalized.prompt,
+          normalized.answer,
+          normalized.meaning,
+          normalized.due,
+          normalized.ease,
+          normalized.interval_days,
+          normalized.repetitions,
+          normalized.mistakes,
+          normalized.source_lesson_id ?? null
+        );
+        imported.push(normalized);
+      });
+      if (imported.length) {
+        this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported review items: ${imported.length}`, nowIso());
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return imported;
+  }
+
   gradeReview(reviewId, grade) {
     const review = this.db.prepare("SELECT * FROM review_items WHERE id = ?").get(reviewId);
     if (!review) return null;

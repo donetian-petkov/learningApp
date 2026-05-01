@@ -986,6 +986,17 @@ function renderAdmin() {
           <div class="button-row">
             <button class="secondary" data-action="import-dictionary">Import dictionary</button>
           </div>
+          <label class="field spaced">
+            <span>Review JSON</span>
+            <textarea
+              data-field="review-import-json"
+              rows="5"
+              placeholder='[{"prompt":"一つ","answer":"ひとつ","meaning":"one item","due":"Now","ease":2.5,"interval_days":1,"repetitions":0,"mistakes":0,"source_lesson_id":"anime-intro"}]'
+            ></textarea>
+          </label>
+          <div class="button-row">
+            <button class="secondary" data-action="import-reviews">Import reviews</button>
+          </div>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
             ${(state.admin.contentReviewQueue ?? [])
@@ -1008,6 +1019,7 @@ function renderAdmin() {
             <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>
             <button class="secondary" data-action="generate-lesson-pack">Generate pack</button>
             <button class="secondary" data-action="import-lessons">Import JSON</button>
+            <button class="secondary" data-action="import-reviews">Import reviews</button>
             <button class="secondary" data-action="queue-content-review">Queue review</button>
             ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
           </div>
@@ -1604,6 +1616,33 @@ function wireActions() {
         await apiJson("/api/audit-log", {
           method: "POST",
           body: { entry: `Imported dictionary entries: ${result.imported}` },
+        });
+        await refreshState();
+      }
+
+      if (action === "import-reviews") {
+        const reviewInput = app.querySelector('[data-field="review-import-json"]');
+        const raw = reviewInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Review import JSON is not valid.");
+          return;
+        }
+        const result = await apiJson("/api/reviews/import", {
+          method: "POST",
+          body: Array.isArray(parsed) ? { reviews: parsed } : parsed,
+        });
+        if (reviewInput) {
+          reviewInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Imported review items: ${result.imported}` },
         });
         await refreshState();
       }

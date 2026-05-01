@@ -289,6 +289,45 @@ test("dictionary entries can be imported in batch", () => {
   }
 });
 
+test("review items can be imported in batch", () => {
+  const temp = createTempStore();
+  try {
+    const imported = temp.store.importReviewItems([
+      {
+        id: "review-import-1",
+        prompt: "一つ",
+        answer: "ひとつ",
+        meaning: "one item",
+        due: "Now",
+        ease: 2.5,
+        interval_days: 1,
+        repetitions: 0,
+        mistakes: 0,
+        source_lesson_id: "anime-intro",
+      },
+      {
+        id: "review-import-2",
+        prompt: "武士",
+        answer: "ぶし",
+        meaning: "samurai",
+        due: "In 1 day",
+        ease: 2.3,
+        interval_days: 2,
+        repetitions: 1,
+        mistakes: 0,
+        source_lesson_id: "history-samurai",
+      },
+    ]);
+    assert.equal(imported.length, 2);
+    const reviews = temp.store.getReviews();
+    assert.equal(reviews.some((review) => review.id === "review-import-1"), true);
+    assert.equal(reviews.some((review) => review.id === "review-import-2"), true);
+    assert.equal(temp.store.getSnapshot().admin.auditLog.some((entry) => entry.includes("Imported review items: 2")), true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("user management mutations and reset work", () => {
   const temp = createTempStore();
   try {
