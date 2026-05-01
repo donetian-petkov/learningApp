@@ -70,6 +70,23 @@ export function answerAiFeature(feature, prompt, context = {}) {
   return "Local AI fallback: short, contextual, and deterministic.";
 }
 
+export function evaluateListeningAnswer(correctAnswer, selectedAnswer, prompt = "") {
+  const expected = String(correctAnswer ?? "").trim().toLowerCase();
+  const chosen = String(selectedAnswer ?? "").trim().toLowerCase();
+  const listeningPrompt = String(prompt ?? "").trim();
+  if (!expected) {
+    return "Listening prompt unavailable. Replay the line and try again.";
+  }
+  if (chosen && chosen === expected) {
+    return listeningPrompt
+      ? `Correct. The prompt asked about ${listeningPrompt}.`
+      : "Correct. You matched the listening prompt.";
+  }
+  return listeningPrompt
+    ? `Not quite. The prompt asked about ${listeningPrompt}. Try replaying the line.`
+    : "Not quite. Replay the line and listen for the key detail.";
+}
+
 export function buildRoleplayTranscript(scenario) {
   const scripts = {
     restaurant: [

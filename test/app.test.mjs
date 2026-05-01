@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -121,6 +121,13 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     const speaking = temp.store.recordPracticeSession("speaking", { input: "ラーメンをください" });
     assert.equal(speaking.tutor.answer.startsWith("Natural correction:"), true);
     assert.equal(speaking.progress.speakingSessions >= 8, true);
+
+    const listening = temp.store.recordPracticeSession("listening", {
+      answer: "broth",
+      answerKey: "broth",
+      prompt: "the server asked about broth",
+    });
+    assert.equal(listening.tutor.answer.includes("Correct"), true);
   } finally {
     cleanupTempStore(temp);
   }
@@ -206,6 +213,11 @@ test("dictionary lookup and ai responses are available locally", () => {
   } finally {
     cleanupTempStore(temp);
   }
+});
+
+test("listening answers produce contextual feedback", () => {
+  assert.equal(evaluateListeningAnswer("broth", "broth", "the server asked about broth").includes("Correct"), true);
+  assert.equal(evaluateListeningAnswer("broth", "price", "the server asked about broth").includes("Not quite"), true);
 });
 
 test("leaderboard is populated and updates from study progress", () => {

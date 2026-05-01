@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -999,13 +999,15 @@ export class SqliteStorageAdapter {
       updated.progress.credits += 10;
       audit = `Speaking practice: ${correction}`;
     } else if (kind === "listening") {
-      const correct = payload.answer === "soup";
+      const answerKey = String(payload.answerKey ?? "soup");
+      const correct = String(payload.answer ?? "") === answerKey;
       if (correct) {
         updated.progress.listeningMinutes += 3;
         updated.progress.listeningExercises += 1;
         updated.progress.xp += 20;
         updated.progress.credits += 5;
       }
+      updated.tutor.answer = evaluateListeningAnswer(answerKey, payload.answer ?? "", payload.prompt ?? "the listening prompt");
       audit = `Listening practice: ${correct ? "correct" : "incorrect"}`;
     } else if (kind === "writing") {
       const sentence = String(payload.input ?? "");

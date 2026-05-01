@@ -178,6 +178,46 @@ let adminUserFilters = {
   status: "",
   level: "",
 };
+let listeningScenarioIndex = 0;
+
+const listeningScenarios = [
+  {
+    id: "ramen-broth",
+    title: "Ramen shop order",
+    prompt: "What did the server ask?",
+    question: "The server asked whether you want light or rich broth.",
+    answerKey: "broth",
+    choices: [
+      { key: "broth", label: "Ask about broth" },
+      { key: "price", label: "Ask about price" },
+      { key: "name", label: "Ask your name" },
+    ],
+  },
+  {
+    id: "station-direction",
+    title: "Station directions",
+    prompt: "What did the staff explain?",
+    question: "The staff explained how to reach the ticket counter.",
+    answerKey: "ticket",
+    choices: [
+      { key: "ticket", label: "Ticket counter" },
+      { key: "exit", label: "Exit gate" },
+      { key: "food", label: "Food court" },
+    ],
+  },
+  {
+    id: "anime-training",
+    title: "Anime training scene",
+    prompt: "What was the rival asking?",
+    question: "The rival wanted to see your determination.",
+    answerKey: "determination",
+    choices: [
+      { key: "determination", label: "Show determination" },
+      { key: "weather", label: "Talk about weather" },
+      { key: "homework", label: "Talk about homework" },
+    ],
+  },
+];
 
 const app = document.querySelector("#app");
 const navButtons = document.querySelectorAll(".nav-item");
@@ -359,6 +399,7 @@ function renderLearn() {
 }
 
 function renderPractice() {
+  const listeningScenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
   return `
     <section class="panel">
       <div class="section-title">
@@ -392,11 +433,19 @@ function renderPractice() {
           "Play a scene and answer a quick comprehension prompt.",
           ["Browser TTS", "Static quiz", "Replay line"],
           `
-            <p>What did the server ask?</p>
+            <p>${escapeHtml(listeningScenario.title)}</p>
+            <p class="muted">${escapeHtml(listeningScenario.question)}</p>
+            <div class="button-row">
+              <button class="secondary" data-action="replay-listening">Replay line</button>
+              <button class="secondary" data-action="next-listening">Next scene</button>
+            </div>
             <div class="tag-row">
-              <button class="chip" data-action="listening-answer" data-answer="soup">Ask about broth</button>
-              <button class="chip" data-action="listening-answer" data-answer="price">Ask about price</button>
-              <button class="chip" data-action="listening-answer" data-answer="name">Ask your name</button>
+              ${listeningScenario.choices
+                .map(
+                  (choice) =>
+                    `<button class="chip" data-action="listening-answer" data-answer="${escapeHtml(choice.key)}" data-answer-key="${escapeHtml(listeningScenario.answerKey)}" data-prompt="${escapeHtml(listeningScenario.prompt)}">${escapeHtml(choice.label)}</button>`
+                )
+                .join("")}
             </div>
             <p class="muted" data-output="listening-feedback">Choose the best answer after listening.</p>
           `
@@ -1058,15 +1107,27 @@ function wireActions() {
 
       if (action === "listening-answer") {
         const output = app.querySelector('[data-output="listening-feedback"]');
-        const correct = button.dataset.answer === "soup";
+        const answer = button.dataset.answer ?? "";
+        const answerKey = button.dataset.answerKey ?? "";
+        const prompt = button.dataset.prompt ?? "the listening prompt";
         await apiJson("/api/practice", {
           method: "POST",
-          body: { kind: "listening", answer: button.dataset.answer ?? "" },
+          body: { kind: "listening", answer, answerKey, prompt },
         });
         if (output) {
-          output.textContent = correct ? "Correct. The server asked about the broth." : "Not quite. Listen for a question about the broth.";
+          output.textContent = answer === answerKey ? `Correct. ${prompt}.` : `Not quite. ${prompt}.`;
         }
         await refreshState();
+      }
+
+      if (action === "replay-listening") {
+        const scenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
+        speakText(scenario.question);
+      }
+
+      if (action === "next-listening") {
+        listeningScenarioIndex = (listeningScenarioIndex + 1) % listeningScenarios.length;
+        render();
       }
 
       if (action === "check-writing") {
