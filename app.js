@@ -975,6 +975,17 @@ function renderAdmin() {
             <span>Review note</span>
             <textarea data-field="content-review-note" rows="3" placeholder="Why should this lesson be reviewed?"></textarea>
           </label>
+          <label class="field">
+            <span>Dictionary JSON</span>
+            <textarea
+              data-field="dictionary-import-json"
+              rows="5"
+              placeholder='[{"term":"ありがとう","reading":"ありがとう","meaning":"thank you","partOfSpeech":"expression","example":"ありがとう。"}]'
+            ></textarea>
+          </label>
+          <div class="button-row">
+            <button class="secondary" data-action="import-dictionary">Import dictionary</button>
+          </div>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
             ${(state.admin.contentReviewQueue ?? [])
@@ -1566,6 +1577,33 @@ function wireActions() {
         await apiJson("/api/audit-log", {
           method: "POST",
           body: { entry: `Queued lesson review: ${lesson.id}` },
+        });
+        await refreshState();
+      }
+
+      if (action === "import-dictionary") {
+        const dictionaryInput = app.querySelector('[data-field="dictionary-import-json"]');
+        const raw = dictionaryInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Dictionary import JSON is not valid.");
+          return;
+        }
+        const result = await apiJson("/api/dictionary/import", {
+          method: "POST",
+          body: Array.isArray(parsed) ? { entries: parsed } : parsed,
+        });
+        if (dictionaryInput) {
+          dictionaryInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Imported dictionary entries: ${result.imported}` },
         });
         await refreshState();
       }

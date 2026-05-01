@@ -262,6 +262,33 @@ test("snapshot export and restore preserve persisted state", () => {
   }
 });
 
+test("dictionary entries can be imported in batch", () => {
+  const temp = createTempStore();
+  try {
+    const imported = temp.store.importDictionaryEntries([
+      {
+        term: "ありがとう",
+        reading: "ありがとう",
+        meaning: "thank you",
+        partOfSpeech: "expression",
+        example: "ありがとう。",
+      },
+      {
+        term: "頑張る",
+        reading: "がんばる",
+        meaning: "to do one's best",
+        partOfSpeech: "verb",
+        example: "頑張ります。",
+      },
+    ]);
+    assert.equal(imported.length, 2);
+    assert.equal(temp.store.lookupDictionary("ありがとう")?.meaning, "thank you");
+    assert.equal(temp.store.lookupDictionary("頑張る")?.partOfSpeech, "verb");
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("user management mutations and reset work", () => {
   const temp = createTempStore();
   try {

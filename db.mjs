@@ -99,6 +99,20 @@ function normalizeCosmetic(item) {
   };
 }
 
+function normalizeDictionaryEntry(entry, index = 0) {
+  const term = String(entry.term ?? "").trim();
+  const reading = String(entry.reading ?? "").trim();
+  return {
+    id: entry.id ?? `dict-${String(term || index).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `entry-${index}`}`,
+    term,
+    reading,
+    meaning: String(entry.meaning ?? "").trim(),
+    partOfSpeech: String(entry.partOfSpeech ?? entry.part_of_speech ?? "noun").trim() || "noun",
+    example: String(entry.example ?? "").trim(),
+    source: String(entry.source ?? "manual").trim() || "manual",
+  };
+}
+
 function normalizeState(snapshot) {
   const state = clone(snapshot ?? INITIAL_APP_STATE);
   state.view ??= "learn";
@@ -1914,6 +1928,48 @@ export class SqliteStorageAdapter {
     const query = String(term ?? "").trim();
     if (!query) return null;
     return this.searchDictionary(query)[0] ?? null;
+  }
+
+  importDictionaryEntries(entries) {
+    const list = Array.isArray(entries) ? entries : [entries];
+    const imported = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      list.forEach((entry, index) => {
+        if (!entry) return;
+        const normalized = normalizeDictionaryEntry(entry, index);
+        this.db.prepare(
+          `
+            INSERT INTO dictionary_entries (id, term, reading, meaning, part_of_speech, example, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              term = excluded.term,
+              reading = excluded.reading,
+              meaning = excluded.meaning,
+              part_of_speech = excluded.part_of_speech,
+              example = excluded.example,
+              source = excluded.source
+          `
+        ).run(
+          normalized.id,
+          normalized.term,
+          normalized.reading,
+          normalized.meaning,
+          normalized.partOfSpeech,
+          normalized.example,
+          normalized.source
+        );
+        imported.push(normalized);
+      });
+      if (imported.length) {
+        this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported dictionary entries: ${imported.length}`, nowIso());
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return imported;
   }
 
   async aiResponse(feature, prompt, context = {}, sessionUser = null) {
