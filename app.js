@@ -180,6 +180,7 @@ let adminUserFilters = {
 };
 let listeningScenarioIndex = 0;
 let speakingPromptIndex = 0;
+let readingSelection = null;
 
 const listeningScenarios = [
   {
@@ -387,6 +388,22 @@ function renderLearn() {
           <button class="secondary" data-action="explain-grammar" data-id="${activeLesson.id}">Explain grammar</button>
         </div>
         <p class="muted" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
+        <div class="grid-card spaced">
+          <h3>Tap-through reading</h3>
+          <div class="list">
+            ${activeLesson.vocab
+              .map(
+                (item) => `
+                  <button class="list-item" data-action="lookup-word" data-term="${escapeHtml(item.word)}">
+                    <strong>${escapeHtml(item.word)}</strong>
+                    <span class="muted">${escapeHtml(item.kana)}</span>
+                    <span>${escapeHtml(item.meaning)}</span>
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
       </div>
       <div class="grid-card">
         <h3>Vocabulary</h3>
@@ -423,6 +440,7 @@ function renderLearn() {
 function renderPractice() {
   const listeningScenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
   const speakingPrompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length];
+  const selectedDictionaryEntry = readingSelection ?? dictionaryLookup[0] ?? null;
   return `
     <section class="panel">
       <div class="section-title">
@@ -504,6 +522,7 @@ function renderPractice() {
             </label>
             <div class="button-row">
               <button class="primary" data-action="lookup-dictionary">Lookup</button>
+              <button class="secondary" data-action="clear-dictionary">Clear</button>
             </div>
             <div class="grid-card">
               <p class="eyebrow">Dictionary result</p>
@@ -514,6 +533,19 @@ function renderPractice() {
                       .join(" | ")
                   : "Search a word to see a local dictionary entry."
               }</p>
+              <div class="detail-card spaced">
+                ${
+                  selectedDictionaryEntry
+                    ? `
+                      <strong>${escapeHtml(selectedDictionaryEntry.term)}</strong>
+                      <p class="muted">${escapeHtml(selectedDictionaryEntry.reading || "No reading stored")}</p>
+                      <p>${escapeHtml(selectedDictionaryEntry.meaning)}</p>
+                      <p class="muted">${escapeHtml(selectedDictionaryEntry.partOfSpeech || "—")}</p>
+                      <p class="muted">${escapeHtml(selectedDictionaryEntry.example || "No example available.")}</p>
+                    `
+                    : "<p class='muted'>Tap a word or search for a dictionary entry to see details here.</p>"
+                }
+              </div>
             </div>
           `
         )}
@@ -1223,6 +1255,7 @@ function wireActions() {
       if (action === "lookup-word") {
         const term = button.dataset.term ?? "";
         dictionaryLookup = await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`);
+        readingSelection = dictionaryLookup[0] ?? null;
         render();
       }
 
@@ -1230,6 +1263,13 @@ function wireActions() {
         const input = app.querySelector('[data-field="dictionary-input"]');
         const term = input?.value?.trim() ?? "";
         dictionaryLookup = term ? await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`) : [];
+        readingSelection = dictionaryLookup[0] ?? null;
+        render();
+      }
+
+      if (action === "clear-dictionary") {
+        dictionaryLookup = [];
+        readingSelection = null;
         render();
       }
 
