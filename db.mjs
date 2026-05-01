@@ -113,6 +113,19 @@ function normalizeDictionaryEntry(entry, index = 0) {
   };
 }
 
+function normalizeKanjiEntry(entry, index = 0) {
+  const character = String(entry.character ?? entry.kanji ?? "").trim();
+  return {
+    id: entry.id ?? `kanji-${String(character || index).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `entry-${index}`}`,
+    character,
+    meaning: String(entry.meaning ?? "").trim(),
+    onYomi: String(entry.onYomi ?? entry.on_yomi ?? "").trim(),
+    kunYomi: String(entry.kunYomi ?? entry.kun_yomi ?? "").trim(),
+    examples: Array.isArray(entry.examples) ? entry.examples.map(String).filter(Boolean) : [],
+    source: String(entry.source ?? "manual").trim() || "manual",
+  };
+}
+
 function normalizeState(snapshot) {
   const state = clone(snapshot ?? INITIAL_APP_STATE);
   state.view ??= "learn";
@@ -125,6 +138,7 @@ function normalizeState(snapshot) {
   state.achievements = Array.isArray(state.achievements) ? state.achievements.map(normalizeAchievement) : [];
   state.dailyTasks = Array.isArray(state.dailyTasks) ? state.dailyTasks.map(normalizeTask) : [];
   state.cosmetics = Array.isArray(state.cosmetics) ? state.cosmetics.map(normalizeCosmetic) : [];
+  state.kanjiEntries = Array.isArray(state.kanjiEntries) ? state.kanjiEntries.map(normalizeKanjiEntry) : [];
   state.admin ??= clone(INITIAL_APP_STATE.admin);
   state.admin.roles ??= [];
   state.admin.aiUsage ??= clone(INITIAL_APP_STATE.admin.aiUsage);
@@ -321,6 +335,16 @@ export class SqliteStorageAdapter {
         kanji TEXT NOT NULL,
         order_index INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS kanji_entries (
+        id TEXT PRIMARY KEY,
+        character TEXT NOT NULL UNIQUE,
+        meaning TEXT NOT NULL,
+        on_yomi TEXT NOT NULL,
+        kun_yomi TEXT NOT NULL,
+        examples_json TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'seed'
       );
 
       CREATE TABLE IF NOT EXISTS lesson_grammar (
@@ -641,6 +665,20 @@ export class SqliteStorageAdapter {
     if (getSchemaVersion(this.db) < 5) {
       setSchemaVersion(this.db, 5);
     }
+    if (getSchemaVersion(this.db) < 6) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS kanji_entries (
+          id TEXT PRIMARY KEY,
+          character TEXT NOT NULL UNIQUE,
+          meaning TEXT NOT NULL,
+          on_yomi TEXT NOT NULL,
+          kun_yomi TEXT NOT NULL,
+          examples_json TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'seed'
+        );
+      `);
+      setSchemaVersion(this.db, 6);
+    }
   }
 
   seedIfNeeded() {
@@ -731,6 +769,7 @@ export class SqliteStorageAdapter {
     }
 
     const dictionaryRows = new Map();
+    const kanjiRows = new Map();
     const coreDictionaryEntries = [
       { id: "dict-core-ha", term: "は", reading: "は", meaning: "topic marker", part_of_speech: "particle", example: "今日はよろしくお願いします。" },
       { id: "dict-core-ga", term: "が", reading: "が", meaning: "subject marker / contrast", part_of_speech: "particle", example: "武士は言葉より行動で示す。" },
@@ -783,6 +822,33 @@ export class SqliteStorageAdapter {
       this.db.prepare(
         "INSERT OR REPLACE INTO dictionary_entries (id, term, reading, meaning, part_of_speech, example, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(entry.id, entry.term, entry.reading, entry.meaning, entry.part_of_speech, entry.example, "seed");
+    });
+
+    snapshot.lessons.forEach((lesson) => {
+      lesson.kanji.forEach((kanji, index) => {
+        const key = `${lesson.id}-${kanji}`;
+        if (!kanjiRows.has(key)) {
+          kanjiRows.set(key, {
+            id: `kanji-${lesson.id}-${index + 1}`,
+            character: kanji,
+            meaning: `${kanji} used in ${lesson.title}`,
+            onYomi: "",
+            kunYomi: "",
+            examples: [lesson.japanese, lesson.translation].filter(Boolean),
+            source: "seed",
+          });
+        }
+      });
+    });
+    const coreKanjiEntries = [
+      { id: "kanji-kiyou", character: "今日", meaning: "today", onYomi: "コン", kunYomi: "きょう", examples: ["今日はよろしくお願いします。"], source: "seed" },
+      { id: "kanji-ichiji", character: "一", meaning: "one", onYomi: "イチ", kunYomi: "ひとつ", examples: ["ラーメンを一つください。"], source: "seed" },
+      { id: "kanji-bushi", character: "武", meaning: "warrior", onYomi: "ブ", kunYomi: "たけ", examples: ["武士は言葉より行動で示す。"], source: "seed" },
+    ];
+    [...kanjiRows.values(), ...coreKanjiEntries].forEach((entry) => {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), entry.source ?? "seed");
     });
   }
 
@@ -1299,6 +1365,15 @@ export class SqliteStorageAdapter {
       mistakes: row.mistakes,
       source_lesson_id: row.source_lesson_id,
     }));
+    const kanjiEntries = this.db.prepare("SELECT * FROM kanji_entries ORDER BY character, id").all().map((row) => ({
+      id: row.id,
+      character: row.character,
+      meaning: row.meaning,
+      onYomi: row.on_yomi,
+      kunYomi: row.kun_yomi,
+      examples: parseJson(row.examples_json, []),
+      source: row.source,
+    }));
     const achievements = this.db.prepare("SELECT * FROM achievements ORDER BY sort_order, name").all().map((row) => ({
       name: row.name,
       unlocked: Boolean(
@@ -1449,6 +1524,7 @@ export class SqliteStorageAdapter {
       },
       lessons,
       reviews,
+      kanjiEntries,
       achievements,
       dailyTasks,
       cosmetics,
@@ -1616,6 +1692,7 @@ export class SqliteStorageAdapter {
       DELETE FROM lesson_grammar;
       DELETE FROM lesson_dialogue_lines;
       DELETE FROM exercise_items;
+      DELETE FROM kanji_entries;
       DELETE FROM achievements;
       DELETE FROM user_achievements;
       DELETE FROM daily_tasks;
@@ -1687,6 +1764,32 @@ export class SqliteStorageAdapter {
         lesson.grammar,
         0
       );
+    });
+
+    const kanjiSet = new Map();
+    snapshot.lessons.forEach((lesson) => {
+      lesson.kanji.forEach((character, index) => {
+        const key = `${lesson.id}-${character}`;
+        if (!kanjiSet.has(key)) {
+          kanjiSet.set(key, {
+            id: `kanji-${lesson.id}-${index + 1}`,
+            character,
+            meaning: `${character} used in ${lesson.title}`,
+            onYomi: "",
+            kunYomi: "",
+            examples: [lesson.japanese, lesson.translation].filter(Boolean),
+          });
+        }
+      });
+    });
+    snapshot.kanjiEntries?.forEach((entry, index) => {
+      const normalized = normalizeKanjiEntry(entry, index);
+      kanjiSet.set(normalized.character || normalized.id, normalized);
+    });
+    Array.from(kanjiSet.values()).forEach((entry) => {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), entry.source ?? "seed");
     });
 
     const existingReviewIds = new Set(
@@ -1978,6 +2081,69 @@ export class SqliteStorageAdapter {
     return this.searchDictionary(query)[0] ?? null;
   }
 
+  getKanjiEntries(query = "") {
+    const term = String(query ?? "").trim();
+    if (!term) {
+      return this.db.prepare("SELECT * FROM kanji_entries ORDER BY character LIMIT 20").all().map((row) => this.mapKanjiRow(row));
+    }
+    return this.db.prepare(
+      "SELECT * FROM kanji_entries WHERE character LIKE ? OR meaning LIKE ? OR on_yomi LIKE ? OR kun_yomi LIKE ? ORDER BY character LIMIT 20"
+    ).all(`%${term}%`, `%${term}%`, `%${term}%`, `%${term}%`).map((row) => this.mapKanjiRow(row));
+  }
+
+  mapKanjiRow(row) {
+    return {
+      id: row.id,
+      character: row.character,
+      meaning: row.meaning,
+      onYomi: row.on_yomi,
+      kunYomi: row.kun_yomi,
+      examples: parseJson(row.examples_json, []),
+      source: row.source,
+    };
+  }
+
+  lookupKanji(character) {
+    const query = String(character ?? "").trim();
+    if (!query) return null;
+    return this.getKanjiEntries(query)[0] ?? null;
+  }
+
+  importKanjiEntries(entries) {
+    const list = Array.isArray(entries) ? entries : [entries];
+    const imported = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      list.forEach((entry, index) => {
+        if (!entry) return;
+        const normalized = normalizeKanjiEntry(entry, index);
+        this.db.prepare(
+          `
+            INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `
+        ).run(
+          normalized.id,
+          normalized.character,
+          normalized.meaning,
+          normalized.onYomi,
+          normalized.kunYomi,
+          toJson(normalized.examples),
+          normalized.source
+        );
+        imported.push(normalized);
+      });
+      if (imported.length) {
+        this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported kanji entries: ${imported.length}`, nowIso());
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return imported;
+  }
+
   importDictionaryEntries(entries) {
     const list = Array.isArray(entries) ? entries : [entries];
     const imported = [];
@@ -2156,7 +2322,7 @@ export class SqliteStorageAdapter {
   }
 
   resetDatabase() {
-    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_meta;");
+    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_meta;");
     this.migrate();
     this.seedIfNeeded();
     return this.getSnapshot();

@@ -904,6 +904,7 @@ function renderAdmin() {
           <p>${state.admin.analytics?.creditEvents ?? 0} credit events · ${state.admin.analytics?.creditsAwarded ?? 0} credits awarded</p>
           <p>${state.admin.analytics?.studySessions ?? 0} study sessions · ${state.admin.analytics?.studyMinutes ?? 0} minutes</p>
           <p>${state.admin.analytics?.reviewHistory ?? 0} review events · ${state.admin.analytics?.aiRequests ?? 0} AI requests</p>
+          <p>${state.kanjiEntries?.length ?? 0} kanji entries · ${state.admin.analytics?.topLessons?.length ?? 0} lesson-linked review groups</p>
           <h4 class="spaced">Top study kinds</h4>
           <div class="list">
             ${(state.admin.analytics?.sessionKinds ?? [])
@@ -1027,6 +1028,17 @@ function renderAdmin() {
             <button class="secondary" data-action="import-dictionary">Import dictionary</button>
           </div>
           <label class="field spaced">
+            <span>Kanji JSON</span>
+            <textarea
+              data-field="kanji-import-json"
+              rows="5"
+              placeholder='[{"character":"駅","meaning":"station","onYomi":"エキ","kunYomi":"","examples":["駅はどこですか。"]}]'
+            ></textarea>
+          </label>
+          <div class="button-row">
+            <button class="secondary" data-action="import-kanji">Import kanji</button>
+          </div>
+          <label class="field spaced">
             <span>Review JSON</span>
             <textarea
               data-field="review-import-json"
@@ -1059,6 +1071,7 @@ function renderAdmin() {
             <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>
             <button class="secondary" data-action="generate-lesson-pack">Generate pack</button>
             <button class="secondary" data-action="import-lessons">Import JSON</button>
+            <button class="secondary" data-action="import-kanji">Import kanji</button>
             <button class="secondary" data-action="import-reviews">Import reviews</button>
             <button class="secondary" data-action="queue-content-review">Queue review</button>
             ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
@@ -1656,6 +1669,33 @@ function wireActions() {
         await apiJson("/api/audit-log", {
           method: "POST",
           body: { entry: `Imported dictionary entries: ${result.imported}` },
+        });
+        await refreshState();
+      }
+
+      if (action === "import-kanji") {
+        const kanjiInput = app.querySelector('[data-field="kanji-import-json"]');
+        const raw = kanjiInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Kanji import JSON is not valid.");
+          return;
+        }
+        const result = await apiJson("/api/kanji/import", {
+          method: "POST",
+          body: Array.isArray(parsed) ? { entries: parsed } : parsed,
+        });
+        if (kanjiInput) {
+          kanjiInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Imported kanji entries: ${result.imported}` },
         });
         await refreshState();
       }

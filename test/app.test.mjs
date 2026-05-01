@@ -28,7 +28,9 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 5);
+    assert.equal(temp.store.getSchemaVersion(), 6);
+    assert.equal(Array.isArray(snapshot.kanjiEntries), true);
+    assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(snapshot.admin.users.length, 3);
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
@@ -289,6 +291,34 @@ test("dictionary entries can be imported in batch", () => {
   }
 });
 
+test("kanji entries can be imported and looked up", () => {
+  const temp = createTempStore();
+  try {
+    const imported = temp.store.importKanjiEntries([
+      {
+        character: "駅",
+        meaning: "station",
+        onYomi: "エキ",
+        kunYomi: "",
+        examples: ["駅はどこですか。"],
+      },
+      {
+        character: "願",
+        meaning: "wish / request",
+        onYomi: "ガン",
+        kunYomi: "ねが.う",
+        examples: ["よろしくお願いします。"],
+      },
+    ]);
+    assert.equal(imported.length, 2);
+    assert.equal(temp.store.lookupKanji("駅")?.meaning, "station");
+    assert.equal(temp.store.lookupKanji("願")?.onYomi, "ガン");
+    assert.equal(temp.store.getKanjiEntries("駅").length >= 1, true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("review items can be imported in batch", () => {
   const temp = createTempStore();
   try {
@@ -354,7 +384,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 5);
+    assert.equal(temp.store.getSchemaVersion(), 6);
   } finally {
     cleanupTempStore(temp);
   }

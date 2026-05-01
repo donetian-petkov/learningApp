@@ -61,6 +61,11 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/kanji") {
+    respondJson(res, 200, store.getKanjiEntries(url.searchParams.get("query") ?? ""));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/dictionary/import") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });
@@ -68,6 +73,17 @@ async function handleApi(req, res, url) {
     }
     const body = await readJson(req);
     const imported = store.importDictionaryEntries(body.entries ?? body.entry ?? body);
+    respondJson(res, 200, { imported: imported.length, entries: imported });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/kanji/import") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    const imported = store.importKanjiEntries(body.entries ?? body.entry ?? body);
     respondJson(res, 200, { imported: imported.length, entries: imported });
     return;
   }
