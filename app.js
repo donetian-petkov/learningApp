@@ -1877,6 +1877,23 @@ function renderAdmin() {
               )
               .join("")}
           </div>
+          <h4 class="spaced">Moderation history</h4>
+          <div class="list">
+            ${(state.admin.moderationActions ?? [])
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <div>
+                      <strong>${escapeHtml(item.itemType)}</strong>
+                      <span class="muted">${escapeHtml(item.status)} · ${escapeHtml(item.itemId)} · ${escapeHtml(String(item.reviewedAt || item.createdAt || "").slice(0, 19).replace("T", " "))}</span>
+                      <span class="muted">Reviewer: ${escapeHtml(item.reviewedBy || "n/a")} · Reason: ${escapeHtml(item.decisionReason || "n/a")}</span>
+                      <span>${escapeHtml(item.notes || "")}</span>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
           <div class="button-row spaced">
             <button class="primary" data-action="save-lesson">${adminLessonEditor ? "Save changes" : "Add lesson"}</button>
             <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>

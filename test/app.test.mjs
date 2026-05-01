@@ -56,7 +56,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 16);
+    assert.equal(temp.store.getSchemaVersion(), 17);
     assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
@@ -142,10 +142,10 @@ test("api handler can be imported without starting the server", async () => {
         return { roles: [], permissions: [] };
       },
       getSchemaVersion() {
-        return 16;
+        return 17;
       },
       getMigrationHistory() {
-        return [{ version: 16, applied_at: new Date().toISOString() }];
+        return [{ version: 17, applied_at: new Date().toISOString() }];
       },
       buyStreakFreeze() {
         return { progress: { streakFreezeCount: 1 } };
@@ -193,7 +193,7 @@ test("api handler can be imported without starting the server", async () => {
     );
     assert.equal(statusRes.statusCode, 200);
     const status = JSON.parse(statusRes.body);
-    assert.equal(status.database.schemaVersion, 16);
+    assert.equal(status.database.schemaVersion, 17);
     assert.equal(status.database.imports, 0);
     assert.equal(Array.isArray(status.database.migrations), true);
   } finally {
@@ -450,6 +450,7 @@ test("admin content review queue and permissions persist", () => {
     assert.equal(reviewed[0].decisionReason, "Ready to ship");
     assert.equal(reviewed[0].reviewedBy, "admin");
     assert.equal(typeof reviewed[0].reviewedAt, "string");
+    assert.equal(temp.store.getContentReviewActions(5).some((item) => item.queueItemId === queue[0].id && item.status === "published"), true);
 
     const enqueued = temp.store.enqueueContentReview({
       itemType: "lesson",
@@ -458,6 +459,7 @@ test("admin content review queue and permissions persist", () => {
       source: "manual",
     });
     assert.equal(enqueued.some((item) => item.itemId === "anime-intro" && item.source === "manual"), true);
+    assert.equal(temp.store.getContentReviewActions(5).some((item) => item.itemId === "anime-intro" && item.notes.includes("Manual quality check")), true);
 
     const permissions = temp.store.getPermissionMatrix();
     assert.equal(permissions.roles.some((role) => role.name === "Super Admin"), true);
@@ -755,7 +757,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 16);
+    assert.equal(temp.store.getSchemaVersion(), 17);
   } finally {
     cleanupTempStore(temp);
   }

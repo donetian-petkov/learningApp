@@ -374,6 +374,11 @@ export function createApiHandler(store) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/admin/content-review-actions") {
+    respondJson(res, 200, store.getContentReviewActions(Number(url.searchParams.get("limit") ?? 20)));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/admin/content-review") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });

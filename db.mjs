@@ -939,6 +939,19 @@ export class SqliteStorageAdapter {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS content_review_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        queue_item_id TEXT NOT NULL,
+        item_type TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        decision_reason TEXT NOT NULL DEFAULT '',
+        reviewed_by TEXT NOT NULL DEFAULT '',
+        reviewed_at TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS dataset_imports (
         id TEXT PRIMARY KEY,
         source_type TEXT NOT NULL,
@@ -1200,6 +1213,9 @@ export class SqliteStorageAdapter {
         this.db.exec("ALTER TABLE dataset_imports ADD COLUMN source_uri TEXT NOT NULL DEFAULT ''");
       } catch {}
       setSchemaVersion(this.db, 16);
+    }
+    if (getSchemaVersion(this.db) < 17) {
+      setSchemaVersion(this.db, 17);
     }
   }
 
@@ -2193,6 +2209,20 @@ export class SqliteStorageAdapter {
     const aiRows = this.db.prepare("SELECT * FROM ai_usage_log ORDER BY id DESC").all();
     const aiCacheRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CASE WHEN hits > 0 THEN hits - 1 ELSE 0 END), 0) AS hits FROM ai_response_cache").get();
     const aiProvider = getAiProviderInfo();
+    const moderationActions = this.db.prepare(
+      "SELECT * FROM content_review_actions ORDER BY reviewed_at DESC, id DESC LIMIT 20"
+    ).all().map((row) => ({
+      id: row.id,
+      queueItemId: row.queue_item_id,
+      itemType: row.item_type,
+      itemId: row.item_id,
+      status: row.status,
+      decisionReason: row.decision_reason ?? "",
+      reviewedBy: row.reviewed_by ?? "",
+      reviewedAt: row.reviewed_at,
+      notes: row.notes ?? "",
+      createdAt: row.created_at,
+    }));
     const today = currentDateKey();
     const aiUsage = aiRows.length
       ? {
@@ -2310,6 +2340,7 @@ export class SqliteStorageAdapter {
       sessionUser: session?.sessionUser ?? null,
       auditLog,
       contentReviewQueue,
+      moderationActions,
       datasetImports,
       permissions,
       users,
@@ -2980,6 +3011,16 @@ export class SqliteStorageAdapter {
       createdAt: item.createdAt ?? nowIso(),
     };
     this.enqueueContentReviewRow(payload);
+    this.recordContentReviewAction({
+      queueItemId: payload.id,
+      itemType: payload.itemType,
+      itemId: payload.itemId,
+      status: payload.status,
+      decisionReason: payload.decisionReason,
+      reviewedBy: payload.reviewedBy,
+      reviewedAt: payload.reviewedAt ?? nowIso(),
+      notes: payload.notes,
+    });
     this.appendAudit(`Queued content review: ${payload.itemId} (${payload.source})`);
     return this.getContentReviewQueue();
   }
@@ -2996,8 +3037,35 @@ export class SqliteStorageAdapter {
       "UPDATE content_review_queue SET status = ?, notes = ?, decision_reason = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?"
     )
       .run(nextStatus, nextNotes, nextReason, nextReviewedBy, nextReviewedAt, itemId);
+    this.recordContentReviewAction({
+      queueItemId: itemId,
+      itemType: current.item_type,
+      itemId: current.item_id,
+      status: nextStatus,
+      decisionReason: nextReason,
+      reviewedBy: nextReviewedBy,
+      reviewedAt: nextReviewedAt,
+      notes: nextNotes,
+    });
     this.appendAudit(`Content review ${itemId}: ${nextStatus}${nextReviewedBy ? ` by ${nextReviewedBy}` : ""}`);
     return this.getContentReviewQueue();
+  }
+
+  getContentReviewActions(limit = 20) {
+    return this.db.prepare(
+      "SELECT * FROM content_review_actions ORDER BY reviewed_at DESC, id DESC LIMIT ?"
+    ).all(Math.max(1, Number(limit) || 20)).map((row) => ({
+      id: row.id,
+      queueItemId: row.queue_item_id,
+      itemType: row.item_type,
+      itemId: row.item_id,
+      status: row.status,
+      decisionReason: row.decision_reason ?? "",
+      reviewedBy: row.reviewed_by ?? "",
+      reviewedAt: row.reviewed_at,
+      notes: row.notes ?? "",
+      createdAt: row.created_at,
+    }));
   }
 
   getPermissionMatrix() {
@@ -3746,6 +3814,28 @@ export class SqliteStorageAdapter {
       item.reviewedAt ?? null,
       item.createdAt ?? nowIso()
     );
+  }
+
+  recordContentReviewAction(action = {}) {
+    this.db.prepare(
+      `
+        INSERT INTO content_review_actions (
+          queue_item_id, item_type, item_id, status, decision_reason, reviewed_by, reviewed_at, notes, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      action.queueItemId ?? "",
+      action.itemType ?? "lesson",
+      action.itemId ?? "",
+      normalizeReviewStatus(action.status ?? "pending"),
+      String(action.decisionReason ?? ""),
+      String(action.reviewedBy ?? ""),
+      String(action.reviewedAt ?? nowIso()),
+      String(action.notes ?? ""),
+      String(action.createdAt ?? nowIso())
+    );
+    return this.getContentReviewActions();
   }
 }
 
