@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createStorageAdapter } from "./db.mjs";
 
-const store = createStorageAdapter();
+const store = process.env.LEARNINGAPP_DISABLE_SERVER === "1" ? null : createStorageAdapter();
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);
 const execFileAsync = promisify(execFile);
@@ -23,26 +23,31 @@ const mimeTypes = {
   ".mjs": "text/javascript; charset=utf-8",
 };
 
-createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
-  if (url.pathname.startsWith("/api/")) {
-    try {
-      await handleApi(req, res, url);
-    } catch (error) {
-      respondJson(res, 500, {
-        error: error instanceof Error ? error.message : "Unknown server error",
-      });
+const handleApi = store ? createApiHandler(store) : null;
+
+if (store) {
+  createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    if (url.pathname.startsWith("/api/")) {
+      try {
+        await handleApi(req, res, url);
+      } catch (error) {
+        respondJson(res, 500, {
+          error: error instanceof Error ? error.message : "Unknown server error",
+        });
+      }
+      return;
     }
-    return;
-  }
 
-  await serveStatic(req, res, url.pathname);
-}).listen(port, "127.0.0.1", () => {
-  console.log(`Pop Culture Japanese is running at http://127.0.0.1:${port}`);
-});
+    await serveStatic(req, res, url.pathname);
+  }).listen(port, "127.0.0.1", () => {
+    console.log(`Pop Culture Japanese is running at http://127.0.0.1:${port}`);
+  });
+}
 
-async function handleApi(req, res, url) {
-  const session = getAdminSession(req);
+export function createApiHandler(store) {
+  return async function handleApi(req, res, url) {
+    const session = getAdminSession(req, store);
 
   if (req.method === "GET" && url.pathname === "/api/state") {
     respondJson(res, 200, store.getSnapshot(session));
@@ -235,6 +240,11 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/tts/status") {
+    respondJson(res, 200, getTtsStatus());
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/speech/transcribe") {
     const contentType = String(req.headers["content-type"] ?? "");
     if (contentType.includes("application/json")) {
@@ -260,6 +270,24 @@ async function handleApi(req, res, url) {
       respondJson(res, 503, {
         error: error instanceof Error ? error.message : "Local transcription unavailable",
         provider: "whisper",
+      });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/tts/synthesize") {
+    const body = await readJson(req);
+    try {
+      const audio = await synthesizeWithLocalTts(body.text ?? "", {
+        language: body.language ?? "ja",
+        voice: body.voice ?? "",
+        rate: Number(body.rate ?? 1),
+      });
+      respondAudio(res, 200, audio.buffer, audio.mimeType);
+    } catch (error) {
+      respondJson(res, 503, {
+        error: error instanceof Error ? error.message : "Local TTS unavailable",
+        provider: "system-tts",
       });
     }
     return;
@@ -498,6 +526,7 @@ async function handleApi(req, res, url) {
   }
 
   respondJson(res, 404, { error: "Not found" });
+  };
 }
 
 async function serveStatic(req, res, pathname) {
@@ -567,6 +596,53 @@ function getSpeechStatus() {
   };
 }
 
+function getTtsStatus() {
+  const provider = String(process.env.TTS_PROVIDER ?? (process.platform === "darwin" ? "say" : "espeak")).toLowerCase();
+  const binary = String(process.env.TTS_BIN ?? (provider === "say" ? "say" : provider === "espeak" ? "espeak" : provider));
+  return {
+    provider,
+    binary,
+    available: provider === "say" || provider === "espeak" || Boolean(process.env.TTS_BIN),
+    language: process.env.TTS_LANGUAGE ?? "ja",
+  };
+}
+
+async function synthesizeWithLocalTts(text, options = {}) {
+  const content = String(text ?? "").trim();
+  if (!content) {
+    throw new Error("No text provided");
+  }
+  const provider = getTtsStatus();
+  const tempDir = await mkdtemp(join(tmpdir(), "learningapp-tts-"));
+  try {
+    if (provider.provider === "say") {
+      const audioPath = join(tempDir, "output.aiff");
+      const args = ["-o", audioPath];
+      if (options.voice) args.push("-v", String(options.voice));
+      if (options.rate && Number.isFinite(options.rate)) args.push("-r", String(Math.max(80, Math.min(500, Math.round(options.rate * 200)))));
+      args.push(content);
+      await execFileAsync(provider.binary, args, { maxBuffer: 10 * 1024 * 1024 });
+      const buffer = await readFile(audioPath);
+      return { buffer, mimeType: "audio/aiff" };
+    }
+
+    if (provider.provider === "espeak") {
+      const audioPath = join(tempDir, "output.wav");
+      const args = ["-w", audioPath];
+      if (options.language) args.push("-v", String(options.language));
+      if (options.rate && Number.isFinite(options.rate)) args.push("-s", String(Math.max(80, Math.min(450, Math.round(options.rate * 175)))));
+      args.push(content);
+      await execFileAsync(provider.binary, args, { maxBuffer: 10 * 1024 * 1024 });
+      const buffer = await readFile(audioPath);
+      return { buffer, mimeType: "audio/wav" };
+    }
+
+    throw new Error("No local TTS provider configured");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function transcribeWithWhisper(audioBuffer, contentType = "") {
   const whisperBinary = process.env.WHISPER_BIN ?? "whisper";
   const whisperModel = process.env.WHISPER_MODEL ?? "tiny";
@@ -624,6 +700,14 @@ function respondJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function respondAudio(res, statusCode, buffer, mimeType) {
+  res.writeHead(statusCode, {
+    "content-type": mimeType,
+    "cache-control": "no-store",
+  });
+  res.end(buffer);
+}
+
 function getCookie(req, name) {
   const header = req.headers.cookie ?? "";
   const pairs = header.split(";").map((part) => part.trim().split("="));
@@ -631,7 +715,7 @@ function getCookie(req, name) {
   return found ? decodeURIComponent(found.slice(1).join("=")) : null;
 }
 
-function getAdminSession(req) {
+function getAdminSession(req, store) {
   const sessionId = getCookie(req, "admin_session");
   const session = store.getSession(sessionId);
   if (!session) return { authenticated: false, sessionUser: null };

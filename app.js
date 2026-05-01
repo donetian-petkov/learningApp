@@ -621,7 +621,7 @@ function renderPractice() {
         ${practiceCard(
           "Speaking",
           "Record yourself, transcribe locally when available, then compare your sentence against a natural Japanese correction.",
-          ["Local STT", "Correct", "Suggest natural phrasing"],
+          ["Local STT", "Local TTS", "Suggest natural phrasing"],
           `
             <p>${escapeHtml(speakingPrompt.title)}</p>
             <p class="muted">${escapeHtml(speakingPrompt.prompt)}</p>
@@ -647,7 +647,7 @@ function renderPractice() {
         ${practiceCard(
           "Listening",
           "Play a scene and answer a quick comprehension prompt.",
-          ["Browser TTS", "Static quiz", "Replay line"],
+          ["Local TTS", "Static quiz", "Replay line"],
           `
             <p>${escapeHtml(listeningScenario.title)}</p>
             <p class="muted">${escapeHtml(listeningScenario.question)}</p>
@@ -1525,9 +1525,8 @@ function wireActions() {
 
       if (action === "speak-lesson") {
         const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
-        if (lesson && "speechSynthesis" in window) {
-          speechSynthesis.cancel();
-          speechSynthesis.speak(new SpeechSynthesisUtterance(lesson.japanese));
+        if (lesson) {
+          void speakText(lesson.japanese);
         }
       }
 
@@ -1687,7 +1686,7 @@ function wireActions() {
       }
 
       if (action === "play-sample") {
-        speakText("ラーメンをください。");
+        void speakText("ラーメンをください。");
       }
 
       if (action === "listening-answer") {
@@ -1707,7 +1706,7 @@ function wireActions() {
 
       if (action === "replay-listening") {
         const scenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
-        speakText(scenario.question);
+        void speakText(scenario.question);
       }
 
       if (action === "next-listening") {
@@ -2495,9 +2494,30 @@ function buildLesson(title, theme) {
   return buildLessonDraft(title, theme);
 }
 
-function speakText(text) {
+async function speakText(text) {
+  const sentence = String(text ?? "").trim();
+  if (!sentence) return;
+
+  try {
+    const response = await fetch("/api/tts/synthesize", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: sentence, language: "ja" }),
+    });
+    if (response.ok) {
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audio.onended = () => URL.revokeObjectURL(audioUrl);
+      await audio.play();
+      return;
+    }
+  } catch {
+    // Fall back to browser TTS below.
+  }
+
   if (!("speechSynthesis" in window)) return;
-  const utterance = new SpeechSynthesisUtterance(text);
+  const utterance = new SpeechSynthesisUtterance(sentence);
   utterance.lang = "ja-JP";
   utterance.rate = 0.95;
   utterance.pitch = 1;

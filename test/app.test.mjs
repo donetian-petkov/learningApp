@@ -18,6 +18,33 @@ function cleanupTempStore(temp) {
   rmSync(temp.dir, { recursive: true, force: true });
 }
 
+function createMockRequest(method, pathname, body = null, headers = {}) {
+  const payload = body == null ? [] : [Buffer.from(typeof body === "string" ? body : JSON.stringify(body))];
+  return {
+    method,
+    headers,
+    url: pathname,
+    async *[Symbol.asyncIterator]() {
+      yield* payload;
+    },
+  };
+}
+
+function createMockResponse() {
+  return {
+    statusCode: 0,
+    headers: null,
+    body: null,
+    writeHead(statusCode, headers) {
+      this.statusCode = statusCode;
+      this.headers = headers;
+    },
+    end(body) {
+      this.body = Buffer.isBuffer(body) ? body.toString("utf8") : String(body ?? "");
+    },
+  };
+}
+
 test("SQLite store seeds lessons, progress, and admin defaults", () => {
   const temp = createTempStore();
   try {
@@ -37,6 +64,77 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
     cleanupTempStore(temp);
+  }
+});
+
+test("api handler can be imported without starting the server", async () => {
+  const previous = process.env.LEARNINGAPP_DISABLE_SERVER;
+  process.env.LEARNINGAPP_DISABLE_SERVER = "1";
+  try {
+    const { createApiHandler } = await import("../server.mjs");
+    const handler = createApiHandler({
+      getSession() {
+        return null;
+      },
+      getSnapshot() {
+        return { ok: true };
+      },
+      getLessons() {
+        return [];
+      },
+      getDictionary() {
+        return [];
+      },
+      getKanjiEntries() {
+        return [];
+      },
+      getKanjiReviews() {
+        return [];
+      },
+      getReviews() {
+        return [];
+      },
+      getProgress() {
+        return {};
+      },
+      getGamification() {
+        return {};
+      },
+      getChallenges() {
+        return [];
+      },
+      getStudySessions() {
+        return [];
+      },
+      loadAdminState() {
+        return {};
+      },
+      getAiUsage() {
+        return {};
+      },
+      getAuditLog() {
+        return [];
+      },
+      getSettings() {
+        return {};
+      },
+      getContentReviewQueue() {
+        return [];
+      },
+      getPermissionMatrix() {
+        return { roles: [], permissions: [] };
+      },
+      getUsers() {
+        return [];
+      },
+    });
+    const res = createMockResponse();
+    await handler(createMockRequest("GET", "/api/health"), res, new URL("http://127.0.0.1/api/health"));
+    assert.equal(res.statusCode, 200);
+    assert.equal(JSON.parse(res.body).ok, true);
+  } finally {
+    if (previous == null) delete process.env.LEARNINGAPP_DISABLE_SERVER;
+    else process.env.LEARNINGAPP_DISABLE_SERVER = previous;
   }
 });
 
