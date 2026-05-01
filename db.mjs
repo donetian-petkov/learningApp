@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -1011,11 +1011,11 @@ export class SqliteStorageAdapter {
       audit = `Listening practice: ${correct ? "correct" : "incorrect"}`;
     } else if (kind === "writing") {
       const sentence = String(payload.input ?? "");
-      const feedback = answerAiFeature("writing", sentence, {});
-      updated.tutor.answer = feedback;
-      updated.progress.xp += 25;
-      updated.progress.credits += 8;
-      audit = `Writing practice reviewed`;
+      const evaluation = evaluateWritingSubmission(sentence);
+      updated.tutor.answer = `${evaluation.correction}\n${evaluation.issues.length ? evaluation.issues.join(" ") : "Looks clean."}`;
+      updated.progress.xp += Math.max(15, evaluation.score / 4);
+      updated.progress.credits += evaluation.score >= 85 ? 10 : 6;
+      audit = `Writing practice reviewed: ${evaluation.score}`;
     } else if (kind === "tutor") {
       const question = String(payload.question ?? current.tutor.question);
       updated.tutor.question = question;

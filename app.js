@@ -495,6 +495,11 @@ function renderPractice() {
               <span>Sentence</span>
               <textarea rows="4" data-field="writing-input">私は毎日日本語を勉強します。</textarea>
             </label>
+            <div class="tag-row">
+              <button class="chip" data-action="writing-starter" data-value="ラーメンをください。">Restaurant</button>
+              <button class="chip" data-action="writing-starter" data-value="今日は日本語を勉強します。">Study</button>
+              <button class="chip" data-action="writing-starter" data-value="駅はどこですか。">Directions</button>
+            </div>
             <div class="button-row">
               <button class="primary" data-action="check-writing">Review writing</button>
             </div>
@@ -1139,6 +1144,14 @@ function wireActions() {
         });
         if (output) output.textContent = result.tutor?.answer ?? state.tutor.answer;
         await refreshState();
+      }
+
+      if (action === "writing-starter") {
+        const input = app.querySelector('[data-field="writing-input"]');
+        if (input) {
+          input.value = button.dataset.value ?? "私は毎日日本語を勉強します。";
+          input.focus();
+        }
       }
 
       if (action === "ask-tutor") {

@@ -87,6 +87,33 @@ export function evaluateListeningAnswer(correctAnswer, selectedAnswer, prompt = 
     : "Not quite. Replay the line and listen for the key detail.";
 }
 
+export function evaluateWritingSubmission(sentence) {
+  const raw = String(sentence ?? "").trim();
+  const text = normalizeSentence(raw || "ラーメンをください");
+  const issues = [];
+
+  if (!raw) issues.push("Write a sentence before checking it.");
+  if (text.length < 8) issues.push("Use a slightly longer sentence.");
+  if (!/[。！？]$/.test(raw)) issues.push("Add a Japanese period at the end.");
+  if (!/(は|が|を|に|で|と)/.test(text)) issues.push("Include at least one basic particle.");
+  if (!/(です|ます|ください)/.test(text)) issues.push("Try a polite ending such as です, ます, or ください.");
+  if (/[A-Za-z]/.test(text)) issues.push("Remove romaji from the Japanese answer.");
+
+  const score = Math.max(40, 100 - issues.length * 12);
+  const suggestions = [];
+  if (!/(です|ます|ください)/.test(text)) suggestions.push("Make the sentence polite.");
+  if (!/[。！？]$/.test(raw)) suggestions.push("End with 。");
+  if (!/(は|が|を|に|で|と)/.test(text)) suggestions.push("Add a particle to connect the phrase.");
+
+  return {
+    score,
+    issues,
+    correction: `Natural correction: ${text}`,
+    suggestions,
+    normalized: text,
+  };
+}
+
 export function buildRoleplayTranscript(scenario) {
   const scripts = {
     restaurant: [

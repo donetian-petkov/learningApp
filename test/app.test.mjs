@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -128,6 +128,9 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
       prompt: "the server asked about broth",
     });
     assert.equal(listening.tutor.answer.includes("Correct"), true);
+
+    const writing = temp.store.recordPracticeSession("writing", { input: "私は毎日日本語を勉強します" });
+    assert.equal(writing.tutor.answer.includes("Natural correction:"), true);
   } finally {
     cleanupTempStore(temp);
   }
@@ -218,6 +221,14 @@ test("dictionary lookup and ai responses are available locally", () => {
 test("listening answers produce contextual feedback", () => {
   assert.equal(evaluateListeningAnswer("broth", "broth", "the server asked about broth").includes("Correct"), true);
   assert.equal(evaluateListeningAnswer("broth", "price", "the server asked about broth").includes("Not quite"), true);
+});
+
+test("writing submission evaluation returns score and guidance", () => {
+  const evaluation = evaluateWritingSubmission("私は毎日日本語を勉強します");
+  assert.equal(typeof evaluation.score, "number");
+  assert.ok(evaluation.correction.startsWith("Natural correction:"));
+  assert.ok(Array.isArray(evaluation.issues));
+  assert.ok(evaluation.issues.some((issue) => issue.includes("period")));
 });
 
 test("leaderboard is populated and updates from study progress", () => {
