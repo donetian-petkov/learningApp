@@ -66,6 +66,11 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/kanji/reviews") {
+    respondJson(res, 200, store.getKanjiReviews());
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/dictionary/import") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });
@@ -85,6 +90,13 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const imported = store.importKanjiEntries(body.entries ?? body.entry ?? body);
     respondJson(res, 200, { imported: imported.length, entries: imported });
+    return;
+  }
+
+  if (req.method === "PATCH" && url.pathname.startsWith("/api/kanji/reviews/")) {
+    const reviewId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    const body = await readJson(req);
+    respondJson(res, 200, store.gradeKanjiReview(reviewId, body.grade ?? 4));
     return;
   }
 

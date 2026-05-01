@@ -77,6 +77,59 @@ const defaultState = {
     { prompt: "武士", answer: "ぶし", meaning: "samurai", due: "In 1 day", ease: 2.3 },
     { prompt: "よろしくお願いします", answer: "よろしくおねがいします", meaning: "please treat me well", due: "Now", ease: 2.1 },
   ],
+  kanjiReviews: [
+    {
+      id: "kanji-review-今日",
+      character: "今日",
+      prompt: "What does 今日 mean?",
+      answer: "today",
+      meaning: "today",
+      onYomi: "コン",
+      kunYomi: "きょう",
+      examples: ["今日はよろしくお願いします。"],
+      due: "Now",
+      ease: 2.5,
+      interval_days: 1,
+      repetitions: 0,
+      mistakes: 0,
+      source_entry_id: "kanji-kiyou",
+      source: "seed",
+    },
+    {
+      id: "kanji-review-一",
+      character: "一",
+      prompt: "What does 一 mean?",
+      answer: "one",
+      meaning: "one",
+      onYomi: "イチ",
+      kunYomi: "ひとつ",
+      examples: ["ラーメンを一つください。"],
+      due: "In 1 day",
+      ease: 2.4,
+      interval_days: 1,
+      repetitions: 0,
+      mistakes: 0,
+      source_entry_id: "kanji-ichiji",
+      source: "seed",
+    },
+    {
+      id: "kanji-review-武",
+      character: "武",
+      prompt: "What does 武 mean?",
+      answer: "warrior",
+      meaning: "warrior",
+      onYomi: "ブ",
+      kunYomi: "たけ",
+      examples: ["武士は言葉より行動で示す。"],
+      due: "In 1 day",
+      ease: 2.3,
+      interval_days: 1,
+      repetitions: 0,
+      mistakes: 0,
+      source_entry_id: "kanji-bushi",
+      source: "seed",
+    },
+  ],
   achievements: [
     { name: "First Lesson Completed", unlocked: true },
     { name: "7-Day Streak", unlocked: true },
@@ -183,6 +236,8 @@ let listeningScenarioIndex = 0;
 let speakingPromptIndex = 0;
 let readingSelection = null;
 let kanjiSelection = null;
+let kanjiReviewIndex = 0;
+let kanjiReviewFeedback = "";
 
 const listeningScenarios = [
   {
@@ -680,6 +735,9 @@ function renderPractice() {
 }
 
 function renderReview() {
+  const kanjiQueue = Array.isArray(state.kanjiReviews) ? state.kanjiReviews : [];
+  const kanjiReview = kanjiQueue.length ? kanjiQueue[kanjiReviewIndex % kanjiQueue.length] : null;
+  const kanjiChoices = kanjiReview ? buildKanjiQuizChoices(kanjiReview, kanjiQueue, state.kanjiEntries ?? []) : [];
   const items = state.reviews
     .map(
       (item) => `
@@ -719,6 +777,49 @@ function renderReview() {
           <h3>Weekly leaderboard</h3>
           ${renderLeaderboard()}
         </div>
+      </div>
+      <div class="grid-card spaced">
+        <h3>Kanji drill</h3>
+        ${
+          kanjiReview
+            ? `
+              <p class="muted">Quiz mode: choose the best meaning, then inspect readings and examples.</p>
+              <div class="kanji-focus">
+                <strong>${escapeHtml(kanjiReview.character)}</strong>
+                <span class="tag">${escapeHtml(kanjiReview.meaning)}</span>
+              </div>
+              <p>${escapeHtml(kanjiReview.prompt)}</p>
+              <div class="list">
+                ${kanjiChoices
+                  .map(
+                    (choice) => `
+                      <button class="list-item" data-action="kanji-quiz-answer" data-review-id="${escapeHtml(kanjiReview.id)}" data-answer="${escapeHtml(choice)}">
+                        ${escapeHtml(choice)}
+                      </button>
+                    `
+                  )
+                  .join("")}
+              </div>
+              <div class="review-result">${escapeHtml(kanjiReviewFeedback || "Pick the meaning that matches the kanji.")}</div>
+              <div class="button-row">
+                <button class="secondary" data-action="kanji-next-review">Next kanji</button>
+                <button class="secondary" data-action="kanji-show-readings" data-character="${escapeHtml(kanjiReview.character)}">Show readings</button>
+              </div>
+              ${
+                kanjiSelection && kanjiSelection.character === kanjiReview.character
+                  ? `
+                    <div class="spaced">
+                      <p class="muted">Readings and examples</p>
+                      <p>${escapeHtml(kanjiSelection.character)} · ${escapeHtml(kanjiSelection.meaning)}</p>
+                      <p class="muted">${escapeHtml(kanjiSelection.onYomi || "No on-yomi stored")} / ${escapeHtml(kanjiSelection.kunYomi || "No kun-yomi stored")}</p>
+                      <p>${escapeHtml((kanjiSelection.examples ?? []).slice(0, 3).join(" · ") || "No examples available.")}</p>
+                    </div>
+                  `
+                  : ""
+              }
+            `
+            : "<p class='muted'>No kanji review items available yet.</p>"
+        }
       </div>
       <div class="grid-card spaced">
         <h3>Weekly challenges</h3>
@@ -765,6 +866,7 @@ function renderProgress() {
         ${renderStat("Vocabulary", state.progress.vocab)}
         ${renderStat("Speaking minutes", state.progress.speakingMinutes)}
         ${renderStat("Listening minutes", state.progress.listeningMinutes)}
+        ${renderStat("Kanji drill items", state.kanjiReviews?.length ?? 0)}
       </div>
       <div class="progress-grid">
         <div class="grid-card">
@@ -962,8 +1064,9 @@ function renderAdmin() {
           <p>${state.admin.analytics?.xpEvents ?? 0} XP events · ${state.admin.analytics?.xpAwarded ?? 0} XP awarded</p>
           <p>${state.admin.analytics?.creditEvents ?? 0} credit events · ${state.admin.analytics?.creditsAwarded ?? 0} credits awarded</p>
           <p>${state.admin.analytics?.studySessions ?? 0} study sessions · ${state.admin.analytics?.studyMinutes ?? 0} minutes</p>
-          <p>${state.admin.analytics?.reviewHistory ?? 0} review events · ${state.admin.analytics?.aiRequests ?? 0} AI requests</p>
-          <p>${state.kanjiEntries?.length ?? 0} kanji entries · ${state.admin.analytics?.topLessons?.length ?? 0} lesson-linked review groups</p>
+          <p>${state.admin.analytics?.reviewHistory ?? 0} review events · ${state.admin.analytics?.kanjiReviewHistory ?? 0} kanji review events</p>
+          <p>${state.kanjiEntries?.length ?? 0} kanji entries · ${state.kanjiReviews?.length ?? 0} kanji drills</p>
+          <p>${state.admin.analytics?.topLessons?.length ?? 0} lesson-linked review groups · ${state.admin.analytics?.topKanji?.length ?? 0} trending kanji</p>
           <h4 class="spaced">Top study kinds</h4>
           <div class="list">
             ${(state.admin.analytics?.sessionKinds ?? [])
@@ -972,6 +1075,19 @@ function renderAdmin() {
                   <div class="list-item">
                     <strong>${escapeHtml(item.kind)}</strong>
                     <span class="muted">${item.count} sessions · ${item.durationMinutes} min</span>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+          <h4 class="spaced">Top kanji</h4>
+          <div class="list">
+            ${(state.admin.analytics?.topKanji ?? [])
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <strong>${escapeHtml(item.character)}</strong>
+                    <span class="muted">${item.reviewCount} reviews</span>
                   </div>
                 `
               )
@@ -1356,6 +1472,46 @@ function wireActions() {
           }
           await refreshState();
         }
+      }
+
+      if (action === "kanji-quiz-answer") {
+        const reviewId = button.dataset.reviewId;
+        const answer = button.dataset.answer ?? "";
+        const kanjiReview = (state.kanjiReviews ?? []).find((entry) => entry.id === reviewId);
+        if (reviewId && kanjiReview) {
+          const correct = answer === kanjiReview.meaning;
+          const grade = correct ? 4 : 2;
+          await apiJson(`/api/kanji/reviews/${encodeURIComponent(reviewId)}`, {
+            method: "PATCH",
+            body: { grade },
+          });
+          if (correct) {
+            await apiJson("/api/gamification/award", {
+              method: "POST",
+              body: { source: "kanji-review-pass", delta: { xp: 18, credits: 4, streak: 0 } },
+            });
+            kanjiReviewFeedback = `Correct. ${kanjiReview.character} means ${kanjiReview.meaning}.`;
+          } else {
+            kanjiReviewFeedback = `Not quite. ${kanjiReview.character} means ${kanjiReview.meaning}.`;
+          }
+          kanjiReviewIndex = 0;
+          await refreshState();
+        }
+      }
+
+      if (action === "kanji-next-review") {
+        const count = (state.kanjiReviews ?? []).length;
+        kanjiReviewIndex = count ? (kanjiReviewIndex + 1) % count : 0;
+        kanjiReviewFeedback = "";
+        render();
+      }
+
+      if (action === "kanji-show-readings") {
+        const character = button.dataset.character ?? "";
+        kanjiSelection = state.kanjiEntries?.find((entry) => entry.character === character)
+          ?? state.kanjiReviews?.find((entry) => entry.character === character)
+          ?? null;
+        render();
       }
 
       if (action === "check-speaking") {
@@ -2040,6 +2196,30 @@ function activeLessonPreview() {
       ? `${item.word} (${item.kana}) - ${item.meaning}`
       : `${item.word} - ${item.meaning}`
   );
+}
+
+function buildKanjiQuizChoices(review, reviewQueue, entries) {
+  const uniqueChoices = new Set();
+  uniqueChoices.add(review.meaning || review.character);
+  (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry.character !== review.character)
+    .forEach((entry) => {
+      if (entry?.meaning) uniqueChoices.add(entry.meaning);
+    });
+  (Array.isArray(reviewQueue) ? reviewQueue : [])
+    .filter((entry) => entry.character !== review.character)
+    .forEach((entry) => {
+      if (entry?.meaning) uniqueChoices.add(entry.meaning);
+    });
+
+  const fallbackChoices = ["action", "station", "request", "practice", "meeting", "training"];
+  fallbackChoices.forEach((choice) => uniqueChoices.add(choice));
+  const choices = Array.from(uniqueChoices).slice(0, 6);
+  const targetSize = Math.min(4, choices.length);
+  const seed = Array.from(String(review.character || review.id || "")).reduce((total, char) => total + char.codePointAt(0), 0);
+  const rotation = choices.length ? seed % choices.length : 0;
+  const rotated = choices.slice(rotation).concat(choices.slice(0, rotation));
+  return rotated.slice(0, targetSize);
 }
 
 function renderLeaderboard() {

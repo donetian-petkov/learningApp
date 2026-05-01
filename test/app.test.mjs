@@ -28,9 +28,11 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 6);
+    assert.equal(temp.store.getSchemaVersion(), 7);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
+    assert.equal(Array.isArray(snapshot.kanjiReviews), true);
+    assert.equal(snapshot.kanjiReviews.length >= 3, true);
     assert.equal(snapshot.admin.users.length, 3);
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
@@ -314,6 +316,12 @@ test("kanji entries can be imported and looked up", () => {
     assert.equal(temp.store.lookupKanji("駅")?.meaning, "station");
     assert.equal(temp.store.lookupKanji("願")?.onYomi, "ガン");
     assert.equal(temp.store.getKanjiEntries("駅").length >= 1, true);
+    const review = temp.store.getKanjiReviews().find((entry) => entry.character === "駅");
+    assert.ok(review);
+    const graded = temp.store.gradeKanjiReview(review.id, 5);
+    assert.equal(graded.character, "駅");
+    assert.equal(temp.store.getKanjiReviews().find((entry) => entry.id === review.id)?.repetitions >= 1, true);
+    assert.equal(temp.store.getSnapshot().admin.analytics.kanjiReviewHistory >= 1, true);
   } finally {
     cleanupTempStore(temp);
   }
@@ -384,7 +392,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 6);
+    assert.equal(temp.store.getSchemaVersion(), 7);
   } finally {
     cleanupTempStore(temp);
   }

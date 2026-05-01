@@ -126,6 +126,32 @@ function normalizeKanjiEntry(entry, index = 0) {
   };
 }
 
+function buildKanjiReviewItem(entry, index = 0) {
+  const normalized = normalizeKanjiEntry(entry, index);
+  const id = String(entry.id ?? `kanji-review-${normalized.character || index}`).trim() || `kanji-review-${index}`;
+  return {
+    id,
+    character: normalized.character,
+    prompt: `What does ${normalized.character || "this kanji"} mean?`,
+    answer: normalized.meaning || normalized.character,
+    meaning: normalized.meaning || normalized.character,
+    onYomi: normalized.onYomi,
+    kunYomi: normalized.kunYomi,
+    examples: normalized.examples,
+    due: entry.due ?? "Now",
+    ease: Number(entry.ease ?? 2.5),
+    interval_days: Number(entry.interval_days ?? 1),
+    repetitions: Number(entry.repetitions ?? 0),
+    mistakes: Number(entry.mistakes ?? 0),
+    source_entry_id: entry.source_entry_id ?? normalized.id,
+    source: String(entry.source ?? normalized.source ?? "seed").trim() || "seed",
+  };
+}
+
+function normalizeKanjiReviewItem(item, index = 0) {
+  return buildKanjiReviewItem(item, index);
+}
+
 function normalizeState(snapshot) {
   const state = clone(snapshot ?? INITIAL_APP_STATE);
   state.view ??= "learn";
@@ -139,6 +165,10 @@ function normalizeState(snapshot) {
   state.dailyTasks = Array.isArray(state.dailyTasks) ? state.dailyTasks.map(normalizeTask) : [];
   state.cosmetics = Array.isArray(state.cosmetics) ? state.cosmetics.map(normalizeCosmetic) : [];
   state.kanjiEntries = Array.isArray(state.kanjiEntries) ? state.kanjiEntries.map(normalizeKanjiEntry) : [];
+  const derivedKanjiReviews = state.kanjiEntries.map((entry, index) => buildKanjiReviewItem(entry, index));
+  state.kanjiReviews = Array.isArray(state.kanjiReviews) && state.kanjiReviews.length
+    ? state.kanjiReviews.map(normalizeKanjiReviewItem)
+    : derivedKanjiReviews;
   state.admin ??= clone(INITIAL_APP_STATE.admin);
   state.admin.roles ??= [];
   state.admin.aiUsage ??= clone(INITIAL_APP_STATE.admin.aiUsage);
@@ -194,10 +224,10 @@ function normalizeChallenge(item, index = 0) {
 
 function resolveChallengeTriggers(category, kind) {
   if (category === "lesson") return kind === "lesson";
-  if (category === "study") return kind === "study" || kind === "manual-award" || kind === "reward-chest" || kind === "task" || kind === "cosmetic";
+  if (category === "study") return kind === "study" || kind === "manual-award" || kind === "reward-chest" || kind === "task" || kind === "cosmetic" || kind === "kanji-review";
   if (category === "listening") return kind === "listening";
   if (category === "speaking") return kind === "speaking";
-  if (category === "review") return kind === "review-pass";
+  if (category === "review") return kind === "review-pass" || kind === "kanji-review";
   return category === kind;
 }
 
@@ -345,6 +375,33 @@ export class SqliteStorageAdapter {
         kun_yomi TEXT NOT NULL,
         examples_json TEXT NOT NULL,
         source TEXT NOT NULL DEFAULT 'seed'
+      );
+
+      CREATE TABLE IF NOT EXISTS kanji_review_items (
+        id TEXT PRIMARY KEY,
+        character TEXT NOT NULL UNIQUE,
+        prompt TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        meaning TEXT NOT NULL,
+        on_yomi TEXT NOT NULL,
+        kun_yomi TEXT NOT NULL,
+        examples_json TEXT NOT NULL,
+        due TEXT NOT NULL,
+        ease REAL NOT NULL,
+        interval_days INTEGER NOT NULL DEFAULT 1,
+        repetitions INTEGER NOT NULL DEFAULT 0,
+        mistakes INTEGER NOT NULL DEFAULT 0,
+        source_entry_id TEXT,
+        source TEXT NOT NULL DEFAULT 'seed'
+      );
+
+      CREATE TABLE IF NOT EXISTS kanji_review_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kanji_review_item_id TEXT NOT NULL,
+        grade INTEGER NOT NULL,
+        reviewed_at TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (kanji_review_item_id) REFERENCES kanji_review_items(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS lesson_grammar (
@@ -679,11 +736,48 @@ export class SqliteStorageAdapter {
       `);
       setSchemaVersion(this.db, 6);
     }
+    if (getSchemaVersion(this.db) < 7) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS kanji_review_items (
+          id TEXT PRIMARY KEY,
+          character TEXT NOT NULL UNIQUE,
+          prompt TEXT NOT NULL,
+          answer TEXT NOT NULL,
+          meaning TEXT NOT NULL,
+          on_yomi TEXT NOT NULL,
+          kun_yomi TEXT NOT NULL,
+          examples_json TEXT NOT NULL,
+          due TEXT NOT NULL,
+          ease REAL NOT NULL,
+          interval_days INTEGER NOT NULL DEFAULT 1,
+          repetitions INTEGER NOT NULL DEFAULT 0,
+          mistakes INTEGER NOT NULL DEFAULT 0,
+          source_entry_id TEXT,
+          source TEXT NOT NULL DEFAULT 'seed'
+        );
+
+        CREATE TABLE IF NOT EXISTS kanji_review_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kanji_review_item_id TEXT NOT NULL,
+          grade INTEGER NOT NULL,
+          reviewed_at TEXT NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (kanji_review_item_id) REFERENCES kanji_review_items(id) ON DELETE CASCADE
+        );
+      `);
+      setSchemaVersion(this.db, 7);
+    }
   }
 
   seedIfNeeded() {
     const lessonCount = this.db.prepare("SELECT COUNT(*) AS count FROM lessons").get().count;
-    if (lessonCount > 0) return;
+    const kanjiReviewCount = this.db.prepare("SELECT COUNT(*) AS count FROM kanji_review_items").get().count;
+    if (lessonCount > 0) {
+      if (kanjiReviewCount === 0) {
+        this.seedKanjiReviewsFromEntries();
+      }
+      return;
+    }
     const snapshot = normalizeState(INITIAL_APP_STATE);
     this.replaceMirrorTables(snapshot);
     this.db.prepare(
@@ -1067,6 +1161,38 @@ export class SqliteStorageAdapter {
     return { ...review, ...next };
   }
 
+  gradeKanjiReview(reviewId, grade) {
+    const review = this.db.prepare("SELECT * FROM kanji_review_items WHERE id = ?").get(reviewId);
+    if (!review) return null;
+    const next = sm2Next(review, grade);
+    const note = grade >= 5 ? "easy" : grade >= 4 ? "good" : grade >= 3 ? "hard" : "again";
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare(
+        "UPDATE kanji_review_items SET due = ?, ease = ?, interval_days = ?, repetitions = ?, mistakes = ? WHERE id = ?"
+      ).run(next.due, next.ease, next.interval_days, next.repetitions, next.mistakes, reviewId);
+      this.db.prepare(
+        "INSERT INTO kanji_review_history (kanji_review_item_id, grade, reviewed_at, note) VALUES (?, ?, ?, ?)"
+      ).run(reviewId, grade, nowIso(), note);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    const current = this.getSnapshot();
+    const updated = {
+      ...current,
+      progress: {
+        ...current.progress,
+        reviewedWords: current.progress.reviewedWords + 1,
+        kanji: grade >= 4 ? current.progress.kanji + 1 : current.progress.kanji,
+      },
+    };
+    this.saveAppState(updated, current.admin.sessionUser ?? null);
+    this.recordStudySession("kanji-review", 2, 0, 0, current.admin.sessionUser ?? null);
+    return { ...review, ...next };
+  }
+
   loadProgress() {
     return this.getSnapshot().progress;
   }
@@ -1374,6 +1500,23 @@ export class SqliteStorageAdapter {
       examples: parseJson(row.examples_json, []),
       source: row.source,
     }));
+    const kanjiReviews = this.db.prepare("SELECT * FROM kanji_review_items ORDER BY due, character, id").all().map((row) => ({
+      id: row.id,
+      character: row.character,
+      prompt: row.prompt,
+      answer: row.answer,
+      meaning: row.meaning,
+      onYomi: row.on_yomi,
+      kunYomi: row.kun_yomi,
+      examples: parseJson(row.examples_json, []),
+      due: row.due,
+      ease: row.ease,
+      interval_days: row.interval_days,
+      repetitions: row.repetitions,
+      mistakes: row.mistakes,
+      source_entry_id: row.source_entry_id,
+      source: row.source,
+    }));
     const achievements = this.db.prepare("SELECT * FROM achievements ORDER BY sort_order, name").all().map((row) => ({
       name: row.name,
       unlocked: Boolean(
@@ -1525,6 +1668,7 @@ export class SqliteStorageAdapter {
       lessons,
       reviews,
       kanjiEntries,
+      kanjiReviews,
       achievements,
       dailyTasks,
       cosmetics,
@@ -1792,6 +1936,59 @@ export class SqliteStorageAdapter {
       ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), entry.source ?? "seed");
     });
 
+    const kanjiReviews = Array.isArray(snapshot.kanjiReviews) && snapshot.kanjiReviews.length
+      ? snapshot.kanjiReviews
+      : Array.from(kanjiSet.values()).map((entry, index) => buildKanjiReviewItem(entry, index));
+    const existingKanjiReviewIds = new Set(
+      this.db.prepare("SELECT id FROM kanji_review_items").all().map((row) => row.id)
+    );
+    kanjiReviews.forEach((item, index) => {
+      const normalized = normalizeKanjiReviewItem(item, index);
+      this.db.prepare(
+        `
+          INSERT INTO kanji_review_items (
+            id, character, prompt, answer, meaning, on_yomi, kun_yomi, examples_json, due, ease,
+            interval_days, repetitions, mistakes, source_entry_id, source
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(character) DO UPDATE SET
+            id = excluded.id,
+            prompt = excluded.prompt,
+            answer = excluded.answer,
+            meaning = excluded.meaning,
+            on_yomi = excluded.on_yomi,
+            kun_yomi = excluded.kun_yomi,
+            examples_json = excluded.examples_json,
+            due = excluded.due,
+            ease = excluded.ease,
+            interval_days = excluded.interval_days,
+            repetitions = excluded.repetitions,
+            mistakes = excluded.mistakes,
+            source_entry_id = excluded.source_entry_id,
+            source = excluded.source
+        `
+      ).run(
+        normalized.id,
+        normalized.character,
+        normalized.prompt,
+        normalized.answer,
+        normalized.meaning,
+        normalized.onYomi,
+        normalized.kunYomi,
+        toJson(normalized.examples ?? []),
+        normalized.due,
+        normalized.ease,
+        normalized.interval_days,
+        normalized.repetitions,
+        normalized.mistakes,
+        normalized.source_entry_id,
+        normalized.source
+      );
+      existingKanjiReviewIds.delete(normalized.id);
+    });
+    existingKanjiReviewIds.forEach((reviewId) => {
+      this.db.prepare("DELETE FROM kanji_review_items WHERE id = ?").run(reviewId);
+    });
+
     const existingReviewIds = new Set(
       this.db.prepare("SELECT id FROM review_items").all().map((row) => row.id)
     );
@@ -1939,6 +2136,69 @@ export class SqliteStorageAdapter {
         createdAt: nowIso(),
       });
     });
+  }
+
+  seedKanjiReviewsFromEntries() {
+    const rows = this.db.prepare("SELECT * FROM kanji_entries ORDER BY character, id").all();
+    if (!rows.length) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      rows.forEach((row, index) => {
+        const review = buildKanjiReviewItem({
+          id: `kanji-review-${row.character || row.id || index}`,
+          character: row.character,
+          meaning: row.meaning,
+          onYomi: row.on_yomi,
+          kunYomi: row.kun_yomi,
+          examples: parseJson(row.examples_json, []),
+          source_entry_id: row.id,
+          source: row.source,
+        }, index);
+        this.db.prepare(
+          `
+            INSERT INTO kanji_review_items (
+              id, character, prompt, answer, meaning, on_yomi, kun_yomi, examples_json, due, ease,
+              interval_days, repetitions, mistakes, source_entry_id, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(character) DO UPDATE SET
+              id = excluded.id,
+              prompt = excluded.prompt,
+              answer = excluded.answer,
+              meaning = excluded.meaning,
+              on_yomi = excluded.on_yomi,
+              kun_yomi = excluded.kun_yomi,
+              examples_json = excluded.examples_json,
+              due = excluded.due,
+              ease = excluded.ease,
+              interval_days = excluded.interval_days,
+              repetitions = excluded.repetitions,
+              mistakes = excluded.mistakes,
+              source_entry_id = excluded.source_entry_id,
+              source = excluded.source
+          `
+        ).run(
+          review.id,
+          review.character,
+          review.prompt,
+          review.answer,
+          review.meaning,
+          review.onYomi,
+          review.kunYomi,
+          toJson(review.examples),
+          review.due,
+          review.ease,
+          review.interval_days,
+          review.repetitions,
+          review.mistakes,
+          review.source_entry_id,
+          review.source
+        );
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   createSession(username) {
@@ -2109,6 +2369,10 @@ export class SqliteStorageAdapter {
     return this.getKanjiEntries(query)[0] ?? null;
   }
 
+  getKanjiReviews() {
+    return this.getSnapshot().kanjiReviews;
+  }
+
   importKanjiEntries(entries) {
     const list = Array.isArray(entries) ? entries : [entries];
     const imported = [];
@@ -2132,6 +2396,54 @@ export class SqliteStorageAdapter {
           normalized.source
         );
         imported.push(normalized);
+        const review = buildKanjiReviewItem({
+          id: `kanji-review-${normalized.character}`,
+          character: normalized.character,
+          meaning: normalized.meaning,
+          onYomi: normalized.onYomi,
+          kunYomi: normalized.kunYomi,
+          examples: normalized.examples,
+          source: normalized.source,
+        });
+        this.db.prepare(
+          `
+            INSERT INTO kanji_review_items (
+              id, character, prompt, answer, meaning, on_yomi, kun_yomi, examples_json, due, ease,
+              interval_days, repetitions, mistakes, source_entry_id, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(character) DO UPDATE SET
+              id = excluded.id,
+              prompt = excluded.prompt,
+              answer = excluded.answer,
+              meaning = excluded.meaning,
+              on_yomi = excluded.on_yomi,
+              kun_yomi = excluded.kun_yomi,
+              examples_json = excluded.examples_json,
+              due = excluded.due,
+              ease = excluded.ease,
+              interval_days = excluded.interval_days,
+              repetitions = excluded.repetitions,
+              mistakes = excluded.mistakes,
+              source_entry_id = excluded.source_entry_id,
+              source = excluded.source
+          `
+        ).run(
+          review.id,
+          review.character,
+          review.prompt,
+          review.answer,
+          review.meaning,
+          review.onYomi,
+          review.kunYomi,
+          toJson(review.examples),
+          review.due,
+          review.ease,
+          review.interval_days,
+          review.repetitions,
+          review.mistakes,
+          review.source_entry_id,
+          review.source
+        );
       });
       if (imported.length) {
         this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Imported kanji entries: ${imported.length}`, nowIso());
@@ -2322,7 +2634,7 @@ export class SqliteStorageAdapter {
   }
 
   resetDatabase() {
-    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_meta;");
+    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS kanji_review_history; DROP TABLE IF EXISTS kanji_review_items; DROP TABLE IF EXISTS kanji_entries; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_meta;");
     this.migrate();
     this.seedIfNeeded();
     return this.getSnapshot();
@@ -2373,12 +2685,16 @@ export class SqliteStorageAdapter {
     const creditsRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total FROM credits_ledger").get();
     const studyRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(duration_minutes), 0) AS duration FROM study_sessions").get();
     const reviewRow = this.db.prepare("SELECT COUNT(*) AS count FROM review_history").get();
+    const kanjiReviewRow = this.db.prepare("SELECT COUNT(*) AS count FROM kanji_review_history").get();
     const aiRow = this.db.prepare("SELECT COUNT(*) AS count FROM ai_usage_log").get();
     const sessionKinds = this.db.prepare(
       "SELECT kind, COUNT(*) AS count, COALESCE(SUM(duration_minutes), 0) AS duration FROM study_sessions GROUP BY kind ORDER BY count DESC, kind LIMIT 6"
     ).all();
     const topLessons = this.db.prepare(
       "SELECT source_lesson_id AS lesson_id, COUNT(*) AS count FROM review_items WHERE source_lesson_id IS NOT NULL GROUP BY source_lesson_id ORDER BY count DESC, lesson_id LIMIT 5"
+    ).all();
+    const topKanji = this.db.prepare(
+      "SELECT character, COUNT(*) AS count FROM kanji_review_history JOIN kanji_review_items ON kanji_review_history.kanji_review_item_id = kanji_review_items.id GROUP BY character ORDER BY count DESC, character LIMIT 5"
     ).all();
     const dailyAi = this.db.prepare(
       "SELECT substr(created_at, 1, 10) AS date_key, COUNT(*) AS count FROM ai_usage_log GROUP BY date_key ORDER BY date_key DESC LIMIT 7"
@@ -2392,6 +2708,7 @@ export class SqliteStorageAdapter {
       studySessions: studyRow.count,
       studyMinutes: studyRow.duration,
       reviewHistory: reviewRow.count,
+      kanjiReviewHistory: kanjiReviewRow.count,
       aiRequests: aiRow.count,
       sessionKinds: sessionKinds.map((row) => ({
         kind: row.kind,
@@ -2400,6 +2717,10 @@ export class SqliteStorageAdapter {
       })),
       topLessons: topLessons.map((row) => ({
         lessonId: row.lesson_id,
+        reviewCount: row.count,
+      })),
+      topKanji: topKanji.map((row) => ({
+        character: row.character,
         reviewCount: row.count,
       })),
       dailyAi: dailyAi.map((row) => ({
