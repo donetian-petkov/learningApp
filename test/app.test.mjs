@@ -247,6 +247,21 @@ test("analytics summary is derived from persisted activity", async () => {
   }
 });
 
+test("snapshot export and restore preserve persisted state", () => {
+  const temp = createTempStore();
+  try {
+    temp.store.completeLesson("food-ramen");
+    const snapshot = temp.store.getSnapshot();
+    temp.store.resetDatabase();
+    const restored = temp.store.saveAppState(snapshot);
+    assert.equal(restored.progress.completedLessons.includes("food-ramen"), true);
+    assert.equal(restored.lessons.some((lesson) => lesson.id === "anime-intro"), true);
+    assert.equal(restored.admin.maintenanceMode, false);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("user management mutations and reset work", () => {
   const temp = createTempStore();
   try {

@@ -893,6 +893,15 @@ function renderAdmin() {
             <input type="text" data-field="announcement-input" value="${escapeHtml(state.admin.announcements)}" />
           </label>
           <button class="primary" data-action="save-announcement">Save announcement</button>
+          <h4 class="spaced">Backup / restore</h4>
+          <label class="field">
+            <span>Snapshot JSON</span>
+            <textarea data-field="backup-json" rows="8" placeholder="Exported snapshot appears here."></textarea>
+          </label>
+          <div class="button-row">
+            <button class="secondary" data-action="export-backup">Export backup</button>
+            <button class="secondary" data-action="import-backup">Import backup</button>
+          </div>
         </div>
         <div class="grid-card">
           <h3>Content management</h3>
@@ -1557,6 +1566,36 @@ function wireActions() {
         await apiJson("/api/audit-log", {
           method: "POST",
           body: { entry: `Queued lesson review: ${lesson.id}` },
+        });
+        await refreshState();
+      }
+
+      if (action === "export-backup") {
+        const backupInput = app.querySelector('[data-field="backup-json"]');
+        const snapshot = await apiJson("/api/admin/export");
+        if (backupInput) {
+          backupInput.value = JSON.stringify(snapshot, null, 2);
+          backupInput.focus();
+          backupInput.setSelectionRange(0, backupInput.value.length);
+        }
+      }
+
+      if (action === "import-backup") {
+        const backupInput = app.querySelector('[data-field="backup-json"]');
+        const raw = backupInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Backup JSON is not valid.");
+          return;
+        }
+        await apiJson("/api/admin/import", {
+          method: "POST",
+          body: { state: parsed },
         });
         await refreshState();
       }

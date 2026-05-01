@@ -197,6 +197,15 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/admin/export") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    respondJson(res, 200, store.getSnapshot(session));
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/admin/content-review") {
     respondJson(res, 200, store.getContentReviewQueue());
     return;
@@ -297,6 +306,17 @@ async function handleApi(req, res, url) {
       sessionUser: session.sessionUser,
     };
     respondJson(res, 200, store.saveAppState(current, session.sessionUser));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/admin/import") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    const snapshot = body.state ?? body.snapshot ?? body;
+    respondJson(res, 200, store.saveAppState(snapshot, session.sessionUser));
     return;
   }
 
