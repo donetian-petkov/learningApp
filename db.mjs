@@ -529,14 +529,16 @@ function resolveChallengeTriggers(category, kind) {
 }
 
 function getAiProviderInfo() {
-  const provider = String(process.env.AI_PROVIDER ?? (process.env.OLLAMA_HOST ? "ollama" : "fallback")).toLowerCase();
-  const host = String(process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
-  const model = String(process.env.OLLAMA_MODEL ?? "llama3");
+  const provider = String(process.env.AI_PROVIDER ?? (process.env.AI_BASE_URL ? "openai-compatible" : process.env.OLLAMA_HOST ? "ollama" : "fallback")).toLowerCase();
+  const ollamaHost = String(process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const openAiBaseUrl = String(process.env.AI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "http://127.0.0.1:1234/v1").replace(/\/+$/, "");
+  const model = String(process.env.AI_MODEL ?? process.env.OPENAI_MODEL ?? process.env.OLLAMA_MODEL ?? "llama3");
+  const resolvedProvider = provider === "ollama" || provider === "openai-compatible" || provider === "openai" ? provider : "fallback";
   return {
-    provider: provider === "ollama" ? "ollama" : "fallback",
-    host,
+    provider: resolvedProvider === "openai" ? "openai-compatible" : resolvedProvider,
+    host: resolvedProvider === "ollama" ? ollamaHost : openAiBaseUrl,
     model,
-    ready: provider === "ollama",
+    ready: resolvedProvider !== "fallback",
   };
 }
 
@@ -3347,6 +3349,35 @@ export class SqliteStorageAdapter {
         if (res.ok) {
           const payload = await res.json().catch(() => ({}));
           response = String(payload.response ?? "").trim();
+        }
+      } catch {
+        response = "";
+      }
+    }
+    if (!response && provider.provider === "openai-compatible") {
+      try {
+        const promptText = [
+          `You are a concise Japanese learning assistant.`,
+          `Feature: ${feature}`,
+          `Prompt: ${String(prompt ?? "").trim()}`,
+          `Context: ${JSON.stringify(contextPayload)}`,
+          `Return a short, practical answer with one example if helpful.`,
+        ].join("\n");
+        const res = await fetch(`${provider.host.replace(/\/+$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: provider.model,
+            messages: [
+              { role: "system", content: "You are a concise Japanese learning assistant." },
+              { role: "user", content: promptText },
+            ],
+            temperature: 0.2,
+          }),
+        });
+        if (res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          response = String(payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? "").trim();
         }
       } catch {
         response = "";

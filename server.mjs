@@ -718,10 +718,12 @@ function getTtsStatus() {
 }
 
 async function probeAiProvider() {
-  const provider = String(process.env.AI_PROVIDER ?? (process.env.OLLAMA_HOST ? "ollama" : "fallback")).toLowerCase();
-  const host = String(process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
-  const model = String(process.env.OLLAMA_MODEL ?? "llama3");
-  if (provider !== "ollama") {
+  const provider = String(process.env.AI_PROVIDER ?? (process.env.AI_BASE_URL ? "openai-compatible" : process.env.OLLAMA_HOST ? "ollama" : "fallback")).toLowerCase();
+  const ollamaHost = String(process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const openAiBaseUrl = String(process.env.AI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "http://127.0.0.1:1234/v1").replace(/\/+$/, "");
+  const host = provider === "ollama" ? ollamaHost : openAiBaseUrl;
+  const model = String(process.env.AI_MODEL ?? process.env.OPENAI_MODEL ?? process.env.OLLAMA_MODEL ?? "llama3");
+  if (provider !== "ollama" && provider !== "openai-compatible" && provider !== "openai") {
     return {
       provider: "fallback",
       host,
@@ -735,12 +737,13 @@ async function probeAiProvider() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1200);
     try {
-      const response = await fetch(`${host}/api/version`, {
+      const probeUrl = provider === "ollama" ? `${host}/api/version` : `${host}/models`;
+      const response = await fetch(probeUrl, {
         signal: controller.signal,
         headers: { accept: "application/json" },
       });
       return {
-        provider: "ollama",
+        provider: provider === "openai" ? "openai-compatible" : provider,
         host,
         model,
         ready: response.ok,
@@ -751,7 +754,7 @@ async function probeAiProvider() {
     }
   } catch {
     return {
-      provider: "ollama",
+      provider: provider === "openai" ? "openai-compatible" : provider,
       host,
       model,
       ready: false,

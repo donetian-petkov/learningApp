@@ -1642,7 +1642,7 @@ function renderAdmin() {
           ${!systemStatus?.aiRuntime?.ready || !systemStatus?.speech?.available || !systemStatus?.tts?.available ? `
             <p class="muted spaced">Setup hints</p>
             <ul class="feature-list">
-              ${!systemStatus?.aiRuntime?.ready ? "<li>Start Ollama and set <code>AI_PROVIDER=ollama</code>.</li>" : ""}
+              ${!systemStatus?.aiRuntime?.ready ? "<li>Start Ollama or a local OpenAI-compatible server and set <code>AI_PROVIDER=ollama</code> or <code>AI_PROVIDER=openai-compatible</code>.</li>" : ""}
               ${!systemStatus?.speech?.available ? "<li>Install Whisper and set <code>WHISPER_BIN</code> plus <code>WHISPER_MODEL</code>.</li>" : ""}
               ${!systemStatus?.tts?.available ? "<li>Configure <code>TTS_PROVIDER=say</code> or <code>TTS_PROVIDER=espeak</code>.</li>" : ""}
             </ul>

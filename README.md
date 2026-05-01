@@ -16,7 +16,7 @@ Local-first Japanese learning MVP focused on pop culture modules, SQLite persist
 ### Optional local AI / speech tools
 - `whisper` CLI for local speech-to-text
 - `say` on macOS or `espeak` for local text-to-speech
-- Ollama if you want the AI tutor / correction paths to use a local model
+- Ollama or any local OpenAI-compatible server if you want the AI tutor / correction paths to use a local model
 
 ## Run
 
@@ -82,9 +82,11 @@ It is created automatically on first run.
 - `LEARNINGAPP_DISABLE_SERVER=1`: import the API handler without starting the HTTP server
 
 ### Local AI
-- `AI_PROVIDER`: set to `ollama` to prefer a local Ollama model
+- `AI_PROVIDER`: set to `ollama` or `openai-compatible`
 - `OLLAMA_HOST`: Ollama host URL, if different from the default
-- `OLLAMA_MODEL`: model name to request
+- `OLLAMA_MODEL`: Ollama model name to request
+- `AI_BASE_URL`: base URL for an OpenAI-compatible local server, default `http://127.0.0.1:1234/v1`
+- `AI_MODEL`: model name for OpenAI-compatible local servers
 
 ### Speech-to-text
 - `WHISPER_BIN`: path to the Whisper CLI binary
@@ -112,5 +114,5 @@ The admin tools accept:
 
 - Core learning still works without any local AI service.
 - Browser TTS remains the default if system TTS is unavailable.
-- Whisper and Ollama are optional, not required for the MVP.
+- Whisper and local AI providers are optional, not required for the MVP.
 - Cosmetics are cosmetic only and do not unlock core learning content.

@@ -776,10 +776,43 @@ test("dictionary lookup and ai responses are available locally", async () => {
     const ai = await temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
     assert.equal(ai.feature, "grammar");
     assert.equal(ai.response.includes("Samurai History"), true);
-    assert.ok(["ollama", "fallback"].includes(ai.provider));
+    assert.ok(["ollama", "openai-compatible", "fallback"].includes(ai.provider));
     const cachedAi = await temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
     assert.equal(cachedAi.cached, true);
     assert.equal(cachedAi.response, ai.response);
+
+    const previousProvider = process.env.AI_PROVIDER;
+    const previousBaseUrl = process.env.AI_BASE_URL;
+    const previousModel = process.env.AI_MODEL;
+    const previousFetch = global.fetch;
+    try {
+      process.env.AI_PROVIDER = "openai-compatible";
+      process.env.AI_BASE_URL = "https://local-ai.example/v1";
+      process.env.AI_MODEL = "local-model";
+      global.fetch = async (url, options = {}) => {
+        if (String(url).includes("/chat/completions")) {
+          const payload = JSON.parse(String(options.body ?? "{}"));
+          return {
+            ok: true,
+            status: 200,
+            statusText: "OK",
+            json: async () => ({
+              choices: [{ message: { content: `OpenAI-compatible response: ${payload.messages?.[1]?.content ?? ""}` } }],
+            }),
+          };
+        }
+        throw new Error(`Unexpected fetch request: ${url}`);
+      };
+      const aiOpen = await temp.store.aiResponse("grammar", "Explain よろしくお願いします", { lessonTitle: "Anime Dialogue" });
+      assert.equal(aiOpen.provider, "openai-compatible");
+      assert.equal(aiOpen.model, "local-model");
+      assert.equal(aiOpen.response.includes("OpenAI-compatible response"), true);
+    } finally {
+      process.env.AI_PROVIDER = previousProvider;
+      process.env.AI_BASE_URL = previousBaseUrl;
+      process.env.AI_MODEL = previousModel;
+      global.fetch = previousFetch;
+    }
 
     const sessions = temp.store.recordStudySession("lesson", 5, 80, 20);
     assert.equal(Array.isArray(sessions), true);
