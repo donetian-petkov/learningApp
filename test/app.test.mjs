@@ -229,6 +229,24 @@ test("admin content review queue and permissions persist", () => {
   }
 });
 
+test("analytics summary is derived from persisted activity", async () => {
+  const temp = createTempStore();
+  try {
+    temp.store.completeLesson("food-ramen");
+    temp.store.recordStudySession("lesson", 10, 40, 5);
+    temp.store.recordStudySession("review", 6, 20, 0);
+    await temp.store.aiResponse("tutor", "Explain は", { lessonTitle: "Anime" });
+    const analytics = temp.store.getSnapshot().admin.analytics;
+    assert.ok(analytics.xpEvents >= 1);
+    assert.ok(analytics.studySessions >= 2);
+    assert.ok(analytics.aiRequests >= 1);
+    assert.ok(Array.isArray(analytics.sessionKinds));
+    assert.ok(Array.isArray(analytics.dailyAi));
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("user management mutations and reset work", () => {
   const temp = createTempStore();
   try {

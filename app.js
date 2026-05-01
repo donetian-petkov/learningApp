@@ -859,6 +859,26 @@ function renderAdmin() {
           <p>Failed requests: ${state.admin.aiUsage.failedRequests}</p>
         </div>
         <div class="grid-card">
+          <h3>Analytics</h3>
+          <p>${state.admin.analytics?.xpEvents ?? 0} XP events · ${state.admin.analytics?.xpAwarded ?? 0} XP awarded</p>
+          <p>${state.admin.analytics?.creditEvents ?? 0} credit events · ${state.admin.analytics?.creditsAwarded ?? 0} credits awarded</p>
+          <p>${state.admin.analytics?.studySessions ?? 0} study sessions · ${state.admin.analytics?.studyMinutes ?? 0} minutes</p>
+          <p>${state.admin.analytics?.reviewHistory ?? 0} review events · ${state.admin.analytics?.aiRequests ?? 0} AI requests</p>
+          <h4 class="spaced">Top study kinds</h4>
+          <div class="list">
+            ${(state.admin.analytics?.sessionKinds ?? [])
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <strong>${escapeHtml(item.kind)}</strong>
+                    <span class="muted">${item.count} sessions · ${item.durationMinutes} min</span>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+        <div class="grid-card">
           <h3>Site health</h3>
           <p class="${state.admin.siteHealth === "Green" ? "muted" : ""}">Status: ${state.admin.siteHealth}</p>
           <p>Maintenance mode, content review, and analytics hooks are managed from the SQLite-backed admin layer.</p>

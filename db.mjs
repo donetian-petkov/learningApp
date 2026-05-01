@@ -1361,6 +1361,7 @@ export class SqliteStorageAdapter {
     const admin = {
       roles: adminRoles.length ? adminRoles : clone(INITIAL_APP_STATE.admin.roles),
       aiUsage,
+      analytics: this.getAnalyticsSummary(),
       siteHealth: siteSettings.maintenanceMode ? "Amber" : "Green",
       maintenanceMode: siteSettings.maintenanceMode,
       announcements: siteSettings.announcements,
@@ -2095,6 +2096,47 @@ export class SqliteStorageAdapter {
       creditsDelta: row.credits_delta,
       createdAt: row.created_at,
     }));
+  }
+
+  getAnalyticsSummary() {
+    const xpRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total FROM xp_events").get();
+    const creditsRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total FROM credits_ledger").get();
+    const studyRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(duration_minutes), 0) AS duration FROM study_sessions").get();
+    const reviewRow = this.db.prepare("SELECT COUNT(*) AS count FROM review_history").get();
+    const aiRow = this.db.prepare("SELECT COUNT(*) AS count FROM ai_usage_log").get();
+    const sessionKinds = this.db.prepare(
+      "SELECT kind, COUNT(*) AS count, COALESCE(SUM(duration_minutes), 0) AS duration FROM study_sessions GROUP BY kind ORDER BY count DESC, kind LIMIT 6"
+    ).all();
+    const topLessons = this.db.prepare(
+      "SELECT source_lesson_id AS lesson_id, COUNT(*) AS count FROM review_items WHERE source_lesson_id IS NOT NULL GROUP BY source_lesson_id ORDER BY count DESC, lesson_id LIMIT 5"
+    ).all();
+    const dailyAi = this.db.prepare(
+      "SELECT substr(created_at, 1, 10) AS date_key, COUNT(*) AS count FROM ai_usage_log GROUP BY date_key ORDER BY date_key DESC LIMIT 7"
+    ).all();
+
+    return {
+      xpEvents: xpRow.count,
+      xpAwarded: xpRow.total,
+      creditEvents: creditsRow.count,
+      creditsAwarded: creditsRow.total,
+      studySessions: studyRow.count,
+      studyMinutes: studyRow.duration,
+      reviewHistory: reviewRow.count,
+      aiRequests: aiRow.count,
+      sessionKinds: sessionKinds.map((row) => ({
+        kind: row.kind,
+        count: row.count,
+        durationMinutes: row.duration,
+      })),
+      topLessons: topLessons.map((row) => ({
+        lessonId: row.lesson_id,
+        reviewCount: row.count,
+      })),
+      dailyAi: dailyAi.map((row) => ({
+        dateKey: row.date_key,
+        count: row.count,
+      })),
+    };
   }
 
   getSchemaVersion() {
