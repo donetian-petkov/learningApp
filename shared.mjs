@@ -198,23 +198,93 @@ export function buildLessonDraft(title, theme) {
       ],
       kanji: ["武", "行", "示"],
     },
+    manga: {
+      japanese: "次のコマで主人公が答えを見つけます。",
+      romaji: "Tsugi no koma de shujinkou ga kotae o mitsukemasu.",
+      translation: "In the next panel, the protagonist finds the answer.",
+      grammar: "Use 次の to point to the next panel and が for the subject that acts.",
+      vocab: [
+        { word: "次の", kana: "つぎの", meaning: "next" },
+        { word: "コマ", kana: "こま", meaning: "panel" },
+        { word: "主人公", kana: "しゅじんこう", meaning: "protagonist" },
+      ],
+      kanji: ["次", "主", "公"],
+    },
+    daily: {
+      japanese: "朝ごはんのあとで駅まで歩きます。",
+      romaji: "Asagohan no ato de eki made arukimasu.",
+      translation: "After breakfast, I walk to the station.",
+      grammar: "Use のあとで for sequencing and まで for the endpoint of movement.",
+      vocab: [
+        { word: "朝ごはん", kana: "あさごはん", meaning: "breakfast" },
+        { word: "駅", kana: "えき", meaning: "station" },
+        { word: "歩きます", kana: "あるきます", meaning: "walk" },
+      ],
+      kanji: ["朝", "駅", "歩"],
+    },
+    school: {
+      japanese: "授業の前に宿題を確認します。",
+      romaji: "Jugyou no mae ni shukudai o kakunin shimasu.",
+      translation: "Before class, I check the homework.",
+      grammar: "Use の前に to place one action before another and を for the direct object.",
+      vocab: [
+        { word: "授業", kana: "じゅぎょう", meaning: "class / lesson" },
+        { word: "宿題", kana: "しゅくだい", meaning: "homework" },
+        { word: "確認します", kana: "かくにんします", meaning: "check / confirm" },
+      ],
+      kanji: ["授", "業", "宿"],
+    },
+    workplace: {
+      japanese: "会議の資料を午後までにまとめます。",
+      romaji: "Kaigi no shiryou o gogo made ni matomemasu.",
+      translation: "I will organize the meeting materials by this afternoon.",
+      grammar: "Use までに for a deadline and を for the object being organized.",
+      vocab: [
+        { word: "会議", kana: "かいぎ", meaning: "meeting" },
+        { word: "資料", kana: "しりょう", meaning: "materials / documents" },
+        { word: "まとめます", kana: "まとめます", meaning: "organize / summarize" },
+      ],
+      kanji: ["会", "資", "料"],
+    },
+    etiquette: {
+      japanese: "お手数ですが、もう一度お願いします。",
+      romaji: "Otesuu desu ga, mou ichido onegaishimasu.",
+      translation: "Sorry for the trouble, but please once more.",
+      grammar: "Use お手数ですが to soften a request and もう一度 for 'one more time.'",
+      vocab: [
+        { word: "お手数ですが", kana: "おてすうですが", meaning: "sorry for the trouble, but..." },
+        { word: "もう一度", kana: "もういちど", meaning: "once more" },
+        { word: "お願いします", kana: "おねがいします", meaning: "please" },
+      ],
+      kanji: ["手", "度", "願"],
+    },
   };
 
   const key = normalizedTheme.includes("anime")
     ? "anime"
+    : normalizedTheme.includes("manga")
+      ? "manga"
     : normalizedTheme.includes("food")
       ? "food"
-      : normalizedTheme.includes("travel")
-        ? "travel"
-        : normalizedTheme.includes("history") || normalizedTheme.includes("samurai")
-          ? "history"
-          : "travel";
+    : normalizedTheme.includes("travel")
+      ? "travel"
+    : normalizedTheme.includes("daily")
+      ? "daily"
+    : normalizedTheme.includes("school")
+      ? "school"
+    : normalizedTheme.includes("work")
+      ? "workplace"
+    : normalizedTheme.includes("etiquette") || normalizedTheme.includes("polite")
+      ? "etiquette"
+    : normalizedTheme.includes("history") || normalizedTheme.includes("samurai")
+      ? "history"
+      : "travel";
   const template = templates[key];
   return {
     id: `lesson-${String(normalizedTitle).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "new"}`,
     title: normalizedTitle,
     theme: normalizedTheme,
-    difficulty: key === "history" ? "N4" : "N5",
+    difficulty: key === "history" || key === "workplace" || key === "school" ? "N4" : "N5",
     japanese: template.japanese,
     romaji: template.romaji,
     translation: template.translation,

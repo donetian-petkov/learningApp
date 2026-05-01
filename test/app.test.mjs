@@ -258,6 +258,16 @@ test("lesson draft generation returns theme-based content", () => {
   assert.ok(Array.isArray(draft.vocab));
 });
 
+test("lesson draft generation covers broader themes", () => {
+  const daily = buildLessonDraft("Morning Routine", "daily life");
+  const manga = buildLessonDraft("Panel Hook", "manga");
+  const etiquette = buildLessonDraft("Polite Request", "etiquette");
+  assert.equal(daily.theme, "daily life");
+  assert.ok(daily.japanese.includes("駅") || daily.japanese.includes("朝ごはん"));
+  assert.ok(manga.japanese.includes("コマ"));
+  assert.ok(etiquette.translation.includes("Sorry for the trouble") || etiquette.translation.includes("please"));
+});
+
 test("leaderboard is populated and updates from study progress", () => {
   const temp = createTempStore();
   try {
