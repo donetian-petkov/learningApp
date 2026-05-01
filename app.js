@@ -179,6 +179,7 @@ let adminUserFilters = {
   level: "",
 };
 let listeningScenarioIndex = 0;
+let speakingPromptIndex = 0;
 
 const listeningScenarios = [
   {
@@ -216,6 +217,27 @@ const listeningScenarios = [
       { key: "weather", label: "Talk about weather" },
       { key: "homework", label: "Talk about homework" },
     ],
+  },
+];
+
+const speakingPrompts = [
+  {
+    id: "ramen-order",
+    title: "Ramen order",
+    prompt: "Ask for ramen politely.",
+    reference: "ラーメンをください。",
+  },
+  {
+    id: "station-help",
+    title: "At the station",
+    prompt: "Ask where the ticket counter is.",
+    reference: "切符売り場はどこですか。",
+  },
+  {
+    id: "study-plan",
+    title: "Study plan",
+    prompt: "Say you study Japanese every day.",
+    reference: "私は毎日日本語を勉強します。",
   },
 ];
 
@@ -400,6 +422,7 @@ function renderLearn() {
 
 function renderPractice() {
   const listeningScenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
+  const speakingPrompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length];
   return `
     <section class="panel">
       <div class="section-title">
@@ -415,13 +438,21 @@ function renderPractice() {
           "Record yourself, then compare your sentence against a natural Japanese correction.",
           ["Transcribe", "Correct", "Suggest natural phrasing"],
           `
+            <p>${escapeHtml(speakingPrompt.title)}</p>
+            <p class="muted">${escapeHtml(speakingPrompt.prompt)}</p>
             <label class="field">
               <span>Try saying</span>
-              <input type="text" data-field="speaking-input" value="ラーメンをください。" />
+              <input type="text" data-field="speaking-input" value="${escapeHtml(speakingPrompt.reference)}" />
             </label>
+            <div class="tag-row">
+              <button class="chip" data-action="speaking-starter" data-value="ラーメンをください。">Ramen</button>
+              <button class="chip" data-action="speaking-starter" data-value="切符売り場はどこですか。">Station</button>
+              <button class="chip" data-action="speaking-starter" data-value="私は毎日日本語を勉強します。">Study</button>
+            </div>
             <div class="button-row">
               <button class="secondary" data-action="transcribe-speaking">Transcribe</button>
               <button class="primary" data-action="check-speaking">Check speech</button>
+              <button class="secondary" data-action="next-speaking">Next prompt</button>
               <button class="secondary" data-action="play-sample">Play sample</button>
             </div>
             <p class="muted" data-output="transcription-feedback">No transcript yet. Use browser speech recognition when available.</p>
@@ -1098,12 +1129,26 @@ function wireActions() {
       if (action === "check-speaking") {
         const input = app.querySelector('[data-field="speaking-input"]');
         const output = app.querySelector('[data-output="speaking-feedback"]');
+        const prompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length]?.reference ?? "";
         const next = await apiJson("/api/practice", {
           method: "POST",
-          body: { kind: "speaking", input: input?.value ?? "" },
+          body: { kind: "speaking", input: input?.value ?? "", prompt },
         });
         if (output) output.textContent = next.tutor?.answer ?? state.tutor.answer;
         await refreshState();
+      }
+
+      if (action === "speaking-starter") {
+        const input = app.querySelector('[data-field="speaking-input"]');
+        if (input) {
+          input.value = button.dataset.value ?? "ラーメンをください。";
+          input.focus();
+        }
+      }
+
+      if (action === "next-speaking") {
+        speakingPromptIndex = (speakingPromptIndex + 1) % speakingPrompts.length;
+        render();
       }
 
       if (action === "play-sample") {

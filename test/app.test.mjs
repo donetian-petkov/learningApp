@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -121,6 +121,7 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     const speaking = temp.store.recordPracticeSession("speaking", { input: "ラーメンをください" });
     assert.equal(speaking.tutor.answer.startsWith("Natural correction:"), true);
     assert.equal(speaking.progress.speakingSessions >= 8, true);
+    assert.equal(speaking.roleplay.transcript[1].speaker, "You");
 
     const listening = temp.store.recordPracticeSession("listening", {
       answer: "broth",
@@ -221,6 +222,14 @@ test("dictionary lookup and ai responses are available locally", () => {
 test("listening answers produce contextual feedback", () => {
   assert.equal(evaluateListeningAnswer("broth", "broth", "the server asked about broth").includes("Correct"), true);
   assert.equal(evaluateListeningAnswer("broth", "price", "the server asked about broth").includes("Not quite"), true);
+});
+
+test("speaking submission evaluation returns transcript and guidance", () => {
+  const evaluation = evaluateSpeakingSubmission("私は毎日日本語を勉強します", "私は毎日日本語を勉強します。");
+  assert.equal(typeof evaluation.score, "number");
+  assert.ok(evaluation.correction.startsWith("Natural correction:"));
+  assert.ok(Array.isArray(evaluation.issues));
+  assert.equal(evaluation.transcript.includes("。"), true);
 });
 
 test("writing submission evaluation returns score and guidance", () => {

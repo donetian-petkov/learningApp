@@ -70,6 +70,32 @@ export function answerAiFeature(feature, prompt, context = {}) {
   return "Local AI fallback: short, contextual, and deterministic.";
 }
 
+export function evaluateSpeakingSubmission(sentence, prompt = "") {
+  const raw = String(sentence ?? "").trim();
+  const transcript = normalizeSentence(raw || "ラーメンをください");
+  const reference = String(prompt ?? "").trim() || "ラーメンをください";
+  const issues = [];
+
+  if (!raw) issues.push("Say a sentence before checking it.");
+  if (transcript.length < 6) issues.push("Use a slightly longer sentence.");
+  if (/[A-Za-z]/.test(transcript)) issues.push("Remove romaji from the spoken Japanese.");
+  if (!/[。！？]$/.test(raw)) issues.push("End the sentence cleanly.");
+  if (!/(は|が|を|に|で|と|ください|です|ます)/.test(transcript)) issues.push("Include a basic particle or polite ending.");
+
+  const score = Math.max(40, 100 - issues.length * 14);
+  const correction = `Natural correction: ${transcript}`;
+  const suggestion = raw === reference ? "Your sentence already matches the model response." : `Try: ${reference}`;
+
+  return {
+    score,
+    issues,
+    transcript,
+    correction,
+    suggestion,
+    reference,
+  };
+}
+
 export function evaluateListeningAnswer(correctAnswer, selectedAnswer, prompt = "") {
   const expected = String(correctAnswer ?? "").trim().toLowerCase();
   const chosen = String(selectedAnswer ?? "").trim().toLowerCase();

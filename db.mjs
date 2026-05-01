@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -991,13 +991,18 @@ export class SqliteStorageAdapter {
     let audit = "";
 
     if (kind === "speaking") {
-      const correction = answerAiFeature("correction", payload.input ?? "", {});
-      updated.tutor.answer = correction;
+      const evaluation = evaluateSpeakingSubmission(payload.input ?? "", payload.prompt ?? "");
+      updated.tutor.answer = `${evaluation.correction}\n${evaluation.suggestion}\n${evaluation.issues.length ? evaluation.issues.join(" ") : "Looks clear."}`;
+      updated.roleplay.transcript = [
+        { speaker: "System", text: payload.prompt ?? "Practice speaking naturally." },
+        { speaker: "You", text: evaluation.transcript },
+        { speaker: "Tutor", text: evaluation.suggestion },
+      ];
       updated.progress.speakingMinutes += 4;
       updated.progress.speakingSessions += 1;
-      updated.progress.xp += 30;
-      updated.progress.credits += 10;
-      audit = `Speaking practice: ${correction}`;
+      updated.progress.xp += Math.max(20, evaluation.score / 3);
+      updated.progress.credits += evaluation.score >= 85 ? 12 : 8;
+      audit = `Speaking practice: ${evaluation.score}`;
     } else if (kind === "listening") {
       const answerKey = String(payload.answerKey ?? "soup");
       const correct = String(payload.answer ?? "") === answerKey;
