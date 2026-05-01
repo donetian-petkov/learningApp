@@ -941,6 +941,7 @@ export class SqliteStorageAdapter {
         id TEXT PRIMARY KEY,
         source_type TEXT NOT NULL,
         label TEXT NOT NULL,
+        source_uri TEXT NOT NULL DEFAULT '',
         counts_json TEXT NOT NULL,
         notes TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
@@ -1191,6 +1192,12 @@ export class SqliteStorageAdapter {
     }
     if (getSchemaVersion(this.db) < 15) {
       setSchemaVersion(this.db, 15);
+    }
+    if (getSchemaVersion(this.db) < 16) {
+      try {
+        this.db.exec("ALTER TABLE dataset_imports ADD COLUMN source_uri TEXT NOT NULL DEFAULT ''");
+      } catch {}
+      setSchemaVersion(this.db, 16);
     }
   }
 
@@ -2030,6 +2037,7 @@ export class SqliteStorageAdapter {
     const id = entry.id ?? `dataset-import-${randomUUID()}`;
     const sourceType = String(entry.sourceType ?? "bundle").trim() || "bundle";
     const filename = String(entry.filename ?? entry.fileName ?? "").trim();
+    const sourceUri = String(entry.sourceUri ?? entry.sourceUrl ?? "").trim();
     const defaultLabel =
       sourceType === "bundle"
         ? "Dataset bundle import"
@@ -2043,14 +2051,21 @@ export class SqliteStorageAdapter {
                 ? "Review import"
                 : "Dataset import";
     const label = String(entry.label ?? (filename ? `${defaultLabel}: ${filename}` : defaultLabel)).trim() || defaultLabel;
-    const notes = [String(entry.notes ?? "").trim(), filename ? `Source file: ${filename}` : ""].filter(Boolean).join(" · ");
+    const notes = [
+      String(entry.notes ?? "").trim(),
+      filename ? `Source file: ${filename}` : "",
+      sourceUri ? `Source URL: ${sourceUri}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     this.db.prepare(
       `
-        INSERT INTO dataset_imports (id, source_type, label, counts_json, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO dataset_imports (id, source_type, label, source_uri, counts_json, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           source_type = excluded.source_type,
           label = excluded.label,
+          source_uri = excluded.source_uri,
           counts_json = excluded.counts_json,
           notes = excluded.notes,
           created_at = excluded.created_at
@@ -2059,6 +2074,7 @@ export class SqliteStorageAdapter {
       id,
       sourceType,
       label,
+      sourceUri,
       toJson(entry.counts ?? {}),
       notes,
       String(entry.createdAt ?? nowIso())
@@ -2936,11 +2952,12 @@ export class SqliteStorageAdapter {
 
   getDatasetImports(limit = 10) {
     return this.db.prepare(
-      "SELECT id, source_type, label, counts_json, notes, created_at FROM dataset_imports ORDER BY created_at DESC, label DESC LIMIT ?"
+      "SELECT id, source_type, label, source_uri, counts_json, notes, created_at FROM dataset_imports ORDER BY created_at DESC, label DESC LIMIT ?"
     ).all(Math.max(1, Number(limit) || 10)).map((row) => ({
       id: row.id,
       sourceType: row.source_type,
       label: row.label,
+      sourceUri: row.source_uri ?? "",
       counts: parseJson(row.counts_json, {}),
       notes: row.notes ?? "",
       createdAt: row.created_at,
@@ -3236,8 +3253,9 @@ export class SqliteStorageAdapter {
   importDatasetBundle(bundle, options = {}) {
     const payload = parseDatasetBundleInput(bundle);
     const filename = String(options.filename ?? options.fileName ?? "").trim();
-    const label = String(options.label ?? (filename ? `Dataset bundle import: ${filename}` : "Dataset bundle import")).trim() || "Dataset bundle import";
-    const notes = [String(options.notes ?? "").trim(), filename ? `Source file: ${filename}` : "", "Imported through the dataset bundle workflow"]
+    const sourceUri = String(options.sourceUri ?? options.sourceUrl ?? "").trim();
+    const label = String(options.label ?? (filename ? `Dataset bundle import: ${filename}` : sourceUri ? `Dataset bundle import: ${sourceUri}` : "Dataset bundle import")).trim() || "Dataset bundle import";
+    const notes = [String(options.notes ?? "").trim(), filename ? `Source file: ${filename}` : "", sourceUri ? `Source URL: ${sourceUri}` : "", "Imported through the dataset bundle workflow"]
       .filter(Boolean)
       .join(" · ");
     const dictionaryEntries = [
@@ -3263,6 +3281,7 @@ export class SqliteStorageAdapter {
       this.recordDatasetImport({
         sourceType: "bundle",
         label,
+        sourceUri,
         counts: {
           lessons: importedLessons.length,
           dictionaryEntries: importedDictionary.length,

@@ -56,7 +56,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 15);
+    assert.equal(temp.store.getSchemaVersion(), 16);
     assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
@@ -142,10 +142,10 @@ test("api handler can be imported without starting the server", async () => {
         return { roles: [], permissions: [] };
       },
       getSchemaVersion() {
-        return 15;
+        return 16;
       },
       getMigrationHistory() {
-        return [{ version: 15, applied_at: new Date().toISOString() }];
+        return [{ version: 16, applied_at: new Date().toISOString() }];
       },
       buyStreakFreeze() {
         return { progress: { streakFreezeCount: 1 } };
@@ -193,7 +193,7 @@ test("api handler can be imported without starting the server", async () => {
     );
     assert.equal(statusRes.statusCode, 200);
     const status = JSON.parse(statusRes.body);
-    assert.equal(status.database.schemaVersion, 15);
+    assert.equal(status.database.schemaVersion, 16);
     assert.equal(status.database.imports, 0);
     assert.equal(Array.isArray(status.database.migrations), true);
   } finally {
@@ -582,6 +582,42 @@ test("dataset bundles import JMdict and KANJIDIC shaped entries", () => {
   }
 });
 
+test("dataset imports from url preserve source metadata", async () => {
+  const temp = createTempStore();
+  const previousFetch = global.fetch;
+  const previousDisableServer = process.env.LEARNINGAPP_DISABLE_SERVER;
+  try {
+    process.env.LEARNINGAPP_DISABLE_SERVER = "1";
+    const { importDatasetFromUrl } = await import("../server.mjs");
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers({ "content-type": "application/xml" }),
+      text: async () => `
+        <JMdict>
+          <entry>
+            <ent_seq>2001</ent_seq>
+            <k_ele><keb>感謝</keb></k_ele>
+            <r_ele><reb>かんしゃ</reb></r_ele>
+            <sense><pos>noun</pos><gloss>gratitude</gloss></sense>
+          </entry>
+        </JMdict>
+      `,
+    });
+    const result = await importDatasetFromUrl(temp.store, "https://example.com/JMdict.xml", { label: "Remote JMdict" });
+    assert.equal(result.dictionaryEntries, 1);
+    const imports = temp.store.getDatasetImports(1);
+    assert.equal(imports[0].sourceUri, "https://example.com/JMdict.xml");
+    assert.equal(imports[0].label.includes("Remote JMdict"), true);
+    assert.equal(imports[0].notes.includes("Source URL: https://example.com/JMdict.xml"), true);
+  } finally {
+    global.fetch = previousFetch;
+    process.env.LEARNINGAPP_DISABLE_SERVER = previousDisableServer;
+    cleanupTempStore(temp);
+  }
+});
+
 test("dataset bundles import raw JMdict and KANJIDIC xml", () => {
   const temp = createTempStore();
   try {
@@ -719,7 +755,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 15);
+    assert.equal(temp.store.getSchemaVersion(), 16);
   } finally {
     cleanupTempStore(temp);
   }

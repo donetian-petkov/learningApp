@@ -1825,15 +1825,17 @@ function renderAdmin() {
           <label class="field spaced">
             <span>Dataset bundle JSON</span>
             <input type="file" accept=".json,.xml,.txt" data-field="dataset-import-file" />
+            <input type="url" data-field="dataset-import-url" placeholder="https://example.com/JMdict.xml" />
             <textarea
               data-field="dataset-import-json"
               rows="6"
               placeholder='Paste JSON or raw JMdict/KANJIDIC XML here.'
             ></textarea>
           </label>
-          <p class="muted">Use a file or paste JSON/raw JMdict/KANJIDIC XML. Bundle imports expand them into dictionary, kanji, lesson, and review tables and keep the source file name in the registry.</p>
+          <p class="muted">Use a file, a URL, or paste JSON/raw JMdict/KANJIDIC XML. Bundle imports expand them into dictionary, kanji, lesson, and review tables and keep the source file name or URL in the registry.</p>
           <div class="button-row">
             <button class="secondary" data-action="import-dataset">Import dataset bundle</button>
+            <button class="secondary" data-action="import-dataset-url">Import dataset URL</button>
           </div>
           <h4 class="spaced">Recent imports</h4>
           <div class="list">
@@ -1844,6 +1846,7 @@ function renderAdmin() {
                     <div>
                       <strong>${escapeHtml(item.label)}</strong>
                       <span class="muted">${escapeHtml(item.sourceType)} · ${escapeHtml(String(item.createdAt).slice(0, 10))}</span>
+                      ${item.sourceUri ? `<span class="muted">${escapeHtml(item.sourceUri)}</span>` : ""}
                       <span>${escapeHtml(Object.entries(item.counts ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ") || "No counts")}</span>
                     </div>
                   </div>
@@ -3064,6 +3067,28 @@ function wireActions() {
           method: "POST",
           body: {
             entry: `Imported dataset bundle: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
+          },
+        });
+        await refreshState();
+      }
+
+      if (action === "import-dataset-url") {
+        const datasetUrlInput = app.querySelector('[data-field="dataset-import-url"]');
+        const sourceUrl = datasetUrlInput?.value?.trim();
+        if (!sourceUrl) {
+          return;
+        }
+        const result = await apiJson("/api/datasets/import-url", {
+          method: "POST",
+          body: { url: sourceUrl },
+        });
+        if (datasetUrlInput) {
+          datasetUrlInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: {
+            entry: `Imported dataset from URL: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
           },
         });
         await refreshState();

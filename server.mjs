@@ -102,6 +102,22 @@ export function createApiHandler(store) {
       filename: body.filename ?? body.fileName ?? "",
       label: body.label ?? "",
       notes: body.notes ?? "",
+      sourceUri: body.sourceUri ?? body.sourceUrl ?? "",
+    });
+    respondJson(res, 200, result);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/datasets/import-url") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    const result = await importDatasetFromUrl(store, body.url ?? body.sourceUrl ?? "", {
+      filename: body.filename ?? body.fileName ?? "",
+      label: body.label ?? "",
+      notes: body.notes ?? "",
     });
     respondJson(res, 200, result);
     return;
@@ -572,6 +588,54 @@ export function createApiHandler(store) {
   }
 
   respondJson(res, 404, { error: "Not found" });
+  };
+}
+
+export async function importDatasetFromUrl(store, sourceUrl, options = {}) {
+  const trimmedUrl = String(sourceUrl ?? "").trim();
+  if (!trimmedUrl) {
+    throw new Error("Dataset URL is required");
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(trimmedUrl);
+  } catch {
+    throw new Error("Dataset URL must be a valid http or https URL");
+  }
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    throw new Error("Dataset URL must use http or https");
+  }
+  if (typeof fetch !== "function") {
+    throw new Error("Fetch is unavailable in this runtime");
+  }
+  const response = await fetch(parsedUrl, {
+    headers: {
+      accept: "application/json, application/xml, text/xml, text/plain, */*",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dataset: ${response.status} ${response.statusText}`.trim());
+  }
+  const contentType = String(response.headers?.get?.("content-type") ?? "").toLowerCase();
+  const text = await response.text();
+  const filename =
+    String(options.filename ?? options.fileName ?? "").trim() ||
+    parsedUrl.pathname.split("/").filter(Boolean).pop() ||
+    parsedUrl.hostname;
+  const label = String(options.label ?? "").trim() || `Dataset bundle import: ${filename}`;
+  const notes = [String(options.notes ?? "").trim(), `Source URL: ${parsedUrl.toString()}`, contentType ? `Content-Type: ${contentType}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const result = store.importDatasetBundle(text, {
+    filename,
+    label,
+    notes,
+    sourceUri: parsedUrl.toString(),
+  });
+  return {
+    ...result,
+    sourceUrl: parsedUrl.toString(),
+    contentType,
   };
 }
 
