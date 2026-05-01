@@ -182,6 +182,7 @@ let adminAiPlayground = null;
 let listeningScenarioIndex = 0;
 let speakingPromptIndex = 0;
 let readingSelection = null;
+let kanjiSelection = null;
 
 const listeningScenarios = [
   {
@@ -333,6 +334,7 @@ function syncHeader() {
 
 function renderLearn() {
   const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+  const selectedKanjiEntry = kanjiSelection ?? state.kanjiEntries?.find((entry) => activeLesson.kanji.includes(entry.character)) ?? state.kanjiEntries?.[0] ?? null;
   const moduleCards = state.lessons.map(
     (lesson) => `
       <article class="grid-card">
@@ -406,7 +408,7 @@ function renderLearn() {
           </div>
         </div>
       </div>
-      <div class="grid-card">
+        <div class="grid-card">
         <h3>Vocabulary</h3>
         <div class="list">
           ${activeLesson.vocab
@@ -422,7 +424,40 @@ function renderLearn() {
             .join("")}
         </div>
         <h3 class="spaced">Kanji</h3>
-        <div class="tag-row">${activeLesson.kanji.map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("")}</div>
+        <div class="tag-row">
+          ${activeLesson.kanji
+            .map((item) => `<button class="tag" data-action="lookup-kanji" data-term="${escapeHtml(item)}">${escapeHtml(item)}</button>`)
+            .join("")}
+        </div>
+        <div class="grid-card nested spaced">
+          <p class="eyebrow">Kanji library</p>
+          <div class="list">
+            ${(state.kanjiEntries ?? [])
+              .slice(0, 6)
+              .map(
+                (entry) => `
+                  <button class="list-item" data-action="lookup-kanji" data-term="${escapeHtml(entry.character)}">
+                    <strong>${escapeHtml(entry.character)}</strong>
+                    <span class="muted">${escapeHtml(entry.onYomi || "—")} · ${escapeHtml(entry.kunYomi || "—")}</span>
+                    <span>${escapeHtml(entry.meaning)}</span>
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+          <div class="detail-card spaced">
+            ${
+              selectedKanjiEntry
+                ? `
+                  <strong>${escapeHtml(selectedKanjiEntry.character)}</strong>
+                  <p class="muted">${escapeHtml(selectedKanjiEntry.onYomi || "No on-yomi stored")} / ${escapeHtml(selectedKanjiEntry.kunYomi || "No kun-yomi stored")}</p>
+                  <p>${escapeHtml(selectedKanjiEntry.meaning)}</p>
+                  <p class="muted">${escapeHtml((selectedKanjiEntry.examples ?? []).slice(0, 2).join(" · ") || "No examples available.")}</p>
+                `
+                : "<p class='muted'>Select a kanji to see readings and examples.</p>"
+            }
+          </div>
+        </div>
       </div>
     </section>
     <section class="panel">
@@ -525,6 +560,15 @@ function renderPractice() {
               <button class="primary" data-action="lookup-dictionary">Lookup</button>
               <button class="secondary" data-action="clear-dictionary">Clear</button>
             </div>
+            <h4 class="spaced">Kanji lookup</h4>
+            <div class="list">
+              ${(state.kanjiEntries ?? [])
+                .slice(0, 6)
+                .map(
+                  (entry) => `<button class="list-item" data-action="lookup-kanji" data-term="${escapeHtml(entry.character)}">${escapeHtml(entry.character)} · ${escapeHtml(entry.meaning)}</button>`
+                )
+                .join("")}
+            </div>
             <div class="grid-card">
               <p class="eyebrow">Dictionary result</p>
               <p class="muted" data-output="dictionary-feedback">${
@@ -545,6 +589,21 @@ function renderPractice() {
                       <p class="muted">${escapeHtml(selectedDictionaryEntry.example || "No example available.")}</p>
                     `
                     : "<p class='muted'>Tap a word or search for a dictionary entry to see details here.</p>"
+                }
+              </div>
+            </div>
+            <div class="grid-card spaced">
+              <p class="eyebrow">Kanji result</p>
+              <div class="detail-card">
+                ${
+                  kanjiSelection
+                    ? `
+                      <strong>${escapeHtml(kanjiSelection.character)}</strong>
+                      <p class="muted">${escapeHtml(kanjiSelection.onYomi || "No on-yomi stored")} / ${escapeHtml(kanjiSelection.kunYomi || "No kun-yomi stored")}</p>
+                      <p>${escapeHtml(kanjiSelection.meaning)}</p>
+                      <p class="muted">${escapeHtml((kanjiSelection.examples ?? []).slice(0, 2).join(" · ") || "No examples available.")}</p>
+                    `
+                    : "<p class='muted'>Select a kanji to inspect it here.</p>"
                 }
               </div>
             </div>
@@ -1400,6 +1459,12 @@ function wireActions() {
         render();
       }
 
+      if (action === "lookup-kanji") {
+        const term = button.dataset.term ?? "";
+        kanjiSelection = state.kanjiEntries?.find((entry) => entry.character === term) ?? null;
+        render();
+      }
+
       if (action === "lookup-dictionary") {
         const input = app.querySelector('[data-field="dictionary-input"]');
         const term = input?.value?.trim() ?? "";
@@ -1411,6 +1476,7 @@ function wireActions() {
       if (action === "clear-dictionary") {
         dictionaryLookup = [];
         readingSelection = null;
+        kanjiSelection = null;
         render();
       }
 
