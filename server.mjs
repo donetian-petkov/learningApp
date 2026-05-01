@@ -202,6 +202,22 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/admin/content-review") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    respondJson(res, 200, store.enqueueContentReview({
+      itemType: body.itemType ?? "lesson",
+      itemId: body.itemId ?? "unknown",
+      notes: body.notes ?? "Queued for review",
+      source: body.source ?? "manual",
+      status: body.status ?? "pending",
+    }));
+    return;
+  }
+
   if (req.method === "PATCH" && url.pathname.startsWith("/api/admin/content-review/")) {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });

@@ -28,7 +28,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 4);
+    assert.equal(temp.store.getSchemaVersion(), 5);
     assert.equal(snapshot.admin.users.length, 3);
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
@@ -207,9 +207,19 @@ test("admin content review queue and permissions persist", () => {
   try {
     const queue = temp.store.getContentReviewQueue();
     assert.ok(queue.length >= 1);
+    assert.equal(typeof queue[0].source, "string");
     const reviewed = temp.store.reviewContentItem(queue[0].id, { status: "approved", notes: "Looks good" });
     assert.equal(reviewed[0].status, "approved");
     assert.equal(reviewed[0].notes, "Looks good");
+    assert.equal(reviewed[0].source, queue[0].source);
+
+    const enqueued = temp.store.enqueueContentReview({
+      itemType: "lesson",
+      itemId: "anime-intro",
+      notes: "Manual quality check",
+      source: "manual",
+    });
+    assert.equal(enqueued.some((item) => item.itemId === "anime-intro" && item.source === "manual"), true);
 
     const permissions = temp.store.getPermissionMatrix();
     assert.equal(permissions.roles.some((role) => role.name === "Super Admin"), true);
@@ -245,7 +255,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 4);
+    assert.equal(temp.store.getSchemaVersion(), 5);
   } finally {
     cleanupTempStore(temp);
   }

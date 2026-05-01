@@ -505,6 +505,7 @@ export class SqliteStorageAdapter {
         item_id TEXT NOT NULL,
         status TEXT NOT NULL,
         notes TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'seed',
         created_at TEXT NOT NULL
       );
 
@@ -563,6 +564,12 @@ export class SqliteStorageAdapter {
         FOREIGN KEY (challenge_id) REFERENCES challenge_definitions(id) ON DELETE CASCADE
       );
     `);
+
+    try {
+      this.db.prepare("ALTER TABLE content_review_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'seed'").run();
+    } catch {
+      // Column already exists in existing databases.
+    }
     if (getSchemaVersion(this.db) < 1) setSchemaVersion(this.db, 1);
     if (getSchemaVersion(this.db) < 2) {
       this.db.exec(`
@@ -616,6 +623,9 @@ export class SqliteStorageAdapter {
         );
       `);
       setSchemaVersion(this.db, 4);
+    }
+    if (getSchemaVersion(this.db) < 5) {
+      setSchemaVersion(this.db, 5);
     }
   }
 
@@ -776,6 +786,14 @@ export class SqliteStorageAdapter {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.insertLessonRow(normalized, next.lessons.length);
+      this.enqueueContentReviewRow({
+        id: `content-review-${normalized.id}`,
+        itemType: "lesson",
+        itemId: normalized.id,
+        status: "pending",
+        notes: `Review lesson: ${normalized.title}`,
+        source: "lesson-create",
+      });
       this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Created lesson: ${normalized.title}`, nowIso());
       this.db.exec("COMMIT");
     } catch (error) {
@@ -806,6 +824,14 @@ export class SqliteStorageAdapter {
         "UPDATE lessons SET title = ?, theme = ?, difficulty = ?, japanese = ?, romaji = ?, translation = ?, grammar = ? WHERE id = ?"
       ).run(lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, lessonId);
       this.replaceLessonChildren(lessonId, lesson);
+      this.enqueueContentReviewRow({
+        id: `content-review-${lessonId}`,
+        itemType: "lesson",
+        itemId: lessonId,
+        status: "pending",
+        notes: `Review updated lesson: ${lesson.title}`,
+        source: "lesson-edit",
+      });
       this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Updated lesson: ${lesson.title}`, nowIso());
       this.db.exec("COMMIT");
     } catch (error) {
@@ -854,6 +880,14 @@ export class SqliteStorageAdapter {
       const existingIndex = next.lessons.findIndex((item) => item.id === normalized.id);
       if (existingIndex >= 0) next.lessons[existingIndex] = normalized;
       else next.lessons.push(normalized);
+      this.enqueueContentReviewRow({
+        id: `content-review-${normalized.id}`,
+        itemType: "lesson",
+        itemId: normalized.id,
+        status: "pending",
+        notes: `Imported lesson pack item: ${normalized.title}`,
+        source: "lesson-import",
+      });
       imported.push(normalized);
     });
 
@@ -1286,6 +1320,7 @@ export class SqliteStorageAdapter {
       itemId: row.item_id,
       status: row.status,
       notes: row.notes,
+      source: row.source ?? "seed",
       createdAt: row.created_at,
     }));
     const appState = {
@@ -1728,8 +1763,15 @@ export class SqliteStorageAdapter {
           notes: "Seeded review queue",
         }];
     reviewQueue.forEach((item) => {
-      this.db.prepare("INSERT INTO content_review_queue (id, item_type, item_id, status, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(item.id, item.itemType, item.itemId, item.status, item.notes, nowIso());
+      this.enqueueContentReviewRow({
+        id: item.id,
+        itemType: item.itemType,
+        itemId: item.itemId,
+        status: item.status,
+        notes: item.notes,
+        source: item.source ?? "seed",
+        createdAt: nowIso(),
+      });
     });
   }
 
@@ -1796,6 +1838,21 @@ export class SqliteStorageAdapter {
 
   getContentReviewQueue() {
     return this.getSnapshot().admin.contentReviewQueue;
+  }
+
+  enqueueContentReview(item = {}) {
+    const payload = {
+      id: item.id ?? `content-review-${randomUUID()}`,
+      itemType: item.itemType ?? "lesson",
+      itemId: item.itemId ?? "unknown",
+      status: item.status ?? "pending",
+      notes: item.notes ?? "Queued for review",
+      source: item.source ?? "manual",
+      createdAt: item.createdAt ?? nowIso(),
+    };
+    this.enqueueContentReviewRow(payload);
+    this.appendAudit(`Queued content review: ${payload.itemId} (${payload.source})`);
+    return this.getContentReviewQueue();
   }
 
   reviewContentItem(itemId, patch = {}) {
@@ -2087,6 +2144,30 @@ export class SqliteStorageAdapter {
       "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(lesson.id, lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, orderIndex);
     this.replaceLessonChildren(lesson.id, lesson);
+  }
+
+  enqueueContentReviewRow(item) {
+    this.db.prepare(
+      `
+        INSERT INTO content_review_queue (id, item_type, item_id, status, notes, source, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          item_type = excluded.item_type,
+          item_id = excluded.item_id,
+          status = excluded.status,
+          notes = excluded.notes,
+          source = excluded.source,
+          created_at = excluded.created_at
+      `
+    ).run(
+      item.id,
+      item.itemType,
+      item.itemId,
+      item.status,
+      item.notes,
+      item.source ?? "seed",
+      item.createdAt ?? nowIso()
+    );
   }
 }
 

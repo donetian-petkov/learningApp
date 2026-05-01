@@ -942,6 +942,10 @@ function renderAdmin() {
             ></textarea>
           </label>
           <p class="muted">Paste one lesson object or an array of lesson objects, then import them into SQLite.</p>
+          <label class="field">
+            <span>Review note</span>
+            <textarea data-field="content-review-note" rows="3" placeholder="Why should this lesson be reviewed?"></textarea>
+          </label>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
             ${(state.admin.contentReviewQueue ?? [])
@@ -949,7 +953,7 @@ function renderAdmin() {
                 (item) => `
                   <div class="list-item">
                     <strong>${escapeHtml(item.itemType)}</strong>
-                    <span class="muted">${escapeHtml(item.status)} · ${escapeHtml(item.notes)}</span>
+                    <span class="muted">${escapeHtml(item.status)} · ${escapeHtml(item.source ?? "seed")} · ${escapeHtml(item.notes)}</span>
                     <div class="button-row">
                       <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="approved">Approve</button>
                       <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="rejected">Reject</button>
@@ -964,6 +968,7 @@ function renderAdmin() {
             <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>
             <button class="secondary" data-action="generate-lesson-pack">Generate pack</button>
             <button class="secondary" data-action="import-lessons">Import JSON</button>
+            <button class="secondary" data-action="queue-content-review">Queue review</button>
             ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
           </div>
         </div>
@@ -1506,6 +1511,32 @@ function wireActions() {
         await apiJson("/api/audit-log", {
           method: "POST",
           body: { entry: `Imported lessons: ${result.imported}` },
+        });
+        await refreshState();
+      }
+
+      if (action === "queue-content-review") {
+        const noteInput = app.querySelector('[data-field="content-review-note"]');
+        const note = noteInput?.value?.trim() || "Manually queued from admin panel";
+        const lesson = adminLessonEditor ?? state.lessons.find((entry) => entry.id === state.activeLessonId) ?? state.lessons[0];
+        if (!lesson) {
+          return;
+        }
+        await apiJson("/api/admin/content-review", {
+          method: "POST",
+          body: {
+            itemType: "lesson",
+            itemId: lesson.id,
+            notes: note,
+            source: adminLessonEditor?.id ? "lesson-edit" : "manual",
+          },
+        });
+        if (noteInput) {
+          noteInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Queued lesson review: ${lesson.id}` },
         });
         await refreshState();
       }
