@@ -160,6 +160,8 @@ test("admin content review queue and permissions persist", () => {
 test("user management mutations and reset work", () => {
   const temp = createTempStore();
   try {
+    const filtered = temp.store.getUsers({ username: "mika", status: "active", level: 11 });
+    assert.equal(filtered.length, 1);
     const user = temp.store.getUsers({ username: "mika" })[0];
     assert.ok(user);
     const updated = temp.store.updateUser(user.id, { status: "suspended", credits: user.credits + 25 });

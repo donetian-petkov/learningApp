@@ -170,6 +170,14 @@ const defaultState = {
 let state = structuredClone(defaultState);
 let dictionaryLookup = [];
 let adminLessonEditor = null;
+let adminUserEditor = null;
+let adminUserDirectory = null;
+let adminUserFilters = {
+  username: "",
+  email: "",
+  status: "",
+  level: "",
+};
 
 const app = document.querySelector("#app");
 const navButtons = document.querySelectorAll(".nav-item");
@@ -680,6 +688,16 @@ function renderAdmin() {
     translation: "",
     grammar: "",
   };
+  const users = adminUserDirectory ?? state.admin.users ?? [];
+  const userDraft = adminUserEditor ?? {
+    id: "",
+    username: "",
+    email: "",
+    level: 1,
+    status: "active",
+    credits: 0,
+    streak: 0,
+  };
 
   return `
     <section class="panel">
@@ -806,8 +824,35 @@ function renderAdmin() {
         </div>
         <div class="grid-card">
           <h3>User management</h3>
+          <div class="grid-card nested">
+            <h4>Search users</h4>
+            <div class="field-row">
+              <label class="field">
+                <span>Username</span>
+                <input type="text" data-field="user-filter-username" value="${escapeHtml(adminUserFilters.username)}" />
+              </label>
+              <label class="field">
+                <span>Email</span>
+                <input type="text" data-field="user-filter-email" value="${escapeHtml(adminUserFilters.email)}" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Status</span>
+                <input type="text" data-field="user-filter-status" value="${escapeHtml(adminUserFilters.status)}" placeholder="active" />
+              </label>
+              <label class="field">
+                <span>Level</span>
+                <input type="text" data-field="user-filter-level" value="${escapeHtml(adminUserFilters.level)}" placeholder="8" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button class="primary" data-action="search-users">Search</button>
+              <button class="secondary" data-action="clear-user-filters">Clear</button>
+            </div>
+          </div>
           <div class="list">
-            ${(state.admin.users ?? [])
+            ${users
               .map(
                 (user) => `
                   <div class="list-item">
@@ -815,6 +860,7 @@ function renderAdmin() {
                     <span class="muted">${escapeHtml(user.email)} · Level ${user.level} · ${escapeHtml(user.status)}</span>
                     <span class="muted">Credits: ${user.credits} · Streak: ${user.streak}</span>
                     <div class="button-row">
+                      <button class="secondary" data-action="edit-user" data-user-id="${escapeHtml(user.id)}">Edit</button>
                       <button class="secondary" data-action="toggle-user-status" data-user-id="${escapeHtml(user.id)}" data-status="${user.status === "active" ? "suspended" : "active"}">${user.status === "active" ? "Suspend" : "Restore"}</button>
                       <button class="secondary" data-action="adjust-user-credits" data-user-id="${escapeHtml(user.id)}" data-delta="25">+25 credits</button>
                       <button class="secondary" data-action="adjust-user-credits" data-user-id="${escapeHtml(user.id)}" data-delta="-25">-25 credits</button>
@@ -824,6 +870,39 @@ function renderAdmin() {
                 `
               )
               .join("")}
+          </div>
+          <h4 class="spaced">${adminUserEditor ? "Edit user" : "Create user"}</h4>
+          <label class="field">
+            <span>Username</span>
+            <input type="text" data-field="user-username" value="${escapeHtml(userDraft.username)}" placeholder="akira" />
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input type="email" data-field="user-email" value="${escapeHtml(userDraft.email)}" placeholder="akira@example.com" />
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span>Level</span>
+              <input type="number" min="1" data-field="user-level" value="${escapeHtml(userDraft.level)}" />
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <input type="text" data-field="user-status" value="${escapeHtml(userDraft.status)}" placeholder="active" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span>Credits</span>
+              <input type="number" min="0" data-field="user-credits" value="${escapeHtml(userDraft.credits)}" />
+            </label>
+            <label class="field">
+              <span>Streak</span>
+              <input type="number" min="0" data-field="user-streak" value="${escapeHtml(userDraft.streak)}" />
+            </label>
+          </div>
+          <div class="button-row spaced">
+            <button class="primary" data-action="save-user">${adminUserEditor ? "Save changes" : "Add user"}</button>
+            ${adminUserEditor ? '<button class="secondary" data-action="cancel-user-edit">Cancel edit</button>' : ""}
           </div>
           <div class="button-row spaced">
             <button class="secondary" data-action="reset-database">Reset database</button>
@@ -1213,6 +1292,82 @@ function wireActions() {
         }
       }
 
+      if (action === "search-users") {
+        const username = app.querySelector('[data-field="user-filter-username"]')?.value?.trim() ?? "";
+        const email = app.querySelector('[data-field="user-filter-email"]')?.value?.trim() ?? "";
+        const status = app.querySelector('[data-field="user-filter-status"]')?.value?.trim() ?? "";
+        const level = app.querySelector('[data-field="user-filter-level"]')?.value?.trim() ?? "";
+        adminUserFilters = { username, email, status, level };
+        const params = new URLSearchParams();
+        if (username) params.set("username", username);
+        if (email) params.set("email", email);
+        if (status) params.set("status", status);
+        if (level) params.set("level", level);
+        adminUserDirectory = await apiJson(`/api/admin/users?${params.toString()}`);
+        render();
+      }
+
+      if (action === "clear-user-filters") {
+        adminUserFilters = { username: "", email: "", status: "", level: "" };
+        adminUserDirectory = null;
+        render();
+      }
+
+      if (action === "edit-user") {
+        const userId = button.dataset.userId;
+        const user = (state.admin.users ?? []).find((entry) => entry.id === userId)
+          ?? (adminUserDirectory ?? []).find((entry) => entry.id === userId);
+        if (user) {
+          adminUserEditor = structuredClone(user);
+          render();
+        }
+      }
+
+      if (action === "cancel-user-edit") {
+        adminUserEditor = null;
+        render();
+      }
+
+      if (action === "save-user") {
+        const username = app.querySelector('[data-field="user-username"]')?.value?.trim();
+        const email = app.querySelector('[data-field="user-email"]')?.value?.trim();
+        const level = Number(app.querySelector('[data-field="user-level"]')?.value ?? 1);
+        const status = app.querySelector('[data-field="user-status"]')?.value?.trim() || "active";
+        const credits = Number(app.querySelector('[data-field="user-credits"]')?.value ?? 0);
+        const streak = Number(app.querySelector('[data-field="user-streak"]')?.value ?? 0);
+        const payload = {
+          id: adminUserEditor?.id || undefined,
+          username: username || adminUserEditor?.username || "new-user",
+          email: email || adminUserEditor?.email || "new-user@example.com",
+          level: Number.isFinite(level) ? level : 1,
+          status,
+          credits: Number.isFinite(credits) ? credits : 0,
+          streak: Number.isFinite(streak) ? streak : 0,
+        };
+        if (adminUserEditor?.id) {
+          await apiJson(`/api/admin/users/${encodeURIComponent(adminUserEditor.id)}`, {
+            method: "PATCH",
+            body: payload,
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Updated user: ${payload.username}` },
+          });
+        } else {
+          await apiJson("/api/admin/users", {
+            method: "POST",
+            body: payload,
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Created user: ${payload.username}` },
+          });
+        }
+        adminUserEditor = null;
+        adminUserDirectory = null;
+        await refreshState();
+      }
+
       if (action === "toggle-user-status") {
         const userId = button.dataset.userId;
         const status = button.dataset.status;
@@ -1249,7 +1404,7 @@ function wireActions() {
       if (action === "delete-user") {
         const userId = button.dataset.userId;
         if (userId) {
-          await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+          await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
           await apiJson("/api/audit-log", {
             method: "POST",
             body: { entry: `Deleted user ${userId}` },
