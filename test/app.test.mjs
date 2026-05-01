@@ -380,6 +380,8 @@ test("dictionary lookup and ai responses are available locally", async () => {
     const sessions = temp.store.recordStudySession("lesson", 5, 80, 20);
     assert.equal(Array.isArray(sessions), true);
     assert.equal(temp.store.getStudySessions(1).length, 1);
+    assert.equal(answerAiFeature("challenge-name", "Kanji Sprint").includes("Kanji Sprint"), true);
+    assert.equal(answerAiFeature("badge-description", "Ramen Star").includes("Ramen Star"), true);
   } finally {
     cleanupTempStore(temp);
   }

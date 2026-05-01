@@ -178,6 +178,7 @@ let adminUserFilters = {
   status: "",
   level: "",
 };
+let adminAiPlayground = null;
 let listeningScenarioIndex = 0;
 let speakingPromptIndex = 0;
 let readingSelection = null;
@@ -857,6 +858,45 @@ function renderAdmin() {
           <p>Monthly requests: ${state.admin.aiUsage.monthlyRequests}</p>
           <p>Cached responses: ${state.admin.aiUsage.cachedResponses}</p>
           <p>Failed requests: ${state.admin.aiUsage.failedRequests}</p>
+          <h4 class="spaced">AI playground</h4>
+          <div class="field-row">
+            <label class="field">
+              <span>Feature</span>
+              <select data-field="ai-playground-feature">
+                ${["grammar", "tutor", "roleplay", "correction", "challenge-name", "badge-description", "lesson-draft"]
+                  .map((feature) => `<option value="${feature}"${(adminAiPlayground?.feature ?? "grammar") === feature ? " selected" : ""}>${feature}</option>`)
+                  .join("")}
+              </select>
+            </label>
+            <label class="field">
+              <span>Scenario</span>
+              <input type="text" data-field="ai-playground-scenario" value="${escapeHtml(adminAiPlayground?.context?.scenario ?? "restaurant")}" placeholder="restaurant" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Prompt</span>
+            <textarea data-field="ai-playground-prompt" rows="4" placeholder="Ask about grammar, correction, or roleplay.">${escapeHtml(adminAiPlayground?.prompt ?? "Explain よろしくお願いします")}</textarea>
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span>Lesson title</span>
+              <input type="text" data-field="ai-playground-title" value="${escapeHtml(adminAiPlayground?.context?.title ?? "Anime Dialogue")}" />
+            </label>
+            <label class="field">
+              <span>Theme</span>
+              <input type="text" data-field="ai-playground-theme" value="${escapeHtml(adminAiPlayground?.context?.theme ?? "anime")}" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button class="secondary" data-action="run-ai-playground">Run playground</button>
+          </div>
+          ${adminAiPlayground ? `
+            <div class="grid-card nested">
+              <strong>${escapeHtml(adminAiPlayground.feature)}</strong>
+              <p class="muted">Provider: ${escapeHtml(adminAiPlayground.provider ?? "fallback")} ${adminAiPlayground.model ? `· ${escapeHtml(adminAiPlayground.model)}` : ""}</p>
+              <pre class="code-block">${escapeHtml(adminAiPlayground.response ?? "")}</pre>
+            </div>
+          ` : ""}
         </div>
         <div class="grid-card">
           <h3>Analytics</h3>
@@ -1645,6 +1685,35 @@ function wireActions() {
           body: { entry: `Imported review items: ${result.imported}` },
         });
         await refreshState();
+      }
+
+      if (action === "run-ai-playground") {
+        const feature = app.querySelector('[data-field="ai-playground-feature"]')?.value?.trim() || "grammar";
+        const prompt = app.querySelector('[data-field="ai-playground-prompt"]')?.value?.trim() || "Explain よろしくお願いします";
+        const scenario = app.querySelector('[data-field="ai-playground-scenario"]')?.value?.trim() || "restaurant";
+        const title = app.querySelector('[data-field="ai-playground-title"]')?.value?.trim() || "Anime Dialogue";
+        const theme = app.querySelector('[data-field="ai-playground-theme"]')?.value?.trim() || "anime";
+        const result = await apiJson("/api/ai/response", {
+          method: "POST",
+          body: {
+            feature,
+            prompt,
+            context: { scenario, title, theme },
+          },
+        });
+        adminAiPlayground = {
+          feature: result.feature,
+          prompt: result.prompt,
+          provider: result.provider,
+          model: result.model,
+          context: result.context,
+          response: result.response,
+        };
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Ran AI playground: ${feature}` },
+        });
+        render();
       }
 
       if (action === "export-backup") {
