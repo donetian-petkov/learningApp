@@ -22,6 +22,8 @@ const defaultState = {
     speakingSessions: 7,
     listeningExercises: 22,
     completedExercises: ["anime-intro-exercise-1"],
+    savedWords: [],
+    savedKanji: [],
   },
   lessons: [
     {
@@ -253,6 +255,40 @@ let lessonCatalogTheme = "";
 let lessonCatalogDifficulty = "";
 let permissionDraft = null;
 
+function savedWordKey(term, reading = "") {
+  return `${String(term ?? "").trim()}|${String(reading ?? "").trim()}`;
+}
+
+function savedKanjiKey(character) {
+  return String(character ?? "").trim();
+}
+
+function buildWordBookmark(item, lesson = null) {
+  return {
+    term: String(item?.word ?? item?.term ?? "").trim(),
+    reading: String(item?.kana ?? item?.reading ?? "").trim(),
+    meaning: String(item?.meaning ?? "").trim(),
+    partOfSpeech: String(item?.partOfSpeech ?? item?.part_of_speech ?? "noun").trim() || "noun",
+    example: String(item?.example ?? lesson?.japanese ?? "").trim(),
+    source: String(item?.source ?? "lesson").trim() || "lesson",
+    sourceLessonId: String(lesson?.id ?? item?.sourceLessonId ?? "").trim(),
+    sourceLessonTitle: String(lesson?.title ?? item?.sourceLessonTitle ?? "").trim(),
+  };
+}
+
+function buildKanjiBookmark(item, lesson = null) {
+  return {
+    character: String(item?.character ?? item?.kanji ?? "").trim(),
+    meaning: String(item?.meaning ?? "").trim(),
+    onYomi: String(item?.onYomi ?? item?.on_yomi ?? "").trim(),
+    kunYomi: String(item?.kunYomi ?? item?.kun_yomi ?? "").trim(),
+    examples: Array.isArray(item?.examples) ? item.examples.filter(Boolean) : lesson?.japanese ? [lesson.japanese] : [],
+    source: String(item?.source ?? "kanji").trim() || "kanji",
+    sourceLessonId: String(lesson?.id ?? item?.sourceLessonId ?? "").trim(),
+    sourceLessonTitle: String(lesson?.title ?? item?.sourceLessonTitle ?? "").trim(),
+  };
+}
+
 const listeningScenarios = [
   {
     id: "ramen-broth",
@@ -405,6 +441,8 @@ function renderLearn() {
   const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
   const kanjiDeck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
   const completedExercises = new Set(Array.isArray(state.progress.completedExercises) ? state.progress.completedExercises : []);
+  const savedWords = new Map((state.progress.savedWords ?? []).map((item) => [savedWordKey(item.term, item.reading), item]));
+  const savedKanji = new Map((state.progress.savedKanji ?? []).map((item) => [savedKanjiKey(item.character), item]));
   const selectedKanjiEntry = kanjiSelection
     ?? kanjiDeck.find((entry) => activeLesson.kanji.includes(entry.character))
     ?? kanjiDeck[kanjiStudyIndex % Math.max(kanjiDeck.length, 1)]
@@ -608,6 +646,9 @@ function renderLearn() {
                   <strong>${escapeHtml(item.word)}</strong>
                   <div class="muted">${escapeHtml(item.kana)}</div>
                   <div>${escapeHtml(item.meaning)}</div>
+                  <div class="button-row">
+                    <button class="secondary" data-action="toggle-word-bookmark" data-word="${escapeHtml(item.word)}" data-reading="${escapeHtml(item.kana)}" data-meaning="${escapeHtml(item.meaning)}" data-example="${escapeHtml(activeLesson.japanese)}" data-source-lesson-id="${escapeHtml(activeLesson.id)}" data-source-lesson-title="${escapeHtml(activeLesson.title)}">${savedWords.has(savedWordKey(item.word, item.kana)) ? "Remove bookmark" : "Save word"}</button>
+                  </div>
                 </div>
               `
             )
@@ -616,7 +657,14 @@ function renderLearn() {
         <h3 class="spaced">Kanji</h3>
         <div class="tag-row">
           ${activeLesson.kanji
-            .map((item) => `<button class="tag" data-action="lookup-kanji" data-term="${escapeHtml(item)}">${escapeHtml(item)}</button>`)
+            .map((item) => {
+              const entry = kanjiDeck.find((kanjiItem) => kanjiItem.character === item) ?? null;
+              const bookmarked = savedKanji.has(savedKanjiKey(item));
+              return `
+                <button class="tag" data-action="lookup-kanji" data-term="${escapeHtml(item)}">${escapeHtml(item)}</button>
+                <button class="tag" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(item)}" data-meaning="${escapeHtml(entry?.meaning ?? item)}" data-on-yomi="${escapeHtml(entry?.onYomi ?? "")}" data-kun-yomi="${escapeHtml(entry?.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(entry?.examples ?? []))}" data-source-lesson-id="${escapeHtml(activeLesson.id)}" data-source-lesson-title="${escapeHtml(activeLesson.title)}">${bookmarked ? "Remove bookmark" : "Save kanji"}</button>
+              `;
+            })
             .join("")}
         </div>
         <div class="grid-card nested spaced">
@@ -721,6 +769,8 @@ function renderPractice() {
   const listeningScenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
   const speakingPrompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length];
   const selectedDictionaryEntry = readingSelection ?? dictionaryLookup[0] ?? null;
+  const savedWords = new Map((state.progress.savedWords ?? []).map((item) => [savedWordKey(item.term, item.reading), item]));
+  const savedKanji = new Map((state.progress.savedKanji ?? []).map((item) => [savedKanjiKey(item.character), item]));
   return `
     <section class="panel">
       <div class="section-title">
@@ -831,6 +881,9 @@ function renderPractice() {
                       <p>${escapeHtml(selectedDictionaryEntry.meaning)}</p>
                       <p class="muted">${escapeHtml(selectedDictionaryEntry.partOfSpeech || "—")}</p>
                       <p class="muted">${escapeHtml(selectedDictionaryEntry.example || "No example available.")}</p>
+                      <div class="button-row">
+                        <button class="secondary" data-action="toggle-word-bookmark" data-word="${escapeHtml(selectedDictionaryEntry.term)}" data-reading="${escapeHtml(selectedDictionaryEntry.reading ?? "")}" data-meaning="${escapeHtml(selectedDictionaryEntry.meaning ?? "")}" data-example="${escapeHtml(selectedDictionaryEntry.example ?? "")}" data-source="${escapeHtml(selectedDictionaryEntry.source ?? "dictionary")}">${savedWords.has(savedWordKey(selectedDictionaryEntry.term, selectedDictionaryEntry.reading)) ? "Remove bookmark" : "Save word"}</button>
+                      </div>
                     `
                     : "<p class='muted'>Tap a word or search for a dictionary entry to see details here.</p>"
                 }
@@ -846,6 +899,9 @@ function renderPractice() {
                       <p class="muted">${escapeHtml(kanjiSelection.onYomi || "No on-yomi stored")} / ${escapeHtml(kanjiSelection.kunYomi || "No kun-yomi stored")}</p>
                       <p>${escapeHtml(kanjiSelection.meaning)}</p>
                       <p class="muted">${escapeHtml((kanjiSelection.examples ?? []).slice(0, 2).join(" · ") || "No examples available.")}</p>
+                      <div class="button-row">
+                        <button class="secondary" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(kanjiSelection.character)}" data-meaning="${escapeHtml(kanjiSelection.meaning ?? "")}" data-on-yomi="${escapeHtml(kanjiSelection.onYomi ?? "")}" data-kun-yomi="${escapeHtml(kanjiSelection.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(kanjiSelection.examples ?? []))}" data-source="${escapeHtml(kanjiSelection.source ?? "kanji")}">${savedKanji.has(savedKanjiKey(kanjiSelection.character)) ? "Remove bookmark" : "Save kanji"}</button>
+                      </div>
                     `
                     : "<p class='muted'>Select a kanji to inspect it here.</p>"
                 }
@@ -1092,6 +1148,8 @@ function renderReview() {
 }
 
 function renderProgress() {
+  const savedWords = Array.isArray(state.progress.savedWords) ? state.progress.savedWords : [];
+  const savedKanji = Array.isArray(state.progress.savedKanji) ? state.progress.savedKanji : [];
   return `
     <section class="panel">
       <div class="section-title">
@@ -1107,6 +1165,8 @@ function renderProgress() {
         ${renderStat("Speaking minutes", state.progress.speakingMinutes)}
         ${renderStat("Listening minutes", state.progress.listeningMinutes)}
         ${renderStat("Kanji drill items", state.kanjiReviews?.length ?? 0)}
+        ${renderStat("Saved words", savedWords.length)}
+        ${renderStat("Saved kanji", savedKanji.length)}
       </div>
       <div class="progress-grid">
         <div class="grid-card">
@@ -1167,6 +1227,52 @@ function renderProgress() {
                 `
               )
               .join("")}
+          </div>
+        </div>
+        <div class="grid-card">
+          <h3>Saved study deck</h3>
+          <p class="muted">Quick access to bookmarked words and kanji from lessons and practice.</p>
+          <div class="list">
+            ${savedWords.length
+              ? savedWords
+                  .map(
+                    (item) => `
+                      <div class="list-item">
+                        <div>
+                          <strong>${escapeHtml(item.term)}</strong>
+                          <span class="muted">${escapeHtml(item.reading || "—")} · ${escapeHtml(item.partOfSpeech || "—")}</span>
+                          <span>${escapeHtml(item.meaning || "")}</span>
+                        </div>
+                        <div class="button-row">
+                          <button class="secondary" data-action="lookup-word" data-term="${escapeHtml(item.term)}">Open</button>
+                          <button class="secondary" data-action="toggle-word-bookmark" data-word="${escapeHtml(item.term)}" data-reading="${escapeHtml(item.reading ?? "")}" data-meaning="${escapeHtml(item.meaning ?? "")}" data-example="${escapeHtml(item.example ?? "")}" data-source="${escapeHtml(item.source ?? "manual")}">Remove</button>
+                        </div>
+                      </div>
+                    `
+                  )
+                  .join("")
+              : "<p class='muted'>No saved vocabulary yet.</p>"}
+          </div>
+          <div class="list spaced">
+            ${savedKanji.length
+              ? savedKanji
+                  .map(
+                    (item) => `
+                      <div class="list-item">
+                        <div>
+                          <strong>${escapeHtml(item.character)}</strong>
+                          <span class="muted">${escapeHtml(item.onYomi || "—")} / ${escapeHtml(item.kunYomi || "—")}</span>
+                          <span>${escapeHtml(item.meaning || "")}</span>
+                        </div>
+                        <div class="button-row">
+                          <button class="secondary" data-action="lookup-kanji" data-term="${escapeHtml(item.character)}">Open</button>
+                          <button class="secondary" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(item.character)}" data-meaning="${escapeHtml(item.meaning ?? "")}" data-on-yomi="${escapeHtml(item.onYomi ?? "")}" data-kun-yomi="${escapeHtml(item.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(item.examples ?? []))}" data-source="${escapeHtml(item.source ?? "manual")}">Remove</button>
+                        </div>
+                      </div>
+                    `
+                  )
+                  .join("")
+              : "<p class='muted'>No saved kanji yet.</p>"}
           </div>
         </div>
       </div>
@@ -2099,6 +2205,27 @@ function wireActions() {
         render();
       }
 
+      if (action === "toggle-word-bookmark") {
+        await apiJson("/api/progress/bookmarks", {
+          method: "POST",
+          body: {
+            kind: "word",
+            item: {
+              word: button.dataset.word ?? "",
+              term: button.dataset.word ?? "",
+              reading: button.dataset.reading ?? "",
+              kana: button.dataset.reading ?? "",
+              meaning: button.dataset.meaning ?? "",
+              example: button.dataset.example ?? "",
+              source: button.dataset.source ?? "manual",
+              sourceLessonId: button.dataset.sourceLessonId ?? "",
+              sourceLessonTitle: button.dataset.sourceLessonTitle ?? "",
+            },
+          },
+        });
+        await refreshState();
+      }
+
       if (action === "lookup-kanji") {
         const term = button.dataset.term ?? "";
         const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
@@ -2111,6 +2238,32 @@ function wireActions() {
           kanjiStudyExampleIndex = 0;
         }
         render();
+      }
+
+      if (action === "toggle-kanji-bookmark") {
+        let examples = [];
+        try {
+          examples = JSON.parse(button.dataset.examples ?? "[]");
+        } catch {
+          examples = [];
+        }
+        await apiJson("/api/progress/bookmarks", {
+          method: "POST",
+          body: {
+            kind: "kanji",
+            item: {
+              character: button.dataset.character ?? "",
+              meaning: button.dataset.meaning ?? "",
+              onYomi: button.dataset.onYomi ?? "",
+              kunYomi: button.dataset.kunYomi ?? "",
+              examples,
+              source: button.dataset.source ?? "manual",
+              sourceLessonId: button.dataset.sourceLessonId ?? "",
+              sourceLessonTitle: button.dataset.sourceLessonTitle ?? "",
+            },
+          },
+        });
+        await refreshState();
       }
 
       if (action === "lookup-dictionary") {

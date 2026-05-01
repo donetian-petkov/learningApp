@@ -144,6 +144,48 @@ function normalizeCosmetic(item) {
   };
 }
 
+function normalizeSavedWord(item = {}, index = 0) {
+  const term = String(item.term ?? item.word ?? "").trim();
+  const reading = String(item.reading ?? item.kana ?? "").trim();
+  const meaning = String(item.meaning ?? "").trim();
+  return {
+    id: item.id ?? `saved-word-${index + 1}`,
+    term,
+    reading,
+    meaning,
+    partOfSpeech: String(item.partOfSpeech ?? item.part_of_speech ?? "noun").trim() || "noun",
+    example: String(item.example ?? "").trim(),
+    source: String(item.source ?? "manual").trim() || "manual",
+    sourceLessonId: String(item.sourceLessonId ?? item.source_lesson_id ?? "").trim(),
+    sourceLessonTitle: String(item.sourceLessonTitle ?? item.source_lesson_title ?? "").trim(),
+    bookmarkedAt: String(item.bookmarkedAt ?? item.bookmarked_at ?? nowIso()).trim() || nowIso(),
+  };
+}
+
+function normalizeSavedKanji(item = {}, index = 0) {
+  const character = String(item.character ?? item.kanji ?? "").trim();
+  return {
+    id: item.id ?? `saved-kanji-${index + 1}`,
+    character,
+    meaning: String(item.meaning ?? "").trim(),
+    onYomi: String(item.onYomi ?? item.on_yomi ?? "").trim(),
+    kunYomi: String(item.kunYomi ?? item.kun_yomi ?? "").trim(),
+    examples: Array.isArray(item.examples) ? item.examples.map((entry) => String(entry).trim()).filter(Boolean) : [],
+    source: String(item.source ?? "manual").trim() || "manual",
+    sourceLessonId: String(item.sourceLessonId ?? item.source_lesson_id ?? "").trim(),
+    sourceLessonTitle: String(item.sourceLessonTitle ?? item.source_lesson_title ?? "").trim(),
+    bookmarkedAt: String(item.bookmarkedAt ?? item.bookmarked_at ?? nowIso()).trim() || nowIso(),
+  };
+}
+
+function savedWordKey(item = {}) {
+  return `${String(item.term ?? "").trim()}|${String(item.reading ?? "").trim()}`;
+}
+
+function savedKanjiKey(item = {}) {
+  return String(item.character ?? "").trim();
+}
+
 function normalizeDictionaryEntry(entry, index = 0) {
   const term = String(entry.term ?? "").trim();
   const reading = String(entry.reading ?? "").trim();
@@ -373,6 +415,10 @@ function normalizeState(snapshot) {
   state.progress ??= clone(INITIAL_APP_STATE.progress);
   state.progress.completedLessons ??= [];
   state.progress.completedExercises ??= [];
+  state.progress.savedWords ??= [];
+  state.progress.savedKanji ??= [];
+  state.progress.savedWords = Array.isArray(state.progress.savedWords) ? state.progress.savedWords.map(normalizeSavedWord) : [];
+  state.progress.savedKanji = Array.isArray(state.progress.savedKanji) ? state.progress.savedKanji.map(normalizeSavedKanji) : [];
   state.lessons = Array.isArray(state.lessons) ? state.lessons.map(normalizeLesson) : [];
   state.lessons = state.lessons.map((lesson) => ({
     ...lesson,
@@ -564,6 +610,8 @@ export class SqliteStorageAdapter {
         listening_minutes INTEGER NOT NULL,
         completed_lessons_json TEXT NOT NULL,
         completed_exercises_json TEXT NOT NULL,
+        saved_words_json TEXT NOT NULL,
+        saved_kanji_json TEXT NOT NULL,
         reviewed_words INTEGER NOT NULL,
         speaking_sessions INTEGER NOT NULL,
         listening_exercises INTEGER NOT NULL
@@ -703,6 +751,8 @@ export class SqliteStorageAdapter {
         listening_exercises INTEGER NOT NULL,
         completed_lessons_json TEXT NOT NULL,
         completed_exercises_json TEXT NOT NULL,
+        saved_words_json TEXT NOT NULL,
+        saved_kanji_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
 
@@ -1068,6 +1118,21 @@ export class SqliteStorageAdapter {
         this.db.exec("ALTER TABLE progress_snapshots ADD COLUMN completed_exercises_json TEXT NOT NULL DEFAULT '[]'");
       } catch {}
       setSchemaVersion(this.db, 11);
+    }
+    if (getSchemaVersion(this.db) < 12) {
+      try {
+        this.db.exec("ALTER TABLE progress_state ADD COLUMN saved_words_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE progress_state ADD COLUMN saved_kanji_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE progress_snapshots ADD COLUMN saved_words_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE progress_snapshots ADD COLUMN saved_kanji_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      setSchemaVersion(this.db, 12);
     }
   }
 
@@ -1507,9 +1572,46 @@ export class SqliteStorageAdapter {
       completedLessons: Array.isArray(progress.completedLessons)
         ? progress.completedLessons
         : snapshot.progress.completedLessons,
+      completedExercises: Array.isArray(progress.completedExercises)
+        ? progress.completedExercises
+        : snapshot.progress.completedExercises,
+      savedWords: Array.isArray(progress.savedWords)
+        ? progress.savedWords.map(normalizeSavedWord)
+        : snapshot.progress.savedWords,
+      savedKanji: Array.isArray(progress.savedKanji)
+        ? progress.savedKanji.map(normalizeSavedKanji)
+        : snapshot.progress.savedKanji,
     };
     this.saveAppState(snapshot);
     return snapshot.progress;
+  }
+
+  toggleStudyBookmark(kind, item = {}, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const next = clone(current);
+    if (kind === "kanji") {
+      const bookmark = normalizeSavedKanji(item);
+      const key = savedKanjiKey(bookmark);
+      const existing = new Map((next.progress.savedKanji ?? []).map((entry) => [savedKanjiKey(entry), normalizeSavedKanji(entry)]));
+      if (existing.has(key)) {
+        existing.delete(key);
+      } else if (key) {
+        existing.set(key, bookmark);
+      }
+      next.progress.savedKanji = Array.from(existing.values()).sort((left, right) => left.character.localeCompare(right.character));
+    } else {
+      const bookmark = normalizeSavedWord(item);
+      const key = savedWordKey(bookmark);
+      const existing = new Map((next.progress.savedWords ?? []).map((entry) => [savedWordKey(entry), normalizeSavedWord(entry)]));
+      if (existing.has(key)) {
+        existing.delete(key);
+      } else if (bookmark.term || bookmark.reading) {
+        existing.set(key, bookmark);
+      }
+      next.progress.savedWords = Array.from(existing.values()).sort((left, right) => left.term.localeCompare(right.term) || left.reading.localeCompare(right.reading));
+    }
+    this.saveAppState(next, sessionUser ?? current.admin.sessionUser ?? null);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser }).progress;
   }
 
   awardProgress(delta, source = "manual") {
@@ -1957,6 +2059,8 @@ export class SqliteStorageAdapter {
           listeningMinutes: progressRow.listening_minutes,
           completedLessons: parseJson(progressRow.completed_lessons_json, []),
           completedExercises: parseJson(progressRow.completed_exercises_json, []),
+          savedWords: parseJson(progressRow.saved_words_json, []),
+          savedKanji: parseJson(progressRow.saved_kanji_json, []),
           reviewedWords: progressRow.reviewed_words,
           speakingSessions: progressRow.speaking_sessions,
           listeningExercises: progressRow.listening_exercises,
@@ -2127,7 +2231,7 @@ export class SqliteStorageAdapter {
         );
       }
       this.db.prepare(
-        "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, completed_exercises_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, completed_exercises_json, saved_words_json, saved_kanji_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         next.progress.xp,
         next.progress.level,
@@ -2142,6 +2246,8 @@ export class SqliteStorageAdapter {
         next.progress.listeningExercises,
         toJson(next.progress.completedLessons),
         toJson(next.progress.completedExercises),
+        toJson(next.progress.savedWords),
+        toJson(next.progress.savedKanji),
         now
       );
       this.db.prepare(
@@ -2198,7 +2304,7 @@ export class SqliteStorageAdapter {
     );
 
     this.db.prepare(
-      "INSERT INTO progress_state (id, xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, completed_lessons_json, completed_exercises_json, reviewed_words, speaking_sessions, listening_exercises) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO progress_state (id, xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, completed_lessons_json, completed_exercises_json, saved_words_json, saved_kanji_json, reviewed_words, speaking_sessions, listening_exercises) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       snapshot.progress.xp,
       calculateLevel(snapshot.progress.xp),
@@ -2210,6 +2316,8 @@ export class SqliteStorageAdapter {
       snapshot.progress.listeningMinutes,
       toJson(snapshot.progress.completedLessons),
       toJson(snapshot.progress.completedExercises),
+      toJson(snapshot.progress.savedWords),
+      toJson(snapshot.progress.savedKanji),
       snapshot.progress.reviewedWords,
       snapshot.progress.speakingSessions,
       snapshot.progress.listeningExercises
