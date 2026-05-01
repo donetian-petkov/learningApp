@@ -169,6 +169,7 @@ const defaultState = {
 
 let state = structuredClone(defaultState);
 let dictionaryLookup = [];
+let adminLessonEditor = null;
 
 const app = document.querySelector("#app");
 const navButtons = document.querySelectorAll(".nav-item");
@@ -669,6 +670,17 @@ function renderAdmin() {
     `;
   }
 
+  const lessonDraft = adminLessonEditor ?? {
+    id: "",
+    title: "",
+    theme: "custom",
+    difficulty: "N5",
+    japanese: "",
+    romaji: "",
+    translation: "",
+    grammar: "",
+  };
+
   return `
     <section class="panel">
       <div class="section-title">
@@ -726,10 +738,50 @@ function renderAdmin() {
           <div class="list">
             ${state.lessons
               .map(
-                (lesson) => `<div class="list-item">${escapeHtml(lesson.title)} <span class="muted">${escapeHtml(lesson.theme)}</span></div>`
+                (lesson) => `
+                  <div class="list-item">
+                    <div>
+                      <strong>${escapeHtml(lesson.title)}</strong>
+                      <span class="muted">${escapeHtml(lesson.theme)} · ${escapeHtml(lesson.difficulty)}</span>
+                    </div>
+                    <div class="button-row">
+                      <button class="secondary" data-action="edit-lesson" data-lesson-id="${escapeHtml(lesson.id)}">Edit</button>
+                      <button class="secondary" data-action="delete-lesson" data-lesson-id="${escapeHtml(lesson.id)}">Delete</button>
+                    </div>
+                  </div>
+                `
               )
               .join("")}
           </div>
+          <h4 class="spaced">${adminLessonEditor ? "Edit lesson" : "Create lesson"}</h4>
+          <label class="field">
+            <span>Title</span>
+            <input type="text" data-field="lesson-title" value="${escapeHtml(lessonDraft.title)}" placeholder="Travel: Train Station" />
+          </label>
+          <label class="field">
+            <span>Theme</span>
+            <input type="text" data-field="lesson-theme" value="${escapeHtml(lessonDraft.theme)}" placeholder="travel" />
+          </label>
+          <label class="field">
+            <span>Difficulty</span>
+            <input type="text" data-field="lesson-difficulty" value="${escapeHtml(lessonDraft.difficulty)}" placeholder="N5" />
+          </label>
+          <label class="field">
+            <span>Japanese</span>
+            <input type="text" data-field="lesson-japanese" value="${escapeHtml(lessonDraft.japanese)}" placeholder="きょうは新しい表現を学びます。" />
+          </label>
+          <label class="field">
+            <span>Romaji</span>
+            <input type="text" data-field="lesson-romaji" value="${escapeHtml(lessonDraft.romaji)}" placeholder="Kyou wa atarashii hyougen o manabimasu." />
+          </label>
+          <label class="field">
+            <span>Translation</span>
+            <input type="text" data-field="lesson-translation" value="${escapeHtml(lessonDraft.translation)}" placeholder="Today we are learning a new expression." />
+          </label>
+          <label class="field">
+            <span>Grammar</span>
+            <input type="text" data-field="lesson-grammar" value="${escapeHtml(lessonDraft.grammar)}" placeholder="Custom lesson created from the admin panel." />
+          </label>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
             ${(state.admin.contentReviewQueue ?? [])
@@ -747,15 +799,10 @@ function renderAdmin() {
               )
               .join("")}
           </div>
-          <label class="field">
-            <span>New lesson title</span>
-            <input type="text" data-field="lesson-title" placeholder="Travel: Train Station" />
-          </label>
-          <label class="field">
-            <span>Theme</span>
-            <input type="text" data-field="lesson-theme" placeholder="travel" />
-          </label>
-          <button class="primary" data-action="add-lesson">Add lesson</button>
+          <div class="button-row spaced">
+            <button class="primary" data-action="save-lesson">${adminLessonEditor ? "Save changes" : "Add lesson"}</button>
+            ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
+          </div>
         </div>
         <div class="grid-card">
           <h3>User management</h3>
@@ -1069,14 +1116,58 @@ function wireActions() {
         await refreshState();
       }
 
-      if (action === "add-lesson") {
+      if (action === "edit-lesson") {
+        const lessonId = button.dataset.lessonId;
+        const lesson = state.lessons.find((entry) => entry.id === lessonId);
+        if (lesson) {
+          adminLessonEditor = structuredClone(lesson);
+          render();
+        }
+      }
+
+      if (action === "cancel-lesson-edit") {
+        adminLessonEditor = null;
+        render();
+      }
+
+      if (action === "save-lesson") {
         const titleInput = app.querySelector('[data-field="lesson-title"]');
         const themeInput = app.querySelector('[data-field="lesson-theme"]');
+        const difficultyInput = app.querySelector('[data-field="lesson-difficulty"]');
+        const japaneseInput = app.querySelector('[data-field="lesson-japanese"]');
+        const romajiInput = app.querySelector('[data-field="lesson-romaji"]');
+        const translationInput = app.querySelector('[data-field="lesson-translation"]');
+        const grammarInput = app.querySelector('[data-field="lesson-grammar"]');
         const title = titleInput?.value?.trim();
-        if (title) {
+        if (!title && !adminLessonEditor) {
+          return;
+        }
+        const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "custom";
+        const baseLesson = buildLesson(title || adminLessonEditor?.title || "New Lesson", theme);
+        const payload = {
+          ...baseLesson,
+          id: adminLessonEditor?.id ?? baseLesson.id,
+          title: title || adminLessonEditor?.title || baseLesson.title,
+          theme,
+          difficulty: difficultyInput?.value?.trim() || adminLessonEditor?.difficulty || baseLesson.difficulty,
+          japanese: japaneseInput?.value?.trim() || adminLessonEditor?.japanese || baseLesson.japanese,
+          romaji: romajiInput?.value?.trim() || adminLessonEditor?.romaji || baseLesson.romaji,
+          translation: translationInput?.value?.trim() || adminLessonEditor?.translation || baseLesson.translation,
+          grammar: grammarInput?.value?.trim() || adminLessonEditor?.grammar || baseLesson.grammar,
+        };
+        if (adminLessonEditor?.id) {
+          await apiJson(`/api/lessons/${encodeURIComponent(adminLessonEditor.id)}`, {
+            method: "PATCH",
+            body: payload,
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Updated lesson: ${payload.title}` },
+          });
+        } else {
           await apiJson("/api/lessons", {
             method: "POST",
-            body: buildLesson(title, themeInput?.value?.trim() || "custom"),
+            body: payload,
           });
           await apiJson("/api/gamification/award", {
             method: "POST",
@@ -1084,7 +1175,23 @@ function wireActions() {
           });
           await apiJson("/api/audit-log", {
             method: "POST",
-            body: { entry: `Added lesson: ${title}` },
+            body: { entry: `Added lesson: ${payload.title}` },
+          });
+        }
+        adminLessonEditor = null;
+        await refreshState();
+      }
+
+      if (action === "delete-lesson") {
+        const lessonId = button.dataset.lessonId;
+        if (lessonId) {
+          await apiJson(`/api/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
+          if (adminLessonEditor?.id === lessonId) {
+            adminLessonEditor = null;
+          }
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Deleted lesson: ${lessonId}` },
           });
           await refreshState();
         }
