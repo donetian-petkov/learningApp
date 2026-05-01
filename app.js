@@ -1088,32 +1088,9 @@ function renderAdmin() {
           <p>${state.admin.analytics?.reviewHistory ?? 0} review events · ${state.admin.analytics?.kanjiReviewHistory ?? 0} kanji review events</p>
           <p>${state.kanjiEntries?.length ?? 0} kanji entries · ${state.kanjiReviews?.length ?? 0} kanji drills</p>
           <p>${state.admin.analytics?.topLessons?.length ?? 0} lesson-linked review groups · ${state.admin.analytics?.topKanji?.length ?? 0} trending kanji</p>
-          <h4 class="spaced">Top study kinds</h4>
-          <div class="list">
-            ${(state.admin.analytics?.sessionKinds ?? [])
-              .map(
-                (item) => `
-                  <div class="list-item">
-                    <strong>${escapeHtml(item.kind)}</strong>
-                    <span class="muted">${item.count} sessions · ${item.durationMinutes} min</span>
-                  </div>
-                `
-              )
-              .join("")}
-          </div>
-          <h4 class="spaced">Top kanji</h4>
-          <div class="list">
-            ${(state.admin.analytics?.topKanji ?? [])
-              .map(
-                (item) => `
-                  <div class="list-item">
-                    <strong>${escapeHtml(item.character)}</strong>
-                    <span class="muted">${item.reviewCount} reviews</span>
-                  </div>
-                `
-              )
-              .join("")}
-          </div>
+          ${renderBarChart("Top study kinds", state.admin.analytics?.sessionKinds ?? [], (item) => item.kind, (item) => item.count, (item) => `${item.count} sessions · ${item.durationMinutes} min`, "No study sessions yet.")}
+          ${renderBarChart("AI requests by day", state.admin.analytics?.dailyAi ?? [], (item) => item.dateKey, (item) => item.count, (item) => `${item.count} requests`, "No AI usage yet.")}
+          ${renderBarChart("Top kanji", state.admin.analytics?.topKanji ?? [], (item) => item.character, (item) => item.reviewCount, (item) => `${item.reviewCount} reviews`, "No kanji reviews yet.")}
         </div>
         <div class="grid-card">
           <h3>Site health</h3>
@@ -1387,6 +1364,48 @@ function renderStat(label, value) {
     <div class="stat">
       <strong>${value}</strong>
       <span class="muted">${label}</span>
+    </div>
+  `;
+}
+
+function buildBarChartRows(items, labelFn, valueFn, limit = 5) {
+  const rows = (Array.isArray(items) ? items : []).slice(0, Math.max(1, limit)).map((item) => ({
+    item,
+    label: String(labelFn(item) ?? ""),
+    value: Number(valueFn(item) ?? 0),
+  }));
+  const max = Math.max(1, ...rows.map((row) => row.value));
+  return rows.map((row) => ({
+    ...row,
+    width: Math.max(8, Math.round((row.value / max) * 100)),
+  }));
+}
+
+function renderBarChart(title, items, labelFn, valueFn, detailFn, emptyMessage = "No data yet.") {
+  const rows = buildBarChartRows(items, labelFn, valueFn, 6);
+  return `
+    <div class="grid-card nested spaced">
+      <h4>${escapeHtml(title)}</h4>
+      ${
+        rows.length
+          ? `
+            <div class="chart-list">
+              ${rows
+                .map(
+                  (row, index) => `
+                    <div class="chart-row">
+                      <span class="chart-index">${index + 1}</span>
+                      <span class="chart-label">${escapeHtml(row.label)}</span>
+                      <div class="meter chart-meter"><span style="width: ${row.width}%"></span></div>
+                      <span class="muted chart-detail">${escapeHtml(detailFn?.(row.item) ?? `${row.value}`)}</span>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : `<p class="muted">${escapeHtml(emptyMessage)}</p>`
+      }
     </div>
   `;
 }
