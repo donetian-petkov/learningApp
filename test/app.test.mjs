@@ -366,6 +366,8 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     const noteProgress = temp.store.saveLessonNote("anime-intro", "Remember よろしくお願いします for polite introductions.");
     assert.equal(noteProgress.lessonNotes["anime-intro"].includes("polite introductions"), true);
     assert.equal(temp.store.getSnapshot().progress.lessonNotes["anime-intro"].includes("よろしく"), true);
+    const clearedNotes = temp.store.saveLessonNote("anime-intro", "");
+    assert.equal(clearedNotes.lessonNotes["anime-intro"], undefined);
   } finally {
     cleanupTempStore(temp);
   }

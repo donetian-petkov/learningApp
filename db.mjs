@@ -1617,10 +1617,13 @@ export class SqliteStorageAdapter {
     const normalizedLessonId = String(lessonId ?? "").trim();
     if (!normalizedLessonId) return current.progress;
     const normalizedNote = String(note ?? "").trim();
-    next.progress.lessonNotes = {
-      ...normalizeLessonNotes(next.progress.lessonNotes),
-      [normalizedLessonId]: normalizedNote,
-    };
+    const notes = normalizeLessonNotes(next.progress.lessonNotes);
+    if (normalizedNote) {
+      notes[normalizedLessonId] = normalizedNote;
+    } else {
+      delete notes[normalizedLessonId];
+    }
+    next.progress.lessonNotes = notes;
     this.saveAppState(next, sessionUser ?? current.admin.sessionUser ?? null);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser }).progress;
   }

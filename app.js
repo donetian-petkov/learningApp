@@ -601,8 +601,14 @@ function renderLearn() {
             <span>Notes for ${escapeHtml(activeLesson.title)}</span>
             <textarea rows="4" data-field="lesson-note-input">${escapeHtml(lessonNoteValue)}</textarea>
           </label>
+          <div class="tag-row">
+            <button class="tag" data-action="fill-lesson-note" data-value="Grammar:">${"Grammar note"}</button>
+            <button class="tag" data-action="fill-lesson-note" data-value="Vocab:">${"Vocabulary note"}</button>
+            <button class="tag" data-action="fill-lesson-note" data-value="Remember:">${"Study reminder"}</button>
+          </div>
           <div class="button-row">
             <button class="primary" data-action="save-lesson-note" data-lesson-id="${escapeHtml(activeLesson.id)}">Save note</button>
+            <button class="secondary" data-action="save-lesson-note" data-lesson-id="${escapeHtml(activeLesson.id)}" data-clear="true">Clear note</button>
           </div>
           <p class="muted" data-output="lesson-note-feedback">${escapeHtml(lessonNoteFeedback || "No note saved yet.")}</p>
         </div>
@@ -1433,6 +1439,8 @@ function renderProgress() {
                         </div>
                         <div class="button-row">
                           <button class="secondary" data-action="select-lesson" data-id="${escapeHtml(lessonId)}">Open</button>
+                          <button class="secondary" data-action="edit-lesson-note" data-lesson-id="${escapeHtml(lessonId)}">Edit</button>
+                          <button class="secondary" data-action="save-lesson-note" data-lesson-id="${escapeHtml(lessonId)}" data-clear="true">Clear</button>
                         </div>
                       </div>
                     `;
@@ -2527,13 +2535,35 @@ function wireActions() {
       if (action === "save-lesson-note") {
         const lessonId = button.dataset.lessonId ?? state.activeLessonId;
         const input = app.querySelector('[data-field="lesson-note-input"]');
-        const note = input?.value ?? "";
+        const note = button.dataset.clear === "true" ? "" : (input?.value ?? "");
         const result = await apiJson("/api/progress/lesson-note", {
           method: "POST",
           body: { lessonId, note },
         });
         lessonNoteFeedback = result?.lessonNotes?.[lessonId] ? "Lesson note saved." : "Lesson note cleared.";
         await refreshState();
+      }
+
+      if (action === "edit-lesson-note") {
+        const lessonId = button.dataset.lessonId ?? state.activeLessonId;
+        state.activeLessonId = lessonId;
+        lessonNoteFeedback = "Editing lesson note.";
+        persist();
+        render();
+      }
+
+      if (action === "fill-lesson-note") {
+        const input = app.querySelector('[data-field="lesson-note-input"]');
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const prefix = button.dataset.value ?? "Note:";
+        if (input) {
+          const current = input.value.trim();
+          const line = activeLesson
+            ? `${prefix} ${activeLesson.title} · ${activeLesson.theme}`
+            : `${prefix} `;
+          input.value = current ? `${current}\n${line}` : line;
+          input.focus();
+        }
       }
 
       if (action === "lookup-dictionary") {
