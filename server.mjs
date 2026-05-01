@@ -130,6 +130,17 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/cosmetics/equip") {
+    const body = await readJson(req);
+    const result = store.equipCosmetic(body.cosmeticId ?? "", session?.sessionUser ?? null);
+    if (!result) {
+      respondJson(res, 404, { error: "Cosmetic not owned" });
+    } else {
+      respondJson(res, 200, result);
+    }
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/practice") {
     const body = await readJson(req);
     try {

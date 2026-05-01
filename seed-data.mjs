@@ -97,7 +97,7 @@ export const INITIAL_APP_STATE = {
     { name: "Speak 5 sentences", reward: "+50 XP", complete: false },
   ],
   cosmetics: [
-    { name: "Sakura Theme", cost: 120, owned: true },
+    { name: "Sakura Theme", cost: 120, owned: true, equipped: true },
     { name: "Ramen Master Icon", cost: 80, owned: false },
     { name: "Manga Panel Background", cost: 160, owned: false },
   ],

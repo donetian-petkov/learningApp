@@ -95,6 +95,7 @@ function normalizeCosmetic(item) {
     name: item.name,
     cost: Number(item.cost ?? 0),
     owned: Boolean(item.owned),
+    equipped: Boolean(item.equipped),
   };
 }
 
@@ -967,6 +968,23 @@ export class SqliteStorageAdapter {
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
 
+  equipCosmetic(cosmeticId, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const owned = this.db.prepare("SELECT * FROM user_cosmetics WHERE cosmetic_id = ?").get(cosmeticId);
+    if (!owned) return null;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("UPDATE user_cosmetics SET equipped = 0").run();
+      this.db.prepare("UPDATE user_cosmetics SET equipped = 1 WHERE cosmetic_id = ?").run(cosmeticId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.appendAudit(`Equipped cosmetic: ${cosmeticId}`);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+  }
+
   recordPracticeSession(kind, payload = {}, sessionUser = null) {
     const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
     const updated = clone(current);
@@ -1140,6 +1158,7 @@ export class SqliteStorageAdapter {
       name: row.name,
       cost: row.cost,
       owned: Boolean(this.db.prepare("SELECT 1 FROM user_cosmetics WHERE cosmetic_id = ?").get(row.id)),
+      equipped: Boolean(this.db.prepare("SELECT 1 FROM user_cosmetics WHERE cosmetic_id = ? AND equipped = 1").get(row.id)),
     }));
     const aiRows = this.db.prepare("SELECT * FROM ai_usage_log ORDER BY id DESC").all();
     const today = currentDateKey();
@@ -1563,7 +1582,7 @@ export class SqliteStorageAdapter {
         .run(id, cosmetic.name, cosmetic.cost, index);
       if (cosmetic.owned) {
         this.db.prepare("INSERT INTO user_cosmetics (cosmetic_id, owned_at, equipped) VALUES (?, ?, ?)")
-          .run(id, nowIso(), index === 0 ? 1 : 0);
+          .run(id, nowIso(), cosmetic.equipped ? 1 : 0);
       }
     });
 

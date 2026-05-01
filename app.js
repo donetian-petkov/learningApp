@@ -92,7 +92,7 @@ const defaultState = {
     { name: "Speak 5 sentences", reward: "+50 XP", complete: false },
   ],
   cosmetics: [
-    { name: "Sakura Theme", cost: 120, owned: true },
+    { name: "Sakura Theme", cost: 120, owned: true, equipped: true },
     { name: "Ramen Master Icon", cost: 80, owned: false },
     { name: "Manga Panel Background", cost: 160, owned: false },
   ],
@@ -602,12 +602,16 @@ function renderProgress() {
             .map(
               (item) => `
                 <div class="list-item">
-                  ${item.owned ? "Owned" : `${item.cost} credits`} · ${item.name}
-                  ${item.owned ? "" : `<button class="secondary" data-action="buy-cosmetic" data-item="${item.name}">Buy</button>`}
+                  ${item.equipped ? "Equipped" : item.owned ? "Owned" : `${item.cost} credits`} · ${item.name}
+                  <div class="button-row">
+                    ${item.owned && !item.equipped ? `<button class="secondary" data-action="equip-cosmetic" data-item="${item.name}">Equip</button>` : ""}
+                    ${item.owned ? "" : `<button class="secondary" data-action="buy-cosmetic" data-item="${item.name}">Buy</button>`}
+                  </div>
                 </div>
               `
             )
             .join("")}
+          <p class="muted spaced">Equipped: ${escapeHtml(state.cosmetics.find((item) => item.equipped)?.name ?? "None")}</p>
         </div>
         <div class="grid-card">
           <h3>Level progress</h3>
@@ -992,14 +996,6 @@ function wireActions() {
         }
       }
 
-      if (action === "claim-challenge") {
-        const challengeId = button.dataset.challengeId;
-        if (challengeId) {
-          await apiJson(`/api/challenges/${encodeURIComponent(challengeId)}/claim`, { method: "POST" });
-          await refreshState();
-        }
-      }
-
       if (action === "open-chest") {
         const result = await apiJson("/api/gamification/chest", { method: "POST" });
         state.chest.lastReward = result.reward ?? state.chest.lastReward;
@@ -1021,6 +1017,17 @@ function wireActions() {
         const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
         if (cosmetic && !cosmetic.owned && state.progress.credits >= cosmetic.cost) {
           await apiJson("/api/cosmetics/buy", {
+            method: "POST",
+            body: { cosmeticId: cosmetic.id ?? cosmetic.name },
+          });
+          await refreshState();
+        }
+      }
+
+      if (action === "equip-cosmetic") {
+        const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
+        if (cosmetic && cosmetic.owned && !cosmetic.equipped) {
+          await apiJson("/api/cosmetics/equip", {
             method: "POST",
             body: { cosmeticId: cosmetic.id ?? cosmetic.name },
           });

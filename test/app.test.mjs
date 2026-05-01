@@ -115,6 +115,9 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     const cosmeticResult = temp.store.buyCosmetic(cosmetic.id);
     assert.equal(cosmeticResult.progress.credits < 245, true);
 
+    const equipped = temp.store.equipCosmetic("cosmetic-sakura-theme");
+    assert.equal(equipped.cosmetics.find((entry) => entry.id === "cosmetic-sakura-theme").equipped, true);
+
     const speaking = temp.store.recordPracticeSession("speaking", { input: "ラーメンをください" });
     assert.equal(speaking.tutor.answer.startsWith("Natural correction:"), true);
     assert.equal(speaking.progress.speakingSessions >= 8, true);
