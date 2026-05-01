@@ -246,6 +246,8 @@ let lessonExerciseFeedback = "";
 let lessonExerciseDraftAnswer = "";
 let lessonDialogueIndex = 0;
 let roleplayDraft = "";
+let reviewDeckIndex = 0;
+let reviewReveal = false;
 let permissionDraft = null;
 
 const listeningScenarios = [
@@ -891,6 +893,8 @@ function renderReview() {
   const kanjiQueue = Array.isArray(state.kanjiReviews) ? state.kanjiReviews : [];
   const kanjiReview = kanjiQueue.length ? kanjiQueue[kanjiReviewIndex % kanjiQueue.length] : null;
   const kanjiChoices = kanjiReview ? buildKanjiQuizChoices(kanjiReview, kanjiQueue, state.kanjiEntries ?? []) : [];
+  const reviewQueue = Array.isArray(state.reviews) ? state.reviews : [];
+  const activeReview = reviewQueue.length ? reviewQueue[reviewDeckIndex % reviewQueue.length] : null;
   const items = state.reviews
     .map(
       (item) => `
@@ -918,6 +922,50 @@ function renderReview() {
           <h2>Review queue</h2>
         </div>
         <p>SM-2 scheduling, mistake review, vocab review, kanji review.</p>
+      </div>
+      <div class="grid-card spaced">
+        <h3>Vocab flashcard</h3>
+        ${
+          activeReview
+            ? `
+              <p class="muted">Card ${reviewDeckIndex + 1} of ${reviewQueue.length}</p>
+              <div class="kanji-focus">
+                <strong>${escapeHtml(activeReview.prompt)}</strong>
+                <span class="tag">${escapeHtml(activeReview.due)}</span>
+              </div>
+              <p class="muted">${escapeHtml(activeReview.meaning)}</p>
+              ${
+                reviewReveal
+                  ? `
+                    <div class="detail-card spaced">
+                      <p><strong>Answer:</strong> ${escapeHtml(activeReview.answer)}</p>
+                      <p class="muted">Ease: ${escapeHtml(activeReview.ease.toFixed(1))} · Due: ${escapeHtml(activeReview.due)}</p>
+                    </div>
+                  `
+                  : `
+                    <p class="muted">Tap reveal to check the answer, then grade the card.</p>
+                  `
+              }
+              <div class="button-row">
+                <button class="secondary" data-action="review-prev-card">Previous card</button>
+                <button class="primary" data-action="review-reveal-card">${reviewReveal ? "Hide answer" : "Reveal answer"}</button>
+                <button class="secondary" data-action="review-next-card">Next card</button>
+              </div>
+              ${
+                reviewReveal
+                  ? `
+                    <div class="button-row">
+                      <button class="secondary" data-action="grade-review" data-review-id="${escapeHtml(activeReview.id)}" data-grade="2">Again</button>
+                      <button class="secondary" data-action="grade-review" data-review-id="${escapeHtml(activeReview.id)}" data-grade="3">Hard</button>
+                      <button class="primary" data-action="grade-review" data-review-id="${escapeHtml(activeReview.id)}" data-grade="4">Good</button>
+                      <button class="secondary" data-action="grade-review" data-review-id="${escapeHtml(activeReview.id)}" data-grade="5">Easy</button>
+                    </div>
+                  `
+                  : ""
+              }
+            `
+            : "<p class='muted'>No vocab cards are available yet.</p>"
+        }
       </div>
       <div class="chest-row">
         <div class="grid-card">
@@ -1793,8 +1841,27 @@ function wireActions() {
               body: { source: "review-pass", delta: { xp: grade === 5 ? 24 : 20, credits: grade === 5 ? 6 : 5, streak: 0 } },
             });
           }
+          reviewReveal = false;
+          const count = (state.reviews ?? []).length;
+          reviewDeckIndex = count ? (reviewDeckIndex + 1) % count : 0;
           await refreshState();
         }
+      }
+
+      if (action === "review-reveal-card") {
+        reviewReveal = !reviewReveal;
+        render();
+      }
+
+      if (action === "review-next-card" || action === "review-prev-card") {
+        const count = (state.reviews ?? []).length;
+        if (count) {
+          reviewDeckIndex = action === "review-next-card"
+            ? (reviewDeckIndex + 1) % count
+            : (reviewDeckIndex - 1 + count) % count;
+        }
+        reviewReveal = false;
+        render();
       }
 
       if (action === "kanji-quiz-answer") {
