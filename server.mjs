@@ -145,6 +145,28 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/admin/content-review") {
+    respondJson(res, 200, store.getContentReviewQueue());
+    return;
+  }
+
+  if (req.method === "PATCH" && url.pathname.startsWith("/api/admin/content-review/")) {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const itemId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    const body = await readJson(req);
+    const updated = store.reviewContentItem(itemId, body);
+    respondJson(res, updated ? 200 : 404, updated ?? { error: "Not found" });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/admin/permissions") {
+    respondJson(res, 200, store.getPermissionMatrix());
+    return;
+  }
+
   if (req.method === "PATCH" && url.pathname === "/api/admin") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });

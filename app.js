@@ -98,6 +98,20 @@ const defaultState = {
   ],
   admin: {
     roles: ["Super Admin", "Content Admin", "Support Admin", "Analytics Admin"],
+    permissions: {
+      roles: [
+        { name: "Super Admin", permissions: ["Manage content", "Manage users", "View analytics", "Manage AI usage"] },
+        { name: "Content Admin", permissions: ["Manage content", "Manage AI usage"] },
+        { name: "Support Admin", permissions: ["Manage users"] },
+        { name: "Analytics Admin", permissions: ["View analytics"] },
+      ],
+      permissions: [
+        { name: "Manage content" },
+        { name: "Manage users" },
+        { name: "View analytics" },
+        { name: "Manage AI usage" },
+      ],
+    },
     aiUsage: {
       dailyRequests: 18,
       monthlyRequests: 362,
@@ -113,6 +127,9 @@ const defaultState = {
       "Published anime dialogue module",
       "Approved 12 grammar explanations",
       "Updated free AI usage limits",
+    ],
+    contentReviewQueue: [
+      { id: "content-review-1", itemType: "lesson", itemId: "anime-intro", status: "pending", notes: "Seeded review queue" },
     ],
   },
   roleplay: {
@@ -576,6 +593,19 @@ function renderAdmin() {
         <div class="grid-card">
           <h3>Roles</h3>
           <div class="tag-row">${state.admin.roles.map((role) => `<span class="tag">${role}</span>`).join("")}</div>
+          <h4 class="spaced">Permissions</h4>
+          <div class="list">
+            ${(state.admin.permissions?.roles ?? [])
+              .map(
+                (role) => `
+                  <div class="list-item">
+                    <strong>${escapeHtml(role.name)}</strong>
+                    <span class="muted">${escapeHtml(role.permissions.join(", "))}</span>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
         </div>
         <div class="grid-card">
           <h3>AI usage</h3>
@@ -606,6 +636,23 @@ function renderAdmin() {
             ${state.lessons
               .map(
                 (lesson) => `<div class="list-item">${escapeHtml(lesson.title)} <span class="muted">${escapeHtml(lesson.theme)}</span></div>`
+              )
+              .join("")}
+          </div>
+          <h4 class="spaced">Content review queue</h4>
+          <div class="list">
+            ${(state.admin.contentReviewQueue ?? [])
+              .map(
+                (item) => `
+                  <div class="list-item">
+                    <strong>${escapeHtml(item.itemType)}</strong>
+                    <span class="muted">${escapeHtml(item.status)} · ${escapeHtml(item.notes)}</span>
+                    <div class="button-row">
+                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="approved">Approve</button>
+                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="rejected">Reject</button>
+                    </div>
+                  </div>
+                `
               )
               .join("")}
           </div>
@@ -844,6 +891,22 @@ function wireActions() {
           await apiJson("/api/audit-log", {
             method: "POST",
             body: { entry: `Added lesson: ${title}` },
+          });
+          await refreshState();
+        }
+      }
+
+      if (action === "review-content") {
+        const reviewId = button.dataset.reviewId;
+        const status = button.dataset.status;
+        if (reviewId && status) {
+          await apiJson(`/api/admin/content-review/${encodeURIComponent(reviewId)}`, {
+            method: "PATCH",
+            body: { status, notes: `${status} via admin panel` },
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Content review ${status}: ${reviewId}` },
           });
           await refreshState();
         }

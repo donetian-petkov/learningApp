@@ -134,6 +134,23 @@ test("admin credentials and audit logging work", () => {
   }
 });
 
+test("admin content review queue and permissions persist", () => {
+  const temp = createTempStore();
+  try {
+    const queue = temp.store.getContentReviewQueue();
+    assert.ok(queue.length >= 1);
+    const reviewed = temp.store.reviewContentItem(queue[0].id, { status: "approved", notes: "Looks good" });
+    assert.equal(reviewed[0].status, "approved");
+    assert.equal(reviewed[0].notes, "Looks good");
+
+    const permissions = temp.store.getPermissionMatrix();
+    assert.equal(permissions.roles.some((role) => role.name === "Super Admin"), true);
+    assert.equal(permissions.permissions.some((permission) => permission.name === "Manage content"), true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("shared helpers are deterministic and safe", () => {
   assert.equal(escapeHtml("<b>&</b>"), "&lt;b&gt;&amp;&lt;/b&gt;");
   assert.equal(normalizeSentence("ラーメンをください"), "ラーメンをください");

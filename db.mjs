@@ -119,6 +119,8 @@ function normalizeState(snapshot) {
   state.admin.authenticated ??= false;
   state.admin.sessionUser ??= null;
   state.admin.auditLog ??= [];
+  state.admin.contentReviewQueue ??= [];
+  state.admin.permissions ??= {};
   state.roleplay ??= clone(INITIAL_APP_STATE.roleplay);
   state.tutor ??= clone(INITIAL_APP_STATE.tutor);
   state.chest ??= clone(INITIAL_APP_STATE.chest);
@@ -912,7 +914,16 @@ export class SqliteStorageAdapter {
           failedRequests: 0,
         };
     const adminRoles = this.db.prepare("SELECT name FROM roles ORDER BY name").all().map((row) => row.name);
+    const permissions = this.getPermissionMatrix();
     const auditLog = this.db.prepare("SELECT entry FROM audit_log ORDER BY id DESC LIMIT 25").all().map((row) => row.entry);
+    const contentReviewQueue = this.db.prepare("SELECT * FROM content_review_queue ORDER BY created_at DESC, id DESC").all().map((row) => ({
+      id: row.id,
+      itemType: row.item_type,
+      itemId: row.item_id,
+      status: row.status,
+      notes: row.notes,
+      createdAt: row.created_at,
+    }));
     const appState = {
       ...(stateRow ? {
         view: stateRow.view,
@@ -957,6 +968,8 @@ export class SqliteStorageAdapter {
       authenticated: Boolean(session?.authenticated),
       sessionUser: session?.sessionUser ?? null,
       auditLog,
+      contentReviewQueue,
+      permissions,
     };
     const streakState = streakRow
       ? streakRow
@@ -1201,8 +1214,19 @@ export class SqliteStorageAdapter {
         .run(entry, nowIso());
     });
 
-    this.db.prepare("INSERT INTO content_review_queue (id, item_type, item_id, status, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run("content-review-1", "lesson", snapshot.lessons[0]?.id ?? "anime-intro", "pending", "Seeded review queue", nowIso());
+    const reviewQueue = snapshot.admin.contentReviewQueue.length
+      ? snapshot.admin.contentReviewQueue
+      : [{
+          id: "content-review-1",
+          itemType: "lesson",
+          itemId: snapshot.lessons[0]?.id ?? "anime-intro",
+          status: "pending",
+          notes: "Seeded review queue",
+        }];
+    reviewQueue.forEach((item) => {
+      this.db.prepare("INSERT INTO content_review_queue (id, item_type, item_id, status, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(item.id, item.itemType, item.itemId, item.status, item.notes, nowIso());
+    });
   }
 
   createSession(username) {
@@ -1263,6 +1287,38 @@ export class SqliteStorageAdapter {
 
   getAuditLog() {
     return this.getSnapshot().admin.auditLog;
+  }
+
+  getContentReviewQueue() {
+    return this.getSnapshot().admin.contentReviewQueue;
+  }
+
+  reviewContentItem(itemId, patch = {}) {
+    const current = this.db.prepare("SELECT * FROM content_review_queue WHERE id = ?").get(itemId);
+    if (!current) return null;
+    const nextStatus = patch.status ?? current.status;
+    const nextNotes = patch.notes ?? current.notes;
+    this.db.prepare("UPDATE content_review_queue SET status = ?, notes = ? WHERE id = ?")
+      .run(nextStatus, nextNotes, itemId);
+    this.appendAudit(`Content review ${itemId}: ${nextStatus}`);
+    return this.getContentReviewQueue();
+  }
+
+  getPermissionMatrix() {
+    const roles = this.db.prepare("SELECT * FROM roles ORDER BY name").all();
+    const permissions = this.db.prepare("SELECT * FROM permissions ORDER BY name").all();
+    const assignments = this.db.prepare("SELECT role_id, permission_id FROM role_permissions").all();
+    return {
+      roles: roles.map((role) => ({
+        id: role.id,
+        name: role.name,
+        permissions: assignments
+          .filter((row) => row.role_id === role.id)
+          .map((row) => permissions.find((permission) => permission.id === row.permission_id)?.name)
+          .filter(Boolean),
+      })),
+      permissions: permissions.map((permission) => ({ id: permission.id, name: permission.name })),
+    };
   }
 
   getLatestLeaderboard() {
