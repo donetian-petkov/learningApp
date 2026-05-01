@@ -98,7 +98,11 @@ export function createApiHandler(store) {
       return;
     }
     const body = await readJson(req);
-    const result = store.importDatasetBundle(body.bundle ?? body.dataset ?? body);
+    const result = store.importDatasetBundle(body.bundle ?? body.dataset ?? body, {
+      filename: body.filename ?? body.fileName ?? "",
+      label: body.label ?? "",
+      notes: body.notes ?? "",
+    });
     respondJson(res, 200, result);
     return;
   }

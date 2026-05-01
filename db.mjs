@@ -2028,6 +2028,22 @@ export class SqliteStorageAdapter {
 
   recordDatasetImport(entry = {}) {
     const id = entry.id ?? `dataset-import-${randomUUID()}`;
+    const sourceType = String(entry.sourceType ?? "bundle").trim() || "bundle";
+    const filename = String(entry.filename ?? entry.fileName ?? "").trim();
+    const defaultLabel =
+      sourceType === "bundle"
+        ? "Dataset bundle import"
+        : sourceType === "dictionary"
+          ? "Dictionary import"
+          : sourceType === "kanji"
+            ? "Kanji import"
+            : sourceType === "lessons"
+              ? "Lesson import"
+              : sourceType === "reviews"
+                ? "Review import"
+                : "Dataset import";
+    const label = String(entry.label ?? (filename ? `${defaultLabel}: ${filename}` : defaultLabel)).trim() || defaultLabel;
+    const notes = [String(entry.notes ?? "").trim(), filename ? `Source file: ${filename}` : ""].filter(Boolean).join(" · ");
     this.db.prepare(
       `
         INSERT INTO dataset_imports (id, source_type, label, counts_json, notes, created_at)
@@ -2041,10 +2057,10 @@ export class SqliteStorageAdapter {
       `
     ).run(
       id,
-      String(entry.sourceType ?? "bundle").trim() || "bundle",
-      String(entry.label ?? "Dataset import").trim() || "Dataset import",
+      sourceType,
+      label,
       toJson(entry.counts ?? {}),
-      String(entry.notes ?? "").trim(),
+      notes,
       String(entry.createdAt ?? nowIso())
     );
     return this.getDatasetImports();
@@ -3217,8 +3233,13 @@ export class SqliteStorageAdapter {
     return imported;
   }
 
-  importDatasetBundle(bundle) {
+  importDatasetBundle(bundle, options = {}) {
     const payload = parseDatasetBundleInput(bundle);
+    const filename = String(options.filename ?? options.fileName ?? "").trim();
+    const label = String(options.label ?? (filename ? `Dataset bundle import: ${filename}` : "Dataset bundle import")).trim() || "Dataset bundle import";
+    const notes = [String(options.notes ?? "").trim(), filename ? `Source file: ${filename}` : "", "Imported through the dataset bundle workflow"]
+      .filter(Boolean)
+      .join(" · ");
     const dictionaryEntries = [
       ...(Array.isArray(payload.dictionaryEntries) ? payload.dictionaryEntries : []),
       ...(Array.isArray(payload.jmdictEntries) ? payload.jmdictEntries.map(normalizeJmdictEntry) : []),
@@ -3241,14 +3262,15 @@ export class SqliteStorageAdapter {
       );
       this.recordDatasetImport({
         sourceType: "bundle",
-        label: "Dataset bundle import",
+        label,
         counts: {
           lessons: importedLessons.length,
           dictionaryEntries: importedDictionary.length,
           kanjiEntries: importedKanji.length,
           reviewItems: importedReviews.length,
         },
-        notes: "Imported through the dataset bundle workflow",
+        notes,
+        filename,
       });
     }
 

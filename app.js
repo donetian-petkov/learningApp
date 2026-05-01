@@ -1824,13 +1824,14 @@ function renderAdmin() {
           </div>
           <label class="field spaced">
             <span>Dataset bundle JSON</span>
+            <input type="file" accept=".json,.xml,.txt" data-field="dataset-import-file" />
             <textarea
               data-field="dataset-import-json"
               rows="6"
               placeholder='Paste JSON or raw JMdict/KANJIDIC XML here.'
             ></textarea>
           </label>
-          <p class="muted">Bundle imports accept JSON objects, raw JMdict XML, or raw KANJIDIC XML and expand them into dictionary, kanji, lesson, and review tables.</p>
+          <p class="muted">Use a file or paste JSON/raw JMdict/KANJIDIC XML. Bundle imports expand them into dictionary, kanji, lesson, and review tables and keep the source file name in the registry.</p>
           <div class="button-row">
             <button class="secondary" data-action="import-dataset">Import dataset bundle</button>
           </div>
@@ -3043,16 +3044,21 @@ function wireActions() {
 
       if (action === "import-dataset") {
         const datasetInput = app.querySelector('[data-field="dataset-import-json"]');
-        const raw = datasetInput?.value?.trim();
+        const datasetFileInput = app.querySelector('[data-field="dataset-import-file"]');
+        const file = datasetFileInput?.files?.[0] ?? null;
+        const raw = file ? await file.text() : datasetInput?.value?.trim();
         if (!raw) {
           return;
         }
         const result = await apiJson("/api/datasets/import", {
           method: "POST",
-          body: { bundle: raw },
+          body: { bundle: raw, filename: file?.name ?? "" },
         });
         if (datasetInput) {
           datasetInput.value = "";
+        }
+        if (datasetFileInput) {
+          datasetFileInput.value = "";
         }
         await apiJson("/api/audit-log", {
           method: "POST",

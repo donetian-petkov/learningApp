@@ -565,7 +565,7 @@ test("dataset bundles import JMdict and KANJIDIC shaped entries", () => {
           },
         },
       ],
-    });
+    }, { filename: "bundle-sample.json" });
     assert.equal(result.dictionaryEntries, 1);
     assert.equal(result.kanjiEntries, 1);
     assert.equal(temp.store.lookupDictionary("感謝")?.meaning, "gratitude");
@@ -575,6 +575,8 @@ test("dataset bundles import JMdict and KANJIDIC shaped entries", () => {
     assert.equal(imports.length, 1);
     assert.equal(imports[0].sourceType, "bundle");
     assert.equal(imports[0].counts.dictionaryEntries, 1);
+    assert.equal(imports[0].label.includes("bundle-sample.json"), true);
+    assert.equal(imports[0].notes.includes("Source file: bundle-sample.json"), true);
   } finally {
     cleanupTempStore(temp);
   }
