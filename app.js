@@ -236,6 +236,8 @@ let listeningScenarioIndex = 0;
 let speakingPromptIndex = 0;
 let readingSelection = null;
 let kanjiSelection = null;
+let kanjiStudyIndex = 0;
+let kanjiStudyExampleIndex = 0;
 let kanjiReviewIndex = 0;
 let kanjiReviewFeedback = "";
 let permissionDraft = null;
@@ -390,7 +392,16 @@ function syncHeader() {
 
 function renderLearn() {
   const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-  const selectedKanjiEntry = kanjiSelection ?? state.kanjiEntries?.find((entry) => activeLesson.kanji.includes(entry.character)) ?? state.kanjiEntries?.[0] ?? null;
+  const kanjiDeck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+  const selectedKanjiEntry = kanjiSelection
+    ?? kanjiDeck.find((entry) => activeLesson.kanji.includes(entry.character))
+    ?? kanjiDeck[kanjiStudyIndex % Math.max(kanjiDeck.length, 1)]
+    ?? null;
+  const selectedStudyEntry = kanjiSelection
+    ?? kanjiDeck[kanjiStudyIndex % Math.max(kanjiDeck.length, 1)]
+    ?? selectedKanjiEntry;
+  const studyExamples = Array.isArray(selectedStudyEntry?.examples) ? selectedStudyEntry.examples.filter(Boolean) : [];
+  const selectedStudyExample = studyExamples.length ? studyExamples[kanjiStudyExampleIndex % studyExamples.length] : "";
   const grammarPoints = Array.isArray(activeLesson.grammarPoints) && activeLesson.grammarPoints.length
     ? activeLesson.grammarPoints
     : [{ title: "Grammar note", explanation: activeLesson.grammar, example: activeLesson.japanese }];
@@ -531,7 +542,7 @@ function renderLearn() {
         <div class="grid-card nested spaced">
           <p class="eyebrow">Kanji library</p>
           <div class="list">
-            ${(state.kanjiEntries ?? [])
+            ${kanjiDeck
               .slice(0, 6)
               .map(
                 (entry) => `
@@ -556,6 +567,27 @@ function renderLearn() {
                 : "<p class='muted'>Select a kanji to see readings and examples.</p>"
             }
           </div>
+        </div>
+        <div class="grid-card nested spaced">
+          <p class="eyebrow">Kanji study deck</p>
+          ${
+            selectedStudyEntry
+              ? `
+                <div class="kanji-focus">
+                  <strong>${escapeHtml(selectedStudyEntry.character)}</strong>
+                  <span class="tag">${escapeHtml(selectedStudyEntry.meaning)}</span>
+                </div>
+                <p class="muted">${escapeHtml(selectedStudyEntry.onYomi || "No on-yomi stored")} / ${escapeHtml(selectedStudyEntry.kunYomi || "No kun-yomi stored")}</p>
+                <p>${escapeHtml(selectedStudyEntry.meaning)}</p>
+                <p class="muted">${escapeHtml(selectedStudyExample || (studyExamples.length ? studyExamples[0] : "No examples available."))}</p>
+                <div class="button-row">
+                  <button class="secondary" data-action="kanji-study-prev">Previous kanji</button>
+                  <button class="secondary" data-action="kanji-study-next">Next kanji</button>
+                  <button class="secondary" data-action="kanji-study-example">Next example</button>
+                </div>
+              `
+              : "<p class='muted'>Your kanji library will appear here once entries are seeded or imported.</p>"
+          }
         </div>
       </div>
     </section>
@@ -1610,9 +1642,15 @@ function wireActions() {
 
       if (action === "kanji-show-readings") {
         const character = button.dataset.character ?? "";
-        kanjiSelection = state.kanjiEntries?.find((entry) => entry.character === character)
+        const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+        kanjiSelection = deck.find((entry) => entry.character === character)
           ?? state.kanjiReviews?.find((entry) => entry.character === character)
           ?? null;
+        const deckIndex = deck.findIndex((entry) => entry.character === character);
+        if (deckIndex >= 0) {
+          kanjiStudyIndex = deckIndex;
+          kanjiStudyExampleIndex = 0;
+        }
         render();
       }
 
@@ -1719,7 +1757,15 @@ function wireActions() {
 
       if (action === "lookup-kanji") {
         const term = button.dataset.term ?? "";
-        kanjiSelection = state.kanjiEntries?.find((entry) => entry.character === term) ?? null;
+        const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+        kanjiSelection = deck.find((entry) => entry.character === term)
+          ?? state.kanjiReviews?.find((entry) => entry.character === term)
+          ?? null;
+        const deckIndex = deck.findIndex((entry) => entry.character === term);
+        if (deckIndex >= 0) {
+          kanjiStudyIndex = deckIndex;
+          kanjiStudyExampleIndex = 0;
+        }
         render();
       }
 
@@ -1735,6 +1781,25 @@ function wireActions() {
         dictionaryLookup = [];
         readingSelection = null;
         kanjiSelection = null;
+        render();
+      }
+
+      if (action === "kanji-study-next" || action === "kanji-study-prev" || action === "kanji-study-example") {
+        const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+        if (deck.length) {
+          if (action === "kanji-study-next") {
+            kanjiStudyIndex = (kanjiStudyIndex + 1) % deck.length;
+            kanjiStudyExampleIndex = 0;
+          } else if (action === "kanji-study-prev") {
+            kanjiStudyIndex = (kanjiStudyIndex - 1 + deck.length) % deck.length;
+            kanjiStudyExampleIndex = 0;
+          } else {
+            const entry = deck[kanjiStudyIndex % deck.length];
+            const exampleCount = Array.isArray(entry?.examples) ? entry.examples.filter(Boolean).length : 0;
+            kanjiStudyExampleIndex = exampleCount ? (kanjiStudyExampleIndex + 1) % exampleCount : 0;
+          }
+          kanjiSelection = deck[kanjiStudyIndex % deck.length] ?? kanjiSelection;
+        }
         render();
       }
 
