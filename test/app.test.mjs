@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -238,6 +238,14 @@ test("writing submission evaluation returns score and guidance", () => {
   assert.ok(evaluation.correction.startsWith("Natural correction:"));
   assert.ok(Array.isArray(evaluation.issues));
   assert.ok(evaluation.issues.some((issue) => issue.includes("period")));
+});
+
+test("lesson draft generation returns theme-based content", () => {
+  const draft = buildLessonDraft("Train Station", "travel");
+  assert.equal(draft.title, "Train Station");
+  assert.equal(draft.theme, "travel");
+  assert.ok(draft.japanese.includes("切符売り場") || draft.japanese.includes("どこ"));
+  assert.ok(Array.isArray(draft.vocab));
 });
 
 test("leaderboard is populated and updates from study progress", () => {

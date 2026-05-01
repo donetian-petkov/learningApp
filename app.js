@@ -1,4 +1,4 @@
-import { escapeHtml } from "./shared.mjs";
+import { buildLessonDraft, escapeHtml } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -936,6 +936,7 @@ function renderAdmin() {
           </div>
           <div class="button-row spaced">
             <button class="primary" data-action="save-lesson">${adminLessonEditor ? "Save changes" : "Add lesson"}</button>
+            <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>
             ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
           </div>
         </div>
@@ -1420,6 +1421,15 @@ function wireActions() {
         await refreshState();
       }
 
+      if (action === "generate-lesson-draft") {
+        const titleInput = app.querySelector('[data-field="lesson-title"]');
+        const themeInput = app.querySelector('[data-field="lesson-theme"]');
+        const title = titleInput?.value?.trim() || "New Lesson";
+        const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
+        adminLessonEditor = buildLessonDraft(title, theme);
+        render();
+      }
+
       if (action === "delete-lesson") {
         const lessonId = button.dataset.lessonId;
         if (lessonId) {
@@ -1638,21 +1648,7 @@ function renderLeaderboard() {
 }
 
 function buildLesson(title, theme) {
-  return {
-    id: `lesson-${Date.now()}`,
-    title,
-    theme,
-    difficulty: "N5",
-    japanese: "きょうは新しい表現を学びます。",
-    romaji: "Kyou wa atarashii hyougen o manabimasu.",
-    translation: "Today we are learning a new expression.",
-    grammar: "Custom lesson created from the admin panel.",
-    vocab: [
-      { word: "新しい", kana: "あたらしい", meaning: "new" },
-      { word: "表現", kana: "ひょうげん", meaning: "expression" },
-    ],
-    kanji: ["新", "表", "現"],
-  };
+  return buildLessonDraft(title, theme);
 }
 
 function speakText(text) {

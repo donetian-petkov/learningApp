@@ -63,6 +63,11 @@ export function answerAiFeature(feature, prompt, context = {}) {
     return `${text || "This badge"} marks steady study habits and consistent review.`;
   }
 
+  if (feature === "lesson-draft") {
+    const draft = buildLessonDraft((context.title ?? text) || "New Lesson", context.theme ?? "custom");
+    return JSON.stringify(draft);
+  }
+
   if (lower.includes("nuance")) {
     return "Nuance is about politeness, tone, and social distance. Keep the answer short and contextual.";
   }
@@ -137,6 +142,85 @@ export function evaluateWritingSubmission(sentence) {
     correction: `Natural correction: ${text}`,
     suggestions,
     normalized: text,
+  };
+}
+
+export function buildLessonDraft(title, theme) {
+  const normalizedTheme = String(theme ?? "custom").trim().toLowerCase() || "custom";
+  const normalizedTitle = String(title ?? "New Lesson").trim() || "New Lesson";
+
+  const templates = {
+    anime: {
+      japanese: "今日は新しい必殺技を練習します。",
+      romaji: "Kyou wa atarashii hissatsuwaza o renshuu shimasu.",
+      translation: "Today we are practicing a new special move.",
+      grammar: "Use dictionary form with ます and the object particle を to keep the scene energetic.",
+      vocab: [
+        { word: "新しい", kana: "あたらしい", meaning: "new" },
+        { word: "必殺技", kana: "ひっさつわざ", meaning: "special move" },
+        { word: "練習", kana: "れんしゅう", meaning: "practice" },
+      ],
+      kanji: ["新", "技", "練"],
+    },
+    food: {
+      japanese: "おすすめのラーメンをください。",
+      romaji: "Osusume no raamen o kudasai.",
+      translation: "Please give me your recommended ramen.",
+      grammar: "Use の to connect the recommendation and をください for a polite request.",
+      vocab: [
+        { word: "おすすめ", kana: "おすすめ", meaning: "recommendation" },
+        { word: "ラーメン", kana: "ラーメン", meaning: "ramen" },
+        { word: "ください", kana: "ください", meaning: "please give me" },
+      ],
+      kanji: ["食", "味", "店"],
+    },
+    travel: {
+      japanese: "切符売り場はどこですか。",
+      romaji: "Kippu uriba wa doko desu ka.",
+      translation: "Where is the ticket counter?",
+      grammar: "Use は for the topic and ですか for a polite question.",
+      vocab: [
+        { word: "切符", kana: "きっぷ", meaning: "ticket" },
+        { word: "売り場", kana: "うりば", meaning: "counter / booth" },
+        { word: "どこ", kana: "どこ", meaning: "where" },
+      ],
+      kanji: ["切", "場", "問"],
+    },
+    history: {
+      japanese: "武士は言葉より行動で示します。",
+      romaji: "Bushi wa kotoba yori koudou de shimeshimasu.",
+      translation: "Samurai show through actions rather than words.",
+      grammar: "Use より for comparison and ます for a polite narration style.",
+      vocab: [
+        { word: "武士", kana: "ぶし", meaning: "samurai / warrior" },
+        { word: "行動", kana: "こうどう", meaning: "action" },
+        { word: "示します", kana: "しめします", meaning: "show / indicate" },
+      ],
+      kanji: ["武", "行", "示"],
+    },
+  };
+
+  const key = normalizedTheme.includes("anime")
+    ? "anime"
+    : normalizedTheme.includes("food")
+      ? "food"
+      : normalizedTheme.includes("travel")
+        ? "travel"
+        : normalizedTheme.includes("history") || normalizedTheme.includes("samurai")
+          ? "history"
+          : "travel";
+  const template = templates[key];
+  return {
+    id: `lesson-${String(normalizedTitle).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "new"}`,
+    title: normalizedTitle,
+    theme: normalizedTheme,
+    difficulty: key === "history" ? "N4" : "N5",
+    japanese: template.japanese,
+    romaji: template.romaji,
+    translation: template.translation,
+    grammar: template.grammar,
+    vocab: template.vocab,
+    kanji: template.kanji,
   };
 }
 
