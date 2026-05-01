@@ -238,6 +238,7 @@ let readingSelection = null;
 let kanjiSelection = null;
 let kanjiReviewIndex = 0;
 let kanjiReviewFeedback = "";
+let permissionDraft = null;
 
 const listeningScenarios = [
   {
@@ -982,6 +983,8 @@ function renderAdmin() {
     credits: 0,
     streak: 0,
   };
+  const permissionState = permissionDraft ?? structuredClone(state.admin.permissions ?? { roles: [], permissions: [] });
+  const availablePermissions = permissionState.permissions ?? [];
 
   return `
     <section class="panel">
@@ -1000,16 +1003,34 @@ function renderAdmin() {
           <div class="tag-row">${state.admin.roles.map((role) => `<span class="tag">${role}</span>`).join("")}</div>
           <h4 class="spaced">Permissions</h4>
           <div class="list">
-            ${(state.admin.permissions?.roles ?? [])
+            ${(permissionState.roles ?? [])
               .map(
                 (role) => `
                   <div class="list-item">
-                    <strong>${escapeHtml(role.name)}</strong>
-                    <span class="muted">${escapeHtml(role.permissions.join(", "))}</span>
+                    <label class="field" style="width: 100%;">
+                      <span>Role name</span>
+                      <input type="text" data-field="role-name-${escapeHtml(role.id)}" value="${escapeHtml(role.name)}" />
+                    </label>
+                    <div class="tag-row">
+                      ${availablePermissions
+                        .map(
+                          (permission) => `
+                            <label class="tag" style="display: inline-flex; gap: 0.35rem; align-items: center;">
+                              <input type="checkbox" data-field="role-permission-${escapeHtml(role.id)}-${escapeHtml(permission.id)}"${role.permissions.includes(permission.name) ? " checked" : ""} />
+                              <span>${escapeHtml(permission.name)}</span>
+                            </label>
+                          `
+                        )
+                        .join("")}
+                    </div>
                   </div>
                 `
               )
               .join("")}
+          </div>
+          <div class="button-row spaced">
+            <button class="secondary" data-action="save-permissions">Save permissions</button>
+            <button class="secondary" data-action="reload-permissions">Reset draft</button>
           </div>
         </div>
         <div class="grid-card">
@@ -2086,6 +2107,35 @@ function wireActions() {
           });
           await refreshState();
         }
+      }
+
+      if (action === "save-permissions") {
+        const roles = (state.admin.permissions?.roles ?? []).map((role) => {
+          const nameInput = app.querySelector(`[data-field="role-name-${CSS.escape(role.id)}"]`);
+          const permissions = (state.admin.permissions?.permissions ?? [])
+            .filter((permission) => app.querySelector(`[data-field="role-permission-${CSS.escape(role.id)}-${CSS.escape(permission.id)}"]`)?.checked)
+            .map((permission) => permission.name);
+          return {
+            id: role.id,
+            name: nameInput?.value?.trim() || role.name,
+            permissions,
+          };
+        });
+        const result = await apiJson("/api/admin/permissions", {
+          method: "PATCH",
+          body: { roles, permissions: state.admin.permissions?.permissions ?? [] },
+        });
+        permissionDraft = result;
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: "Updated admin permissions" },
+        });
+        await refreshState();
+      }
+
+      if (action === "reload-permissions") {
+        permissionDraft = null;
+        render();
       }
 
       if (action === "search-users") {

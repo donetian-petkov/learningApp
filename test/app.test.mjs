@@ -228,6 +228,19 @@ test("admin content review queue and permissions persist", () => {
     const permissions = temp.store.getPermissionMatrix();
     assert.equal(permissions.roles.some((role) => role.name === "Super Admin"), true);
     assert.equal(permissions.permissions.some((permission) => permission.name === "Manage content"), true);
+    const updatedPermissions = temp.store.savePermissionMatrix({
+      roles: permissions.roles.map((role) =>
+        role.name === "Content Admin"
+          ? { ...role, name: "Content Curator", permissions: ["Manage content"] }
+          : role
+      ),
+      permissions: permissions.permissions,
+    });
+    assert.equal(updatedPermissions.roles.some((role) => role.name === "Content Curator"), true);
+    assert.equal(
+      updatedPermissions.roles.find((role) => role.name === "Content Curator")?.permissions.includes("Manage content"),
+      true
+    );
   } finally {
     cleanupTempStore(temp);
   }

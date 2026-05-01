@@ -345,6 +345,16 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "PATCH" && url.pathname === "/api/admin/permissions") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    respondJson(res, 200, store.savePermissionMatrix(body));
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/admin/users") {
     const filters = Object.fromEntries(url.searchParams.entries());
     respondJson(res, 200, store.getUsers(filters));

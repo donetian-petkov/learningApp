@@ -2368,6 +2368,36 @@ export class SqliteStorageAdapter {
     };
   }
 
+  savePermissionMatrix(matrix = {}) {
+    const nextRoles = Array.isArray(matrix.roles) ? matrix.roles : [];
+    const nextPermissions = Array.isArray(matrix.permissions) ? matrix.permissions : this.getPermissionMatrix().permissions;
+    const permissionMap = new Map(nextPermissions.map((permission) => [permission.name, permission.id]));
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      nextRoles.forEach((role) => {
+        if (!role?.id) return;
+        this.db.prepare("UPDATE roles SET name = ? WHERE id = ?").run(String(role.name ?? "").trim() || role.id, role.id);
+      });
+      this.db.prepare("DELETE FROM role_permissions").run();
+      nextRoles.forEach((role) => {
+        const roleId = String(role?.id ?? "").trim();
+        if (!roleId) return;
+        const rolePermissions = Array.isArray(role.permissions) ? role.permissions : [];
+        rolePermissions.forEach((permissionName) => {
+          const permissionId = permissionMap.get(String(permissionName).trim());
+          if (!permissionId) return;
+          this.db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleId, permissionId);
+        });
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.appendAudit(`Updated role permissions: ${nextRoles.length} roles`);
+    return this.getPermissionMatrix();
+  }
+
   searchDictionary(query) {
     const term = String(query ?? "").trim();
     if (!term) {
