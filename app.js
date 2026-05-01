@@ -1,4 +1,4 @@
-import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, findNextLessonId } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -261,6 +261,12 @@ let lessonNoteFeedback = "";
 let lessonCatalogQuery = "";
 let lessonCatalogTheme = "";
 let lessonCatalogDifficulty = "";
+let moderationFilters = {
+  query: "",
+  status: "",
+  itemType: "",
+  reviewer: "",
+};
 let permissionDraft = null;
 
 function savedWordKey(term, reading = "") {
@@ -525,6 +531,7 @@ function renderLearn() {
   const lessonNotes = state.progress.lessonNotes ?? {};
   const lessonNoteValue = lessonNotes[activeLesson.id] ?? "";
   const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
+  const filteredModerationActions = filterModerationActions(state.admin.moderationActions ?? [], moderationFilters);
   const nextLessonId = findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
   const moduleCards = filteredLessons.map(
     (lesson) => `
@@ -1878,8 +1885,35 @@ function renderAdmin() {
               .join("")}
           </div>
           <h4 class="spaced">Moderation history</h4>
+          <div class="grid-card nested">
+            <div class="field-row">
+              <label class="field">
+                <span>Query</span>
+                <input type="text" data-field="moderation-filter-query" value="${escapeHtml(moderationFilters.query)}" placeholder="lesson, audit, review" />
+              </label>
+              <label class="field">
+                <span>Status</span>
+                <input type="text" data-field="moderation-filter-status" value="${escapeHtml(moderationFilters.status)}" placeholder="published" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Type</span>
+                <input type="text" data-field="moderation-filter-type" value="${escapeHtml(moderationFilters.itemType)}" placeholder="lesson" />
+              </label>
+              <label class="field">
+                <span>Reviewer</span>
+                <input type="text" data-field="moderation-filter-reviewer" value="${escapeHtml(moderationFilters.reviewer)}" placeholder="admin" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button class="primary" data-action="apply-moderation-filters">Apply filters</button>
+              <button class="secondary" data-action="clear-moderation-filters">Clear</button>
+              <button class="secondary" data-action="export-moderation-history">Export JSON</button>
+            </div>
+          </div>
           <div class="list">
-            ${(state.admin.moderationActions ?? [])
+            ${(filteredModerationActions ?? [])
               .map(
                 (item) => `
                   <div class="list-item">
@@ -2322,6 +2356,30 @@ function wireActions() {
         lessonCatalogQuery = "";
         lessonCatalogTheme = "";
         lessonCatalogDifficulty = "";
+        render();
+      }
+
+      if (action === "apply-moderation-filters") {
+        const query = app.querySelector('[data-field="moderation-filter-query"]');
+        const status = app.querySelector('[data-field="moderation-filter-status"]');
+        const itemType = app.querySelector('[data-field="moderation-filter-type"]');
+        const reviewer = app.querySelector('[data-field="moderation-filter-reviewer"]');
+        moderationFilters = {
+          query: query?.value?.trim() ?? "",
+          status: status?.value?.trim() ?? "",
+          itemType: itemType?.value?.trim() ?? "",
+          reviewer: reviewer?.value?.trim() ?? "",
+        };
+        render();
+      }
+
+      if (action === "clear-moderation-filters") {
+        moderationFilters = {
+          query: "",
+          status: "",
+          itemType: "",
+          reviewer: "",
+        };
         render();
       }
 
@@ -3148,6 +3206,19 @@ function wireActions() {
           backupInput.focus();
           backupInput.setSelectionRange(0, backupInput.value.length);
         }
+      }
+
+      if (action === "export-moderation-history") {
+        const history = await apiJson("/api/admin/content-review-actions?limit=100");
+        const blob = new Blob([JSON.stringify(history, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "moderation-history.json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
       }
 
       if (action === "import-backup") {

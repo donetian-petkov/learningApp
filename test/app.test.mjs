@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, filterModerationActions, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -915,6 +915,17 @@ test("lesson catalog filters by query, theme, and difficulty", () => {
   assert.equal(filterLessonCatalog(lessons, "", "anime").length, 1);
   assert.equal(filterLessonCatalog(lessons, "", "", "N5").length >= 1, true);
   assert.equal(filterLessonCatalog(lessons, "request", "etiquette", "N5").length, 1);
+});
+
+test("moderation actions filter by query, status, type, and reviewer", () => {
+  const actions = [
+    { itemType: "lesson", itemId: "anime-intro", status: "published", reviewedBy: "admin", decisionReason: "Ready", notes: "Ship it", source: "manual" },
+    { itemType: "kanji", itemId: "駅", status: "draft", reviewedBy: "editor", decisionReason: "Needs work", notes: "Fix reading", source: "import" },
+  ];
+  assert.deepEqual(filterModerationActions(actions, { query: "ship" }).map((item) => item.itemId), ["anime-intro"]);
+  assert.deepEqual(filterModerationActions(actions, { status: "draft" }).map((item) => item.itemId), ["駅"]);
+  assert.deepEqual(filterModerationActions(actions, { itemType: "kanji" }).map((item) => item.itemId), ["駅"]);
+  assert.deepEqual(filterModerationActions(actions, { reviewer: "admin" }).map((item) => item.itemId), ["anime-intro"]);
 });
 
 test("next lesson helper prefers incomplete lessons", () => {

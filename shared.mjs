@@ -158,6 +158,32 @@ export function filterLessonCatalog(lessons, query = "", theme = "", difficulty 
   });
 }
 
+export function filterModerationActions(actions, filters = {}) {
+  const normalizedQuery = String(filters.query ?? "").trim().toLowerCase();
+  const normalizedStatus = String(filters.status ?? "").trim().toLowerCase();
+  const normalizedType = String(filters.itemType ?? "").trim().toLowerCase();
+  const normalizedReviewer = String(filters.reviewer ?? "").trim().toLowerCase();
+  return (Array.isArray(actions) ? actions : []).filter((action) => {
+    const haystack = [
+      action.itemType,
+      action.itemId,
+      action.status,
+      action.decisionReason,
+      action.reviewedBy,
+      action.notes,
+      action.source,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (normalizedType && !String(action.itemType ?? "").toLowerCase().includes(normalizedType)) return false;
+    if (normalizedStatus && !String(action.status ?? "").toLowerCase().includes(normalizedStatus)) return false;
+    if (normalizedReviewer && !String(action.reviewedBy ?? "").toLowerCase().includes(normalizedReviewer)) return false;
+    if (normalizedQuery && !haystack.includes(normalizedQuery)) return false;
+    return true;
+  });
+}
+
 export function findNextLessonId(lessons, completedLessonIds = [], activeLessonId = "") {
   const list = Array.isArray(lessons) ? lessons : [];
   const completed = new Set(Array.isArray(completedLessonIds) ? completedLessonIds : []);
