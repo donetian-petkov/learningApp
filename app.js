@@ -157,6 +157,7 @@ const defaultState = {
 };
 
 let state = structuredClone(defaultState);
+let dictionaryLookup = [];
 
 const app = document.querySelector("#app");
 const navButtons = document.querySelectorAll(".nav-item");
@@ -301,7 +302,9 @@ function renderLearn() {
         <div class="button-row">
           <button class="primary" data-action="complete-lesson" data-id="${activeLesson.id}">Complete lesson</button>
           <button class="secondary" data-action="speak-lesson" data-id="${activeLesson.id}">Listen to line</button>
+          <button class="secondary" data-action="explain-grammar" data-id="${activeLesson.id}">Explain grammar</button>
         </div>
+        <p class="muted" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
       </div>
       <div class="grid-card">
         <h3>Vocabulary</h3>
@@ -381,8 +384,34 @@ function renderPractice() {
           "Tap a word to reveal meaning, kana, and kanji details.",
           ["Furigana toggle", "Translation toggle", "Dictionary lookup"],
           `
+            <div class="tag-row">
+              ${activeLessonPreview()
+                .slice(0, 3)
+                .map((item) => `<span class="tag">${escapeHtml(item)}</span>`)
+                .join("")}
+            </div>
             <div class="list">
-              ${activeLessonPreview().map((item) => `<div class="list-item">${item}</div>`).join("")}
+              ${state.lessons
+                .find((lesson) => lesson.id === state.activeLessonId)
+                ?.vocab.map((item) => `<button class="list-item" data-action="lookup-word" data-term="${escapeHtml(item.word)}">${escapeHtml(item.word)} · ${escapeHtml(item.kana)} · ${escapeHtml(item.meaning)}</button>`)
+                .join("") ?? ""}
+            </div>
+            <label class="field spaced">
+              <span>Lookup term</span>
+              <input type="text" data-field="dictionary-input" placeholder="よろしく" />
+            </label>
+            <div class="button-row">
+              <button class="primary" data-action="lookup-dictionary">Lookup</button>
+            </div>
+            <div class="grid-card">
+              <p class="eyebrow">Dictionary result</p>
+              <p class="muted" data-output="dictionary-feedback">${
+                dictionaryLookup.length
+                  ? dictionaryLookup
+                      .map((item) => `${item.term} (${item.reading || "—"}) · ${item.meaning}`)
+                      .join(" | ")
+                  : "Search a word to see a local dictionary entry."
+              }</p>
             </div>
           `
         )}
@@ -756,6 +785,22 @@ function wireActions() {
         }
       }
 
+      if (action === "explain-grammar") {
+        const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
+        const output = app.querySelector('[data-output="grammar-feedback"]');
+        if (lesson && output) {
+          const result = await apiJson("/api/ai/response", {
+            method: "POST",
+            body: {
+              feature: "grammar",
+              prompt: lesson.grammar,
+              context: { lessonTitle: lesson.title, lessonId: lesson.id },
+            },
+          });
+          output.textContent = result.response ?? lesson.grammar;
+        }
+      }
+
       if (action === "open-feature") {
         state.view = "practice";
         persist();
@@ -841,6 +886,19 @@ function wireActions() {
           body: { kind: "roleplay", scenario },
         });
         await refreshState();
+      }
+
+      if (action === "lookup-word") {
+        const term = button.dataset.term ?? "";
+        dictionaryLookup = await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`);
+        render();
+      }
+
+      if (action === "lookup-dictionary") {
+        const input = app.querySelector('[data-field="dictionary-input"]');
+        const term = input?.value?.trim() ?? "";
+        dictionaryLookup = term ? await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`) : [];
+        render();
       }
 
       if (action === "open-chest") {

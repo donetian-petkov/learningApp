@@ -56,6 +56,11 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/dictionary") {
+    respondJson(res, 200, store.getDictionary(url.searchParams.get("query") ?? ""));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/lessons") {
     const body = await readJson(req);
     respondJson(res, 200, store.createLesson(body));
@@ -132,6 +137,12 @@ async function handleApi(req, res, url) {
     } catch (error) {
       respondJson(res, 400, { error: error instanceof Error ? error.message : "Unsupported practice submission" });
     }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/ai/response") {
+    const body = await readJson(req);
+    respondJson(res, 200, store.aiResponse(body.feature ?? "tutor", body.prompt ?? "", body.context ?? {}, session?.sessionUser ?? null));
     return;
   }
 

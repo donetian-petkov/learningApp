@@ -31,6 +31,45 @@ export function answerTutor(question) {
   return "Keep the question short. A local LLM fallback would answer this with a focused explanation and one example sentence.";
 }
 
+export function answerAiFeature(feature, prompt, context = {}) {
+  const text = String(prompt ?? "").trim();
+  const lower = text.toLowerCase();
+
+  if (feature === "grammar" || feature === "explain-grammar") {
+    const lesson = String(context.lessonTitle ?? "");
+    return lesson
+      ? `Grammar focus for ${lesson}: keep the sentence short, identify the topic, and match the polite level to the scene.`
+      : "Grammar focus: identify the topic, keep the sentence short, and match the polite level to the scene.";
+  }
+
+  if (feature === "tutor") {
+    return answerTutor(text);
+  }
+
+  if (feature === "roleplay") {
+    const scenario = String(context.scenario ?? "restaurant");
+    return buildRoleplayTranscript(scenario).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+  }
+
+  if (feature === "correction" || feature === "writing") {
+    return `Natural correction: ${normalizeSentence(text || "ラーメンをください")}`;
+  }
+
+  if (feature === "challenge-name") {
+    return `MVP Challenge: ${text || "Japanese Sprint"}`;
+  }
+
+  if (feature === "badge-description") {
+    return `${text || "This badge"} marks steady study habits and consistent review.`;
+  }
+
+  if (lower.includes("nuance")) {
+    return "Nuance is about politeness, tone, and social distance. Keep the answer short and contextual.";
+  }
+
+  return "Local AI fallback: short, contextual, and deterministic.";
+}
+
 export function buildRoleplayTranscript(scenario) {
   const scripts = {
     restaurant: [
@@ -83,4 +122,3 @@ export function sm2Next(review, grade) {
     due: new Date(Date.now() + interval * 86400000).toISOString(),
   };
 }
-

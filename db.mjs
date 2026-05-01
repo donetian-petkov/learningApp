@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerTutor, buildRoleplayTranscript, calculateLevel, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildRoleplayTranscript, calculateLevel, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -476,6 +476,16 @@ export class SqliteStorageAdapter {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS dictionary_entries (
+        id TEXT PRIMARY KEY,
+        term TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        meaning TEXT NOT NULL,
+        part_of_speech TEXT NOT NULL,
+        example TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'seed'
+      );
     `);
     if (getSchemaVersion(this.db) < 1) setSchemaVersion(this.db, 1);
     if (getSchemaVersion(this.db) < 2) {
@@ -493,6 +503,20 @@ export class SqliteStorageAdapter {
         );
       `);
       setSchemaVersion(this.db, 2);
+    }
+    if (getSchemaVersion(this.db) < 3) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS dictionary_entries (
+          id TEXT PRIMARY KEY,
+          term TEXT NOT NULL,
+          reading TEXT NOT NULL,
+          meaning TEXT NOT NULL,
+          part_of_speech TEXT NOT NULL,
+          example TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'seed'
+        );
+      `);
+      setSchemaVersion(this.db, 3);
     }
   }
 
@@ -558,6 +582,37 @@ export class SqliteStorageAdapter {
         "INSERT INTO ai_usage_log (feature, user_id, requests, token_estimate, created_at) VALUES (?, ?, ?, ?, ?)"
       ).run("initial-seed", "local", 1, 120, nowIso());
     }
+
+    const dictionaryRows = new Map();
+    snapshot.lessons.forEach((lesson) => {
+      lesson.vocab.forEach((item, index) => {
+        const key = `${item.word}-${item.kana}`.toLowerCase();
+        dictionaryRows.set(key, {
+          id: `dict-${lesson.id}-${index + 1}`,
+          term: item.word,
+          reading: item.kana,
+          meaning: item.meaning,
+          part_of_speech: "noun",
+          example: lesson.translation,
+        });
+      });
+      lesson.kanji.forEach((kanji, index) => {
+        const key = `${kanji}-kanji`;
+        dictionaryRows.set(key, {
+          id: `dict-${lesson.id}-kanji-${index + 1}`,
+          term: kanji,
+          reading: "",
+          meaning: `${kanji} used in lesson context`,
+          part_of_speech: "kanji",
+          example: lesson.japanese,
+        });
+      });
+    });
+    Array.from(dictionaryRows.values()).forEach((entry) => {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO dictionary_entries (id, term, reading, meaning, part_of_speech, example, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(entry.id, entry.term, entry.reading, entry.meaning, entry.part_of_speech, entry.example, "seed");
+    });
   }
 
   close() {
@@ -804,8 +859,8 @@ export class SqliteStorageAdapter {
     let audit = "";
 
     if (kind === "speaking") {
-      const correction = normalizeSentence(String(payload.input ?? ""));
-      updated.tutor.answer = `Natural correction: ${correction}`;
+      const correction = answerAiFeature("correction", payload.input ?? "", {});
+      updated.tutor.answer = correction;
       updated.progress.speakingMinutes += 4;
       updated.progress.speakingSessions += 1;
       updated.progress.xp += 30;
@@ -822,13 +877,7 @@ export class SqliteStorageAdapter {
       audit = `Listening practice: ${correct ? "correct" : "incorrect"}`;
     } else if (kind === "writing") {
       const sentence = String(payload.input ?? "");
-      const trimmed = sentence.trim();
-      let feedback = "Write a short sentence before asking for feedback.";
-      if (trimmed) {
-        feedback = trimmed.includes("は") || trimmed.includes("を")
-          ? "Good structure. The particle placement looks natural for an MVP check."
-          : "Add a particle such as は, を, or が to make the sentence clearer.";
-      }
+      const feedback = answerAiFeature("writing", sentence, {});
       updated.tutor.answer = feedback;
       updated.progress.xp += 25;
       updated.progress.credits += 8;
@@ -836,13 +885,21 @@ export class SqliteStorageAdapter {
     } else if (kind === "tutor") {
       const question = String(payload.question ?? current.tutor.question);
       updated.tutor.question = question;
-      updated.tutor.answer = answerTutor(question);
+      updated.tutor.answer = answerAiFeature("tutor", question, {});
       updated.progress.xp += 15;
       audit = `Tutor question answered`;
     } else if (kind === "roleplay") {
       const scenario = String(payload.scenario ?? current.roleplay.scenario);
       updated.roleplay.scenario = scenario;
-      updated.roleplay.transcript = buildRoleplayTranscript(scenario);
+      updated.roleplay.transcript = answerAiFeature("roleplay", scenario, { scenario })
+        .split("\n")
+        .map((line, index) => {
+          const [speaker, ...rest] = line.split(": ");
+          return {
+            speaker: speaker || ["System", "You", "Server", "You"][index] || "System",
+            text: rest.join(": ") || line,
+          };
+        });
       updated.progress.xp += 20;
       updated.progress.credits += 5;
       audit = `Roleplay scenario updated: ${scenario}`;
@@ -1154,6 +1211,7 @@ export class SqliteStorageAdapter {
       DELETE FROM site_settings;
       DELETE FROM content_review_queue;
       DELETE FROM users;
+      DELETE FROM dictionary_entries;
     `);
 
     this.db.prepare(
@@ -1416,6 +1474,49 @@ export class SqliteStorageAdapter {
           .filter(Boolean),
       })),
       permissions: permissions.map((permission) => ({ id: permission.id, name: permission.name })),
+    };
+  }
+
+  searchDictionary(query) {
+    const term = String(query ?? "").trim();
+    if (!term) {
+      return this.db.prepare("SELECT * FROM dictionary_entries ORDER BY term LIMIT 20").all().map((row) => this.mapDictionaryRow(row));
+    }
+    return this.db.prepare(
+      "SELECT * FROM dictionary_entries WHERE term LIKE ? OR reading LIKE ? OR meaning LIKE ? ORDER BY term LIMIT 20"
+    ).all(`%${term}%`, `%${term}%`, `%${term}%`).map((row) => this.mapDictionaryRow(row));
+  }
+
+  mapDictionaryRow(row) {
+    return {
+      id: row.id,
+      term: row.term,
+      reading: row.reading,
+      meaning: row.meaning,
+      partOfSpeech: row.part_of_speech,
+      example: row.example,
+      source: row.source,
+    };
+  }
+
+  getDictionary(query = "") {
+    return this.searchDictionary(query);
+  }
+
+  lookupDictionary(term) {
+    const query = String(term ?? "").trim();
+    if (!query) return null;
+    return this.searchDictionary(query)[0] ?? null;
+  }
+
+  aiResponse(feature, prompt, context = {}, sessionUser = null) {
+    const response = answerAiFeature(feature, prompt, context);
+    this.recordAiUsage(feature, 1, Math.max(40, String(prompt ?? "").length * 3), sessionUser ?? "local");
+    return {
+      feature,
+      prompt,
+      response,
+      context,
     };
   }
 

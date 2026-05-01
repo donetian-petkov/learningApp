@@ -28,7 +28,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 2);
+    assert.equal(temp.store.getSchemaVersion(), 3);
     assert.equal(snapshot.admin.users.length, 3);
   } finally {
     cleanupTempStore(temp);
@@ -177,7 +177,22 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 2);
+    assert.equal(temp.store.getSchemaVersion(), 3);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
+test("dictionary lookup and ai responses are available locally", () => {
+  const temp = createTempStore();
+  try {
+    const dictionary = temp.store.getDictionary("よろしく");
+    assert.ok(dictionary.length >= 1);
+    assert.equal(dictionary[0].term.includes("よろしく"), true);
+
+    const ai = temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
+    assert.equal(ai.feature, "grammar");
+    assert.equal(ai.response.includes("Samurai History"), true);
   } finally {
     cleanupTempStore(temp);
   }
