@@ -1,3 +1,5 @@
+import { answerTutor, buildRoleplayTranscript, escapeHtml, normalizeSentence } from "./shared.mjs";
+
 const defaultState = {
   view: "learn",
   activeLessonId: "anime-intro",
@@ -174,6 +176,19 @@ async function loadState() {
   return mergeState(defaultState, await response.json());
 }
 
+async function apiJson(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    headers: options.body ? { "content-type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error ?? `Request failed: ${response.status}`);
+  }
+  return payload;
+}
+
 function persist() {
   fetch("/api/state", {
     method: "POST",
@@ -306,7 +321,7 @@ function renderPractice() {
           <p class="eyebrow">Practice</p>
           <h2>Speaking, listening, reading, and writing</h2>
         </div>
-        <p>Whisper and local LLM hooks are reserved for later integration.</p>
+        <p>Speaking, listening, reading, and writing now flow through the local API and seeded data model.</p>
       </div>
       <div class="practice-grid">
         ${practiceCard(
@@ -423,7 +438,7 @@ function renderReview() {
           <p class="muted">${item.meaning}</p>
           <p>Answer: ${item.answer}</p>
           <p>Due: ${item.due} · Ease: ${item.ease.toFixed(1)}</p>
-          <button class="secondary" data-action="mark-review" data-prompt="${item.prompt}">Mark correct</button>
+          <button class="secondary" data-action="mark-review" data-review-id="${item.id}">Mark correct</button>
         </div>
       `
     )
@@ -572,7 +587,7 @@ function renderAdmin() {
         <div class="grid-card">
           <h3>Site health</h3>
           <p class="${state.admin.siteHealth === "Green" ? "muted" : ""}">Status: ${state.admin.siteHealth}</p>
-          <p>Maintenance mode, content review, and analytics hooks are reserved for the next slice.</p>
+          <p>Maintenance mode, content review, and analytics hooks are managed from the SQLite-backed admin layer.</p>
           <button class="secondary" data-action="toggle-maintenance">Toggle maintenance</button>
         </div>
         <div class="grid-card">
@@ -648,7 +663,12 @@ function wireActions() {
       if (action === "complete-lesson") {
         const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
         if (lesson) {
+          await apiJson("/api/gamification/award", {
+            method: "POST",
+            body: { source: "lesson-complete", delta: { xp: 80, credits: 20, streak: 0 } },
+          });
           completeLesson(lesson.id);
+          await refreshState();
         }
       }
 
@@ -673,13 +693,20 @@ function wireActions() {
       }
 
       if (action === "mark-review") {
-        const item = state.reviews.find((entry) => entry.prompt === button.dataset.prompt);
-        if (item) item.ease = Math.min(2.8, item.ease + 0.1);
-        state.progress.xp += 20;
-        state.progress.credits += 5;
-        state.progress.reviewedWords += 1;
-        persist();
-        render();
+        const reviewId = button.dataset.reviewId;
+        if (reviewId) {
+          await apiJson(`/api/reviews/${encodeURIComponent(reviewId)}`, {
+            method: "PATCH",
+            body: { grade: 4 },
+          });
+          await apiJson("/api/gamification/award", {
+            method: "POST",
+            body: { source: "review-pass", delta: { xp: 20, credits: 5, streak: 0 } },
+          });
+          state.progress.reviewedWords += 1;
+          persist();
+          await refreshState();
+        }
       }
 
       if (action === "check-speaking") {
@@ -750,10 +777,9 @@ function wireActions() {
       }
 
       if (action === "open-chest") {
-        const reward = claimReward();
-        state.chest.lastReward = reward;
-        persist();
-        render();
+        const result = await apiJson("/api/gamification/chest", { method: "POST" });
+        state.chest.lastReward = result.reward ?? state.chest.lastReward;
+        await refreshState();
       }
 
       if (action === "complete-task") {
@@ -774,26 +800,47 @@ function wireActions() {
         if (cosmetic && !cosmetic.owned && state.progress.credits >= cosmetic.cost) {
           cosmetic.owned = true;
           state.progress.credits -= cosmetic.cost;
-          state.admin.auditLog.unshift(`Purchased cosmetic: ${cosmetic.name}`);
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Purchased cosmetic: ${cosmetic.name}` },
+          });
           persist();
           render();
         }
       }
 
       if (action === "toggle-maintenance") {
-        state.admin.maintenanceMode = !state.admin.maintenanceMode;
-        state.admin.siteHealth = state.admin.maintenanceMode ? "Amber" : "Green";
-        state.admin.auditLog.unshift(`Maintenance mode ${state.admin.maintenanceMode ? "enabled" : "disabled"}`);
-        persist();
-        render();
+        const next = await apiJson("/api/settings", {
+          method: "PATCH",
+          body: {
+            maintenanceMode: !state.admin.maintenanceMode,
+            announcements: state.admin.announcements,
+          },
+        });
+        state.admin.maintenanceMode = next.maintenanceMode;
+        state.admin.siteHealth = next.maintenanceMode ? "Amber" : "Green";
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Maintenance mode ${state.admin.maintenanceMode ? "enabled" : "disabled"}` },
+        });
+        await refreshState();
       }
 
       if (action === "save-announcement") {
         const input = app.querySelector('[data-field="announcement-input"]');
-        state.admin.announcements = input?.value ?? state.admin.announcements;
-        state.admin.auditLog.unshift("Updated homepage announcement");
-        persist();
-        render();
+        const next = await apiJson("/api/settings", {
+          method: "PATCH",
+          body: {
+            announcements: input?.value ?? state.admin.announcements,
+            maintenanceMode: state.admin.maintenanceMode,
+          },
+        });
+        state.admin.announcements = next.announcements;
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: "Updated homepage announcement" },
+        });
+        await refreshState();
       }
 
       if (action === "add-lesson") {
@@ -801,11 +848,19 @@ function wireActions() {
         const themeInput = app.querySelector('[data-field="lesson-theme"]');
         const title = titleInput?.value?.trim();
         if (title) {
-          state.lessons.unshift(buildLesson(title, themeInput?.value?.trim() || "custom"));
-          state.admin.auditLog.unshift(`Added lesson: ${title}`);
-          state.progress.xp += 25;
-          persist();
-          render();
+          await apiJson("/api/lessons", {
+            method: "POST",
+            body: buildLesson(title, themeInput?.value?.trim() || "custom"),
+          });
+          await apiJson("/api/gamification/award", {
+            method: "POST",
+            body: { source: "lesson-create", delta: { xp: 25, credits: 0, streak: 0 } },
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Added lesson: ${title}` },
+          });
+          await refreshState();
         }
       }
 
@@ -845,21 +900,12 @@ function activeLessonPreview() {
 function completeLesson(id) {
   if (!state.progress.completedLessons.includes(id)) {
     state.progress.completedLessons.push(id);
-    state.progress.xp += 80;
-    state.progress.credits += 20;
     state.progress.reviewedWords += 3;
     state.progress.kanji += 2;
-    state.admin.auditLog.unshift(`Completed lesson: ${id}`);
     recalculateAchievements();
     persist();
     render();
   }
-}
-
-function normalizeSentence(sentence) {
-  if (!sentence) return "ラーメンをください。";
-  if (sentence.includes("ください")) return sentence;
-  return `${sentence.replace(/[。！？]$/, "")}。`;
 }
 
 function reviewWriting(sentence) {
@@ -869,58 +915,6 @@ function reviewWriting(sentence) {
     return "Good structure. The particle placement looks natural for an MVP check.";
   }
   return "Add a particle such as は, を, or が to make the sentence clearer.";
-}
-
-function answerTutor(question) {
-  const normalized = question.toLowerCase();
-  if (normalized.includes("よろしく")) {
-    return "It is a compact phrase for polite cooperation. In practical use it means 'please treat me well' or 'I look forward to working with you.'";
-  }
-  if (normalized.includes("は and が") || normalized.includes("particle")) {
-    return "Use は for topic framing and が for focus or emphasis. In short: は sets the scene, が spotlights the subject.";
-  }
-  if (normalized.includes("nuance")) {
-    return "Nuance is usually about politeness, softness, or social distance. Keep the sentence short and compare it to the context.";
-  }
-  return "Keep the question short. A local LLM fallback would answer this with a focused explanation and one example sentence.";
-}
-
-function buildRoleplayTranscript(scenario) {
-  const scripts = {
-    restaurant: [
-      { speaker: "System", text: "You are ordering at a ramen shop." },
-      { speaker: "You", text: "ラーメンをください。" },
-      { speaker: "Server", text: "はい。スープはあっさりですか、こってりですか？" },
-      { speaker: "You", text: "あっさりでお願いします。" },
-    ],
-    travel: [
-      { speaker: "System", text: "You are asking for directions at a station." },
-      { speaker: "You", text: "切符売り場はどこですか。" },
-      { speaker: "Staff", text: "まっすぐ行って左です。" },
-      { speaker: "You", text: "ありがとうございます。" },
-    ],
-    anime: [
-      { speaker: "System", text: "You are in an anime-style scene before training." },
-      { speaker: "You", text: "今日は負けない。" },
-      { speaker: "Rival", text: "その気持ち、見せてもらうよ。" },
-      { speaker: "You", text: "行くぞ。" },
-    ],
-  };
-  return scripts[scenario] ?? scripts.restaurant;
-}
-
-function claimReward() {
-  const rewards = ["+60 XP", "+15 credits", "Rare badge: Ramen Star", "Cosmetic token: Shrine Night"];
-  const reward = rewards[Math.floor(Math.random() * rewards.length)];
-  if (reward.includes("XP")) {
-    state.progress.xp += 60;
-  } else if (reward.includes("credits")) {
-    state.progress.credits += 15;
-  } else {
-    state.progress.credits += 25;
-  }
-  state.admin.auditLog.unshift(`Opened reward chest: ${reward}`);
-  return reward;
 }
 
 function recalculateAchievements() {
@@ -989,15 +983,6 @@ function speakText(text) {
 async function refreshState() {
   state = await loadState();
   render();
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function mergeState(base, saved) {

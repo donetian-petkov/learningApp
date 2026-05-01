@@ -58,30 +58,22 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/lessons") {
     const body = await readJson(req);
-    const current = store.getSnapshot(session);
-    current.lessons.unshift(body);
-    respondJson(res, 200, store.saveAppState(current, session?.sessionUser ?? null));
+    respondJson(res, 200, store.createLesson(body));
     return;
   }
 
   if (req.method === "PATCH" && url.pathname.startsWith("/api/lessons/")) {
     const lessonId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
     const body = await readJson(req);
-    const current = store.getSnapshot(session);
-    current.lessons = current.lessons.map((lesson) =>
-      lesson.id === lessonId ? { ...lesson, ...body, id: lessonId } : lesson
-    );
-    respondJson(res, 200, store.saveAppState(current, session?.sessionUser ?? null));
+    const updated = store.updateLesson(lessonId, body);
+    respondJson(res, updated ? 200 : 404, updated ?? { error: "Not found" });
     return;
   }
 
   if (req.method === "DELETE" && url.pathname.startsWith("/api/lessons/")) {
     const lessonId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
-    const current = store.getSnapshot(session);
-    current.lessons = current.lessons.filter((lesson) => lesson.id !== lessonId);
-    current.progress.completedLessons = current.progress.completedLessons.filter((id) => id !== lessonId);
-    current.reviews = current.reviews.filter((review) => review.id !== lessonId && review.sourceLessonId !== lessonId);
-    respondJson(res, 200, store.saveAppState(current, session?.sessionUser ?? null));
+    const deleted = store.deleteLesson(lessonId);
+    respondJson(res, deleted ? 200 : 404, deleted ? { ok: true } : { error: "Not found" });
     return;
   }
 
@@ -93,6 +85,10 @@ async function handleApi(req, res, url) {
   if (req.method === "PATCH" && url.pathname.startsWith("/api/reviews/")) {
     const reviewId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
     const body = await readJson(req);
+    if (body.grade != null) {
+      respondJson(res, 200, store.gradeReview(reviewId, body.grade));
+      return;
+    }
     const current = store.getSnapshot(session);
     current.reviews = current.reviews.map((review) =>
       review.id === reviewId ? { ...review, ...body, id: reviewId } : review
@@ -133,6 +129,17 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/gamification/chest") {
+    respondJson(res, 200, store.claimRewardChest());
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/gamification/award") {
+    const body = await readJson(req);
+    respondJson(res, 200, store.awardProgress(body.delta ?? {}, body.source ?? "manual"));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/admin/login") {
     const body = await readJson(req);
     if (!store.verifyAdminCredentials(body.username ?? "", body.password ?? "")) {
@@ -162,11 +169,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "PATCH" && url.pathname === "/api/settings") {
     const body = await readJson(req);
-    const current = store.getSnapshot(session);
-    current.admin.announcements = body.announcements ?? current.admin.announcements;
-    current.admin.maintenanceMode = Boolean(body.maintenanceMode ?? current.admin.maintenanceMode);
-    current.admin.siteHealth = current.admin.maintenanceMode ? "Amber" : "Green";
-    respondJson(res, 200, store.saveAppState(current, session?.sessionUser ?? null));
+    respondJson(res, 200, store.updateSettings(body, session?.sessionUser ?? null));
     return;
   }
 
@@ -182,6 +185,12 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/health") {
     respondJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/audit-log") {
+    const body = await readJson(req);
+    respondJson(res, 200, store.appendAudit(body.entry ?? "audit event"));
     return;
   }
 

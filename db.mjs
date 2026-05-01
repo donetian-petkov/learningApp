@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
+import { calculateLevel, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -116,6 +117,15 @@ function normalizeState(snapshot) {
   state.tutor ??= clone(INITIAL_APP_STATE.tutor);
   state.chest ??= clone(INITIAL_APP_STATE.chest);
   return state;
+}
+
+function parseRewardText(text) {
+  const xpMatch = String(text).match(/\+(\d+)\s*XP/i);
+  const creditMatch = String(text).match(/\+(\d+)\s*credits?/i);
+  return {
+    xp: xpMatch ? Number(xpMatch[1]) : 0,
+    credits: creditMatch ? Number(creditMatch[1]) : 0,
+  };
 }
 
 export class SqliteStorageAdapter {
@@ -464,6 +474,67 @@ export class SqliteStorageAdapter {
     return this.getSnapshot().lessons;
   }
 
+  createLesson(lesson) {
+    const next = this.getSnapshot();
+    const normalized = normalizeLesson(lesson, next.lessons.length);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.insertLessonRow(normalized, next.lessons.length);
+      this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Created lesson: ${normalized.title}`, nowIso());
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return normalized;
+  }
+
+  updateLesson(lessonId, patch) {
+    const current = this.db.prepare("SELECT * FROM lessons WHERE id = ?").get(lessonId);
+    if (!current) return null;
+    const lesson = normalizeLesson({
+      id: lessonId,
+      title: patch.title ?? current.title,
+      theme: patch.theme ?? current.theme,
+      difficulty: patch.difficulty ?? current.difficulty,
+      japanese: patch.japanese ?? current.japanese,
+      romaji: patch.romaji ?? current.romaji,
+      translation: patch.translation ?? current.translation,
+      grammar: patch.grammar ?? current.grammar,
+      vocab: Array.isArray(patch.vocab) ? patch.vocab : this.loadLessonVocab(lessonId),
+      kanji: Array.isArray(patch.kanji) ? patch.kanji : this.loadLessonKanji(lessonId),
+    });
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare(
+        "UPDATE lessons SET title = ?, theme = ?, difficulty = ?, japanese = ?, romaji = ?, translation = ?, grammar = ? WHERE id = ?"
+      ).run(lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, lessonId);
+      this.replaceLessonChildren(lessonId, lesson);
+      this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Updated lesson: ${lesson.title}`, nowIso());
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return lesson;
+  }
+
+  deleteLesson(lessonId) {
+    const lesson = this.db.prepare("SELECT title FROM lessons WHERE id = ?").get(lessonId);
+    if (!lesson) return false;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM lessons WHERE id = ?").run(lessonId);
+      this.db.prepare("DELETE FROM review_items WHERE source_lesson_id = ?").run(lessonId);
+      this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(`Deleted lesson: ${lesson.title}`, nowIso());
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return true;
+  }
+
   upsertLesson(lesson) {
     const snapshot = this.getSnapshot();
     const next = clone(snapshot);
@@ -486,6 +557,26 @@ export class SqliteStorageAdapter {
     return snapshot.reviews;
   }
 
+  gradeReview(reviewId, grade) {
+    const review = this.db.prepare("SELECT * FROM review_items WHERE id = ?").get(reviewId);
+    if (!review) return null;
+    const next = sm2Next(review, grade);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare(
+        "UPDATE review_items SET due = ?, ease = ?, interval_days = ?, repetitions = ?, mistakes = ? WHERE id = ?"
+      ).run(next.due, next.ease, next.interval_days, next.repetitions, next.mistakes, reviewId);
+      this.db.prepare(
+        "INSERT INTO review_history (review_item_id, grade, reviewed_at, note) VALUES (?, ?, ?, ?)"
+      ).run(reviewId, grade, nowIso(), grade >= 4 ? "good" : "retry");
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return { ...review, ...next };
+  }
+
   loadProgress() {
     return this.getSnapshot().progress;
   }
@@ -503,6 +594,22 @@ export class SqliteStorageAdapter {
     return snapshot.progress;
   }
 
+  awardProgress(delta, source = "manual") {
+    const current = this.getSnapshot();
+    const next = {
+      ...current,
+      progress: {
+        ...current.progress,
+        xp: current.progress.xp + Number(delta.xp || 0),
+        credits: current.progress.credits + Number(delta.credits || 0),
+        streak: Math.max(0, current.progress.streak + Number(delta.streak || 0)),
+      },
+    };
+    this.saveAppState(next, current.admin.sessionUser ?? null);
+    this.appendAudit(`${source}: progress delta`);
+    return this.getSnapshot();
+  }
+
   loadAdminState(sessionUser = null) {
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser }).admin;
   }
@@ -517,6 +624,45 @@ export class SqliteStorageAdapter {
     };
     this.saveAppState(snapshot, sessionUser);
     return snapshot.admin;
+  }
+
+  updateSettings(settings, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    current.admin.announcements = settings.announcements ?? current.admin.announcements;
+    current.admin.maintenanceMode = Boolean(settings.maintenanceMode ?? current.admin.maintenanceMode);
+    current.admin.siteHealth = current.admin.maintenanceMode ? "Amber" : "Green";
+    return this.saveAppState(current, sessionUser).admin;
+  }
+
+  recordAiUsage(feature, requests = 1, tokenEstimate = 0, userId = "local") {
+    this.db.prepare(
+      "INSERT INTO ai_usage_log (feature, user_id, requests, token_estimate, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(feature, userId, requests, tokenEstimate, nowIso());
+    return this.getAiUsage();
+  }
+
+  appendAudit(entry) {
+    this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(entry, nowIso());
+    return this.getAuditLog();
+  }
+
+  claimRewardChest() {
+    const current = this.getSnapshot();
+    const rewards = ["+60 XP", "+15 credits", "Rare badge: Ramen Star", "Cosmetic token: Shrine Night"];
+    const reward = rewards[Math.floor(Math.random() * rewards.length)];
+    const parsed = parseRewardText(reward);
+    const next = {
+      ...current,
+      progress: {
+        ...current.progress,
+        xp: current.progress.xp + parsed.xp,
+        credits: current.progress.credits + parsed.credits + (parsed.xp === 0 && parsed.credits === 0 ? 25 : 0),
+      },
+      chest: { ready: true, lastReward: reward },
+    };
+    this.saveAppState(next, current.admin.sessionUser ?? null);
+    this.appendAudit(`Opened reward chest: ${reward}`);
+    return { reward, state: this.getSnapshot() };
   }
 
   getSnapshot(session = { authenticated: false, sessionUser: null }) {
@@ -599,7 +745,7 @@ export class SqliteStorageAdapter {
     const progress = progressRow
       ? {
           xp: progressRow.xp,
-          level: progressRow.level,
+          level: calculateLevel(progressRow.xp),
           credits: progressRow.credits,
           streak: progressRow.streak,
           kanji: progressRow.kanji,
@@ -652,6 +798,7 @@ export class SqliteStorageAdapter {
 
   saveAppState(nextSnapshot, sessionUser = null) {
     const next = normalizeState(nextSnapshot);
+    next.progress.level = calculateLevel(next.progress.xp);
     const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
     const xpDelta = next.progress.xp - current.progress.xp;
     const creditDelta = next.progress.credits - current.progress.credits;
@@ -675,12 +822,6 @@ export class SqliteStorageAdapter {
           now
         );
       }
-      this.db.prepare(
-        "INSERT INTO ai_usage_log (feature, user_id, requests, token_estimate, created_at) VALUES (?, ?, ?, ?, ?)"
-      ).run("state-sync", sessionUser ?? "local", 1, 0, now);
-      this.db.prepare(
-        "INSERT INTO study_sessions (kind, duration_minutes, xp_delta, credits_delta, created_at) VALUES (?, ?, ?, ?, ?)"
-      ).run("state-sync", Math.max(1, Math.abs(xpDelta) || 1), xpDelta, creditDelta, now);
       this.db.prepare(
         "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
@@ -738,7 +879,6 @@ export class SqliteStorageAdapter {
       DELETE FROM cosmetics;
       DELETE FROM user_cosmetics;
       DELETE FROM site_settings;
-      DELETE FROM audit_log;
       DELETE FROM content_review_queue;
     `);
 
@@ -757,7 +897,7 @@ export class SqliteStorageAdapter {
       "INSERT INTO progress_state (id, xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, completed_lessons_json, reviewed_words, speaking_sessions, listening_exercises) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       snapshot.progress.xp,
-      snapshot.progress.level,
+      calculateLevel(snapshot.progress.xp),
       snapshot.progress.credits,
       snapshot.progress.streak,
       snapshot.progress.kanji,
@@ -905,9 +1045,7 @@ export class SqliteStorageAdapter {
       achievements: snapshot.achievements,
       dailyTasks: snapshot.dailyTasks,
       cosmetics: snapshot.cosmetics,
-      leaderboard: this.db.prepare("SELECT payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get()
-        ? parseJson(this.db.prepare("SELECT payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get().payload_json, [])
-        : [],
+      leaderboard: this.getLatestLeaderboard(),
     };
   }
 
@@ -925,6 +1063,56 @@ export class SqliteStorageAdapter {
 
   getAuditLog() {
     return this.getSnapshot().admin.auditLog;
+  }
+
+  getLatestLeaderboard() {
+    const row = this.db.prepare("SELECT payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get();
+    return row ? parseJson(row.payload_json, []) : [];
+  }
+
+  loadLessonVocab(lessonId) {
+    return this.db.prepare("SELECT word, kana, meaning FROM lesson_vocab WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId);
+  }
+
+  loadLessonKanji(lessonId) {
+    return this.db.prepare("SELECT kanji FROM lesson_kanji WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId).map((row) => row.kanji);
+  }
+
+  replaceLessonChildren(lessonId, lesson) {
+    this.db.prepare("DELETE FROM lesson_vocab WHERE lesson_id = ?").run(lessonId);
+    this.db.prepare("DELETE FROM lesson_kanji WHERE lesson_id = ?").run(lessonId);
+    this.db.prepare("DELETE FROM lesson_grammar WHERE lesson_id = ?").run(lessonId);
+    this.db.prepare("DELETE FROM lesson_dialogue_lines WHERE lesson_id = ?").run(lessonId);
+    this.db.prepare("DELETE FROM exercise_items WHERE lesson_id = ?").run(lessonId);
+    lesson.vocab.forEach((item, index) => {
+      this.db.prepare("INSERT INTO lesson_vocab (lesson_id, word, kana, meaning, order_index) VALUES (?, ?, ?, ?, ?)")
+        .run(lessonId, item.word, item.kana, item.meaning, index);
+    });
+    lesson.kanji.forEach((item, index) => {
+      this.db.prepare("INSERT INTO lesson_kanji (lesson_id, kanji, order_index) VALUES (?, ?, ?)")
+        .run(lessonId, item, index);
+    });
+    this.db.prepare("INSERT INTO lesson_grammar (lesson_id, explanation, order_index) VALUES (?, ?, ?)").run(lessonId, lesson.grammar, 0);
+    this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)").run(lessonId, "Narration", lesson.japanese, 0);
+    this.db.prepare(
+      "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      `${lessonId}-exercise`,
+      lessonId,
+      "multiple-choice",
+      `Which meaning best fits: ${lesson.japanese}`,
+      toJson([lesson.translation, lesson.grammar, lesson.theme]),
+      lesson.translation,
+      lesson.grammar,
+      0
+    );
+  }
+
+  insertLessonRow(lesson, orderIndex = 0) {
+    this.db.prepare(
+      "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(lesson.id, lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, orderIndex);
+    this.replaceLessonChildren(lesson.id, lesson);
   }
 }
 

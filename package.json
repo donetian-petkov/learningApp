@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "check": "node --check app.js && node --check server.mjs && node --check db.mjs && node --check seed-data.mjs"
+    "check": "node --check app.js && node --check server.mjs && node --check db.mjs && node --check seed-data.mjs && node --check shared.mjs",
+    "test": "node --test"
   }
 }

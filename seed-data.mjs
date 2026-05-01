@@ -120,6 +120,12 @@ export const INITIAL_APP_STATE = {
       "Updated free AI usage limits",
     ],
   },
+  aiUsage: {
+    dailyRequests: 18,
+    monthlyRequests: 362,
+    cachedResponses: 124,
+    failedRequests: 1,
+  },
   roleplay: {
     scenario: "restaurant",
     transcript: [
@@ -137,10 +143,13 @@ export const INITIAL_APP_STATE = {
     ready: true,
     lastReward: "Rare badge: Sakura Night",
   },
+  settings: {
+    announcements: "Practice 5 minutes a day to keep the streak alive.",
+    maintenanceMode: false,
+  },
 };
 
 export const ADMIN_CREDENTIALS = {
   username: "admin",
   password: "fieldguide123",
 };
-
