@@ -134,6 +134,24 @@ export function buildLessonStudyMaterials(japanese, translation, grammar, title,
   };
 }
 
+export function buildLessonDialogueLines(title, japanese, translation, theme) {
+  const safeTitle = String(title ?? "Lesson").trim() || "Lesson";
+  const safeJapanese = String(japanese ?? "").trim();
+  const safeTranslation = String(translation ?? "").trim();
+  const safeTheme = String(theme ?? "custom").trim() || "custom";
+
+  return [
+    { speaker: "Narration", text: `${safeTitle} (${safeTheme})` },
+    { speaker: "Speaker A", text: safeJapanese || safeTranslation || `${safeTitle} begins.` },
+    {
+      speaker: "Speaker B",
+      text: safeTranslation
+        ? `${safeTranslation} — ${safeTheme} context.`
+        : `Use this ${safeTheme} line to practice the scene.`,
+    },
+  ];
+}
+
 export function buildRoleplayFollowUp(scenario, learnerLine) {
   const scripts = {
     restaurant: {
@@ -432,6 +450,7 @@ export function buildLessonDraft(title, theme) {
     grammar: template.grammar,
     vocab: template.vocab,
     kanji: template.kanji,
+    dialogueLines: buildLessonDialogueLines(normalizedTitle, template.japanese, template.translation, normalizedTheme),
     grammarPoints: activities.grammarPoints,
     exercises: activities.exercises,
   };
@@ -513,22 +532,24 @@ export function buildLessonPack(title, theme, count = 3) {
 
   for (let index = 0; index < size; index += 1) {
     const variant = packVariants[index % packVariants.length];
-    const lesson = buildLessonDraft(`${normalizedTitle}: ${variant.suffix}`, normalizedTheme);
+    const lessonTitle = `${normalizedTitle}: ${variant.suffix}`;
+    const lesson = buildLessonDraft(lessonTitle, normalizedTheme);
     const activities = buildLessonStudyMaterials(
       variant.japanese,
       variant.translation,
       variant.grammar,
-      `${normalizedTitle}: ${variant.suffix}`,
+      lessonTitle,
       normalizedTheme
     );
     lessons.push({
       ...lesson,
       id: `${lesson.id}-${String(index + 1).padStart(2, "0")}`,
-      title: `${normalizedTitle}: ${variant.suffix}`,
+      title: lessonTitle,
       japanese: variant.japanese,
       romaji: variant.romaji,
       translation: variant.translation,
       grammar: variant.grammar,
+      dialogueLines: buildLessonDialogueLines(lessonTitle, variant.japanese, variant.translation, normalizedTheme),
       grammarPoints: activities.grammarPoints,
       exercises: activities.exercises,
     });

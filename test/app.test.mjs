@@ -709,6 +709,7 @@ test("lesson draft generation returns theme-based content", () => {
   assert.ok(draft.japanese.includes("切符売り場") || draft.japanese.includes("どこ"));
   assert.ok(Array.isArray(draft.vocab));
   assert.ok(Array.isArray(draft.grammarPoints));
+  assert.ok(Array.isArray(draft.dialogueLines));
   assert.ok(Array.isArray(draft.exercises));
 });
 
@@ -719,6 +720,7 @@ test("lesson pack generation returns multiple imported lessons", () => {
   assert.ok(pack.every((lesson) => lesson.title.startsWith("Travel Pack")));
   assert.ok(pack.some((lesson) => lesson.japanese.includes("切符売り場")));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.grammarPoints) && lesson.grammarPoints.length >= 2));
+  assert.ok(pack.every((lesson) => Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length >= 3));
 });
 
 test("lesson exercise completion persists and awards study progress", () => {
@@ -750,6 +752,7 @@ test("lesson draft generation covers broader themes", () => {
   assert.ok(daily.japanese.includes("駅") || daily.japanese.includes("朝ごはん"));
   assert.ok(manga.japanese.includes("コマ"));
   assert.ok(etiquette.translation.includes("Sorry for the trouble") || etiquette.translation.includes("please"));
+  assert.ok(Array.isArray(daily.dialogueLines));
 });
 
 test("leaderboard is populated and updates from study progress", () => {

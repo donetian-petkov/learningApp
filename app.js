@@ -1363,6 +1363,10 @@ function renderAdmin() {
             <textarea data-field="lesson-grammar-points" rows="4" placeholder='[{"title":"Core grammar","explanation":"Explain the point.","example":"今日はよろしくお願いします。"}]'>${escapeHtml(JSON.stringify(lessonDraft.grammarPoints ?? [], null, 2))}</textarea>
           </label>
           <label class="field">
+            <span>Dialogue lines JSON</span>
+            <textarea data-field="lesson-dialogue-lines" rows="5" placeholder='[{"speaker":"Narration","text":"Scene setup."},{"speaker":"Speaker A","text":"こんにちは。"},{"speaker":"Speaker B","text":"こんばんは。"}]'>${escapeHtml(JSON.stringify(lessonDraft.dialogueLines ?? [], null, 2))}</textarea>
+          </label>
+          <label class="field">
             <span>Exercises JSON</span>
             <textarea data-field="lesson-exercises" rows="5" placeholder='[{"type":"multiple-choice","prompt":"Which meaning best fits?","choices":["A","B"],"answer":"A","explanation":"Why A is correct."}]'>${escapeHtml(JSON.stringify(lessonDraft.exercises ?? [], null, 2))}</textarea>
           </label>
@@ -2177,6 +2181,7 @@ function wireActions() {
         const translationInput = app.querySelector('[data-field="lesson-translation"]');
         const grammarInput = app.querySelector('[data-field="lesson-grammar"]');
         const grammarPointsInput = app.querySelector('[data-field="lesson-grammar-points"]');
+        const dialogueLinesInput = app.querySelector('[data-field="lesson-dialogue-lines"]');
         const exercisesInput = app.querySelector('[data-field="lesson-exercises"]');
         const title = titleInput?.value?.trim();
         if (!title && !adminLessonEditor) {
@@ -2204,6 +2209,7 @@ function wireActions() {
           translation: translationInput?.value?.trim() || adminLessonEditor?.translation || baseLesson.translation,
           grammar: grammarInput?.value?.trim() || adminLessonEditor?.grammar || baseLesson.grammar,
           grammarPoints: parseCollection(grammarPointsInput?.value, adminLessonEditor?.grammarPoints ?? baseLesson.grammarPoints),
+          dialogueLines: parseCollection(dialogueLinesInput?.value, adminLessonEditor?.dialogueLines ?? baseLesson.dialogueLines),
           exercises: parseCollection(exercisesInput?.value, adminLessonEditor?.exercises ?? baseLesson.exercises),
         };
         if (adminLessonEditor?.id) {
