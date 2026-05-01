@@ -845,6 +845,7 @@ export class SqliteStorageAdapter {
     const review = this.db.prepare("SELECT * FROM review_items WHERE id = ?").get(reviewId);
     if (!review) return null;
     const next = sm2Next(review, grade);
+    const note = grade >= 5 ? "easy" : grade >= 4 ? "good" : grade >= 3 ? "hard" : "again";
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare(
@@ -852,7 +853,7 @@ export class SqliteStorageAdapter {
       ).run(next.due, next.ease, next.interval_days, next.repetitions, next.mistakes, reviewId);
       this.db.prepare(
         "INSERT INTO review_history (review_item_id, grade, reviewed_at, note) VALUES (?, ?, ?, ?)"
-      ).run(reviewId, grade, nowIso(), grade >= 4 ? "good" : "retry");
+      ).run(reviewId, grade, nowIso(), note);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");

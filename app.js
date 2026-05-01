@@ -628,7 +628,12 @@ function renderReview() {
           <p class="muted">${item.meaning}</p>
           <p>Answer: ${item.answer}</p>
           <p>Due: ${item.due} · Ease: ${item.ease.toFixed(1)}</p>
-          <button class="secondary" data-action="mark-review" data-review-id="${item.id}">Mark correct</button>
+          <div class="button-row">
+            <button class="secondary" data-action="grade-review" data-review-id="${item.id}" data-grade="2">Again</button>
+            <button class="secondary" data-action="grade-review" data-review-id="${item.id}" data-grade="3">Hard</button>
+            <button class="primary" data-action="grade-review" data-review-id="${item.id}" data-grade="4">Good</button>
+            <button class="secondary" data-action="grade-review" data-review-id="${item.id}" data-grade="5">Easy</button>
+          </div>
         </div>
       `
     )
@@ -1144,17 +1149,20 @@ function wireActions() {
         render();
       }
 
-      if (action === "mark-review") {
+      if (action === "grade-review") {
         const reviewId = button.dataset.reviewId;
+        const grade = Number(button.dataset.grade ?? 4);
         if (reviewId) {
           await apiJson(`/api/reviews/${encodeURIComponent(reviewId)}`, {
             method: "PATCH",
-            body: { grade: 4 },
+            body: { grade },
           });
-          await apiJson("/api/gamification/award", {
-            method: "POST",
-            body: { source: "review-pass", delta: { xp: 20, credits: 5, streak: 0 } },
-          });
+          if (grade >= 4) {
+            await apiJson("/api/gamification/award", {
+              method: "POST",
+              body: { source: "review-pass", delta: { xp: grade === 5 ? 24 : 20, credits: grade === 5 ? 6 : 5, streak: 0 } },
+            });
+          }
           await refreshState();
         }
       }

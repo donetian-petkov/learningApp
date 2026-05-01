@@ -77,6 +77,11 @@ test("review grading applies SM-2 updates and records history", () => {
     assert.ok(graded.ease >= before.ease);
     const historyCount = temp.store.db.prepare("SELECT COUNT(*) AS count FROM review_history WHERE review_item_id = ?").get(before.id).count;
     assert.equal(historyCount, 1);
+
+    const again = temp.store.gradeReview(before.id, 2);
+    assert.equal(again.repetitions, 0);
+    const note = temp.store.db.prepare("SELECT note FROM review_history WHERE review_item_id = ? ORDER BY id DESC LIMIT 1").get(before.id).note;
+    assert.equal(note, "again");
   } finally {
     cleanupTempStore(temp);
   }
