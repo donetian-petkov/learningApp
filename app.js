@@ -24,6 +24,7 @@ const defaultState = {
     completedExercises: ["anime-intro-exercise-1"],
     savedWords: [],
     savedKanji: [],
+    lessonNotes: {},
   },
   lessons: [
     {
@@ -254,6 +255,7 @@ let savedStudyIndex = 0;
 let savedStudyReveal = false;
 let savedStudyMode = "all";
 let savedStudyFeedback = "";
+let lessonNoteFeedback = "";
 let lessonCatalogQuery = "";
 let lessonCatalogTheme = "";
 let lessonCatalogDifficulty = "";
@@ -502,6 +504,8 @@ function renderLearn() {
   const activeExerciseComplete = completedExercises.has(activeExerciseKey);
   const lessonChecklist = buildLessonProgressChecklist(activeLesson, state.progress, state.kanjiReviews ?? [], state.progress.savedWords ?? [], state.progress.savedKanji ?? []);
   const lessonChecklistCompleteCount = lessonChecklist.filter((item) => item.complete).length;
+  const lessonNotes = state.progress.lessonNotes ?? {};
+  const lessonNoteValue = lessonNotes[activeLesson.id] ?? "";
   const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
   const nextLessonId = findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
   const moduleCards = filteredLessons.map(
@@ -589,6 +593,18 @@ function renderLearn() {
               )
               .join("")}
           </div>
+        </div>
+        <div class="grid-card spaced">
+          <h3>Lesson notes</h3>
+          <p class="muted">Capture a reminder, grammar note, or translation trick for this lesson.</p>
+          <label class="field">
+            <span>Notes for ${escapeHtml(activeLesson.title)}</span>
+            <textarea rows="4" data-field="lesson-note-input">${escapeHtml(lessonNoteValue)}</textarea>
+          </label>
+          <div class="button-row">
+            <button class="primary" data-action="save-lesson-note" data-lesson-id="${escapeHtml(activeLesson.id)}">Save note</button>
+          </div>
+          <p class="muted" data-output="lesson-note-feedback">${escapeHtml(lessonNoteFeedback || "No note saved yet.")}</p>
         </div>
         <div class="grid-card spaced">
           <h3>Dialogue scene</h3>
@@ -1272,6 +1288,8 @@ function renderReview() {
 function renderProgress() {
   const savedWords = Array.isArray(state.progress.savedWords) ? state.progress.savedWords : [];
   const savedKanji = Array.isArray(state.progress.savedKanji) ? state.progress.savedKanji : [];
+  const lessonNotes = state.progress.lessonNotes ?? {};
+  const lessonNoteEntries = Object.entries(lessonNotes).filter(([, note]) => String(note ?? "").trim());
   return `
     <section class="panel">
       <div class="section-title">
@@ -1289,6 +1307,7 @@ function renderProgress() {
         ${renderStat("Kanji drill items", state.kanjiReviews?.length ?? 0)}
         ${renderStat("Saved words", savedWords.length)}
         ${renderStat("Saved kanji", savedKanji.length)}
+        ${renderStat("Lesson notes", lessonNoteEntries.length)}
       </div>
       <div class="progress-grid">
         <div class="grid-card">
@@ -1395,6 +1414,31 @@ function renderProgress() {
                   )
                   .join("")
               : "<p class='muted'>No saved kanji yet.</p>"}
+          </div>
+        </div>
+        <div class="grid-card">
+          <h3>Lesson notes</h3>
+          <p class="muted">Your handwritten prompts and reminders, grouped by lesson.</p>
+          <div class="list">
+            ${lessonNoteEntries.length
+              ? lessonNoteEntries
+                  .map(([lessonId, note]) => {
+                    const lesson = state.lessons.find((entry) => entry.id === lessonId);
+                    return `
+                      <div class="list-item">
+                        <div>
+                          <strong>${escapeHtml(lesson?.title ?? lessonId)}</strong>
+                          <span class="muted">${escapeHtml(lesson?.theme ?? "custom")} · ${escapeHtml(lesson?.difficulty ?? "N5")}</span>
+                          <span>${escapeHtml(note)}</span>
+                        </div>
+                        <div class="button-row">
+                          <button class="secondary" data-action="select-lesson" data-id="${escapeHtml(lessonId)}">Open</button>
+                        </div>
+                      </div>
+                    `;
+                  })
+                  .join("")
+              : "<p class='muted'>No lesson notes saved yet.</p>"}
           </div>
         </div>
       </div>
@@ -2477,6 +2521,18 @@ function wireActions() {
             },
           },
         });
+        await refreshState();
+      }
+
+      if (action === "save-lesson-note") {
+        const lessonId = button.dataset.lessonId ?? state.activeLessonId;
+        const input = app.querySelector('[data-field="lesson-note-input"]');
+        const note = input?.value ?? "";
+        const result = await apiJson("/api/progress/lesson-note", {
+          method: "POST",
+          body: { lessonId, note },
+        });
+        lessonNoteFeedback = result?.lessonNotes?.[lessonId] ? "Lesson note saved." : "Lesson note cleared.";
         await refreshState();
       }
 

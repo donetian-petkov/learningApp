@@ -22,6 +22,7 @@ export const INITIAL_APP_STATE = {
     completedExercises: ["anime-intro-exercise-1"],
     savedWords: [],
     savedKanji: [],
+    lessonNotes: {},
   },
   lessons: [
     {

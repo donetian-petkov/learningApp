@@ -55,7 +55,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 12);
+    assert.equal(temp.store.getSchemaVersion(), 13);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
@@ -130,6 +130,9 @@ test("api handler can be imported without starting the server", async () => {
       toggleStudyBookmark() {
         return { savedWords: [], savedKanji: [] };
       },
+      saveLessonNote() {
+        return { lessonNotes: {} };
+      },
     });
     const res = createMockResponse();
     await handler(createMockRequest("GET", "/api/health"), res, new URL("http://127.0.0.1/api/health"));
@@ -142,6 +145,13 @@ test("api handler can be imported without starting the server", async () => {
       new URL("http://127.0.0.1/api/progress/bookmarks")
     );
     assert.equal(bookmarkRes.statusCode, 200);
+    const noteRes = createMockResponse();
+    await handler(
+      createMockRequest("POST", "/api/progress/lesson-note", { lessonId: "anime-intro", note: "Remember polite requests" }),
+      noteRes,
+      new URL("http://127.0.0.1/api/progress/lesson-note")
+    );
+    assert.equal(noteRes.statusCode, 200);
   } finally {
     if (previous == null) delete process.env.LEARNINGAPP_DISABLE_SERVER;
     else process.env.LEARNINGAPP_DISABLE_SERVER = previous;
@@ -352,6 +362,10 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
       source: "lesson",
     });
     assert.equal(clearedWord.savedWords.some((item) => item.term === "駅"), false);
+
+    const noteProgress = temp.store.saveLessonNote("anime-intro", "Remember よろしくお願いします for polite introductions.");
+    assert.equal(noteProgress.lessonNotes["anime-intro"].includes("polite introductions"), true);
+    assert.equal(temp.store.getSnapshot().progress.lessonNotes["anime-intro"].includes("よろしく"), true);
   } finally {
     cleanupTempStore(temp);
   }
@@ -646,7 +660,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 12);
+    assert.equal(temp.store.getSchemaVersion(), 13);
   } finally {
     cleanupTempStore(temp);
   }

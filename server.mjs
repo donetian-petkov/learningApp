@@ -205,6 +205,13 @@ export function createApiHandler(store) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/progress/lesson-note") {
+    const body = await readJson(req);
+    const result = store.saveLessonNote(body.lessonId ?? "", body.note ?? "", session?.sessionUser ?? null);
+    respondJson(res, 200, result);
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/cosmetics/buy") {
     const body = await readJson(req);
     try {
