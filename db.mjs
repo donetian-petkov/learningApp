@@ -172,6 +172,20 @@ function resolveChallengeTriggers(category, kind) {
   return category === kind;
 }
 
+function buildLeaderboardRows(progress, users) {
+  const personalRow = { name: "You", xp: progress.xp, track: "Local" };
+  const userRows = users
+    .slice()
+    .sort((left, right) => (right.level - left.level) || (right.credits - left.credits) || left.username.localeCompare(right.username))
+    .slice(0, 3)
+    .map((user, index) => ({
+      name: user.username[0].toUpperCase() + user.username.slice(1),
+      xp: Math.max(0, user.level * 120 + user.credits),
+      track: ["Speaking", "Kanji", "Listening", "Practice"][index] ?? "Study",
+    }));
+  return [personalRow, ...userRows];
+}
+
 function applyAchievementRules(state) {
   const unlock = (name, condition) => {
     const achievement = state.achievements.find((item) => item.name === name);
@@ -1347,6 +1361,7 @@ export class SqliteStorageAdapter {
     const xpDelta = next.progress.xp - current.progress.xp;
     const creditDelta = next.progress.credits - current.progress.credits;
     const now = nowIso();
+    const leaderboardRows = buildLeaderboardRows(next.progress, next.admin.users ?? current.admin.users ?? []);
 
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -1387,12 +1402,7 @@ export class SqliteStorageAdapter {
         "INSERT INTO leaderboard_snapshots (week_key, payload_json, created_at) VALUES (?, ?, ?)"
       ).run(
         currentWeekKey(),
-        toJson([
-          { name: "You", xp: next.progress.xp, track: "Local" },
-          { name: "Mika", xp: 1110, track: "Speaking" },
-          { name: "Ren", xp: 980, track: "Kanji" },
-          { name: "Yui", xp: 930, track: "Listening" },
-        ]),
+        toJson(leaderboardRows),
         now
       );
       this.db.exec("COMMIT");
@@ -1866,7 +1876,31 @@ export class SqliteStorageAdapter {
 
   getLatestLeaderboard() {
     const row = this.db.prepare("SELECT payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get();
-    return row ? parseJson(row.payload_json, []) : [];
+    if (row) return parseJson(row.payload_json, []);
+    const progressRow = this.db.prepare("SELECT * FROM progress_state WHERE id = 1").get();
+    const users = this.db.prepare("SELECT * FROM users ORDER BY level DESC, username").all().map((user) => ({
+      username: user.username,
+      level: user.level,
+      credits: user.credits,
+    }));
+    const progress = progressRow
+      ? {
+          xp: progressRow.xp,
+          credits: progressRow.credits,
+        }
+      : {
+          xp: INITIAL_APP_STATE.progress.xp,
+          credits: INITIAL_APP_STATE.progress.credits,
+        };
+    const derived = buildLeaderboardRows(progress, users);
+    this.db.prepare(
+      "INSERT INTO leaderboard_snapshots (week_key, payload_json, created_at) VALUES (?, ?, ?)"
+    ).run(
+      currentWeekKey(),
+      toJson(derived),
+      nowIso()
+    );
+    return derived;
   }
 
   getStudySessions(limit = 20) {

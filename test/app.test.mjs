@@ -203,6 +203,22 @@ test("dictionary lookup and ai responses are available locally", () => {
   }
 });
 
+test("leaderboard is populated and updates from study progress", () => {
+  const temp = createTempStore();
+  try {
+    const initial = temp.store.getSnapshot().admin.leaderboard;
+    assert.ok(initial.length >= 4);
+    assert.equal(initial[0].name, "You");
+
+    temp.store.completeLesson("history-samurai");
+    const updated = temp.store.getSnapshot().admin.leaderboard;
+    assert.ok(updated.length >= 4);
+    assert.ok(updated[0].xp > initial[0].xp);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("challenges persist and can be claimed", () => {
   const temp = createTempStore();
   try {
