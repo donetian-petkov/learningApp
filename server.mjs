@@ -479,6 +479,11 @@ export function createApiHandler(store) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/gamification/streak-freeze") {
+    respondJson(res, 200, store.buyStreakFreeze(session?.sessionUser ?? null));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/gamification/award") {
     const body = await readJson(req);
     respondJson(res, 200, store.awardProgress(body.delta ?? {}, body.source ?? "manual"));

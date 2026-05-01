@@ -53,6 +53,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.reviews.length, 3);
     assert.equal(snapshot.progress.xp, 1280);
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
+    assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
     assert.equal(temp.store.getSchemaVersion(), 13);
@@ -124,6 +125,9 @@ test("api handler can be imported without starting the server", async () => {
       getPermissionMatrix() {
         return { roles: [], permissions: [] };
       },
+      buyStreakFreeze() {
+        return { progress: { streakFreezeCount: 1 } };
+      },
       getUsers() {
         return [];
       },
@@ -152,6 +156,13 @@ test("api handler can be imported without starting the server", async () => {
       new URL("http://127.0.0.1/api/progress/lesson-note")
     );
     assert.equal(noteRes.statusCode, 200);
+    const freezeRes = createMockResponse();
+    await handler(
+      createMockRequest("POST", "/api/gamification/streak-freeze"),
+      freezeRes,
+      new URL("http://127.0.0.1/api/gamification/streak-freeze")
+    );
+    assert.equal(freezeRes.statusCode, 200);
   } finally {
     if (previous == null) delete process.env.LEARNINGAPP_DISABLE_SERVER;
     else process.env.LEARNINGAPP_DISABLE_SERVER = previous;
@@ -298,11 +309,13 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     const lessonResult = temp.store.completeLesson("food-ramen");
     assert.equal(lessonResult.progress.completedLessons.includes("food-ramen"), true);
     assert.ok(lessonResult.progress.xp > 1280);
+    assert.equal(lessonResult.progress.streakFreezeCount, 0);
 
     const task = temp.store.getSnapshot().dailyTasks.find((entry) => !entry.complete);
     assert.ok(task);
     const taskResult = temp.store.completeTask(task.id);
-    assert.equal(taskResult.progress.streak > 12, true);
+    assert.equal(taskResult.progress.streak, 12);
+    assert.equal(taskResult.progress.streakFreezeCount, 0);
 
     const cosmetic = temp.store.getSnapshot().cosmetics.find((entry) => !entry.owned);
     assert.ok(cosmetic);
@@ -334,6 +347,10 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     assert.equal(roleplay.roleplay.transcript[1].speaker, "You");
     assert.equal(roleplay.roleplay.transcript[1].text, "切符売り場はどこですか。");
     assert.equal(roleplay.roleplay.transcript.some((line) => line.speaker === "Tutor"), true);
+
+    const freeze = temp.store.buyStreakFreeze();
+    assert.equal(freeze.progress.streakFreezeCount, 1);
+    assert.equal(freeze.progress.credits, roleplay.progress.credits - 50);
 
     const bookmarkedWord = temp.store.toggleStudyBookmark("word", {
       term: "駅",
@@ -866,6 +883,22 @@ test("leaderboard is populated and updates from study progress", () => {
     const updated = temp.store.getSnapshot().admin.leaderboard;
     assert.ok(updated.length >= 4);
     assert.ok(updated[0].xp > initial[0].xp);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
+test("streak freezes protect the streak after a missed day", () => {
+  const temp = createTempStore();
+  try {
+    temp.store.buyStreakFreeze();
+    temp.store.db.prepare("UPDATE streak_state SET current_streak = ?, last_active_date = ?, freeze_count = ? WHERE id = 1")
+      .run(12, "2000-01-01", 1);
+    const task = temp.store.getSnapshot().dailyTasks.find((entry) => !entry.complete);
+    assert.ok(task);
+    const updated = temp.store.completeTask(task.id);
+    assert.equal(updated.progress.streak, 12);
+    assert.equal(updated.progress.streakFreezeCount, 0);
   } finally {
     cleanupTempStore(temp);
   }

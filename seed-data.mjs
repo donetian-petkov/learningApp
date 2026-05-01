@@ -11,6 +11,7 @@ export const INITIAL_APP_STATE = {
     level: 8,
     credits: 245,
     streak: 12,
+    streakFreezeCount: 0,
     kanji: 54,
     vocab: 218,
     speakingMinutes: 34,

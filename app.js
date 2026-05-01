@@ -13,6 +13,7 @@ const defaultState = {
     level: 8,
     credits: 245,
     streak: 12,
+    streakFreezeCount: 0,
     kanji: 54,
     vocab: 218,
     speakingMinutes: 34,
@@ -1318,6 +1319,7 @@ function renderProgress() {
         ${renderStat("Saved words", savedWords.length)}
         ${renderStat("Saved kanji", savedKanji.length)}
         ${renderStat("Lesson notes", lessonNoteEntries.length)}
+        ${renderStat("Streak freezes", state.progress.streakFreezeCount ?? 0)}
       </div>
       <div class="progress-grid">
         <div class="grid-card">
@@ -1364,6 +1366,15 @@ function renderProgress() {
           <p>Completed lessons: ${state.progress.completedLessons.length}</p>
           <p>Reviewed words: ${state.progress.reviewedWords}</p>
           <p>Speaking sessions: ${state.progress.speakingSessions}</p>
+        </div>
+        <div class="grid-card">
+          <h3>Streak shield</h3>
+          <p class="muted">Use credits to stock a freeze token for missed study days.</p>
+          <p>Freeze tokens: ${state.progress.streakFreezeCount ?? 0}</p>
+          <p>Cost per token: 50 credits</p>
+          <div class="button-row">
+            <button class="secondary" data-action="buy-streak-freeze"${state.progress.credits < 50 ? " disabled" : ""}>Buy freeze</button>
+          </div>
         </div>
         <div class="grid-card">
           <h3>Recent study sessions</h3>
@@ -2638,6 +2649,13 @@ function wireActions() {
             method: "POST",
             body: { taskId: task.id ?? task.name },
           });
+          await refreshState();
+        }
+      }
+
+      if (action === "buy-streak-freeze") {
+        if (state.progress.credits >= 50) {
+          await apiJson("/api/gamification/streak-freeze", { method: "POST" });
           await refreshState();
         }
       }

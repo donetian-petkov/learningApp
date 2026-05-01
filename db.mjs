@@ -22,6 +22,13 @@ function currentWeekKey() {
   return `${now.getUTCFullYear()}-W${String(Math.ceil((dayOfYear + firstDay.getUTCDay()) / 7)).padStart(2, "0")}`;
 }
 
+function currentDateDiffDays(laterKey, earlierKey) {
+  const later = Date.parse(`${laterKey}T00:00:00Z`);
+  const earlier = Date.parse(`${earlierKey}T00:00:00Z`);
+  if (Number.isNaN(later) || Number.isNaN(earlier)) return 0;
+  return Math.round((later - earlier) / 86400000);
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -427,6 +434,8 @@ function normalizeState(snapshot) {
   state.progress.savedWords ??= [];
   state.progress.savedKanji ??= [];
   state.progress.lessonNotes ??= {};
+  state.progress.streakFreezeCount ??= 0;
+  state.progress.streakLastActiveDate ??= currentDateKey();
   state.progress.savedWords = Array.isArray(state.progress.savedWords) ? state.progress.savedWords.map(normalizeSavedWord) : [];
   state.progress.savedKanji = Array.isArray(state.progress.savedKanji) ? state.progress.savedKanji.map(normalizeSavedKanji) : [];
   state.progress.lessonNotes = normalizeLessonNotes(state.progress.lessonNotes);
@@ -1628,6 +1637,51 @@ export class SqliteStorageAdapter {
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser }).progress;
   }
 
+  advanceStreakForActivity(snapshot, sessionUser = null, source = "study") {
+    const next = snapshot ?? this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const row = this.db.prepare("SELECT * FROM streak_state WHERE id = 1").get();
+    const today = currentDateKey();
+    const currentStreak = Number(row?.current_streak ?? next.progress.streak ?? 0);
+    let freezeCount = Number(row?.freeze_count ?? next.progress.streakFreezeCount ?? 0);
+    const lastActiveDate = String(row?.last_active_date ?? today);
+    let nextStreak = currentStreak;
+    let usedFreeze = false;
+
+    if (lastActiveDate !== today) {
+      const gapDays = currentDateDiffDays(today, lastActiveDate);
+      if (gapDays === 1) {
+        nextStreak = currentStreak + 1;
+      } else if (gapDays > 1) {
+        if (freezeCount > 0) {
+          freezeCount -= 1;
+          usedFreeze = true;
+        } else {
+          nextStreak = 1;
+        }
+      }
+    }
+
+    next.progress.streak = Math.max(0, nextStreak);
+    next.progress.streakFreezeCount = Math.max(0, freezeCount);
+    next.progress.streakLastActiveDate = today;
+    this.db.prepare(
+      `
+        INSERT INTO streak_state (id, current_streak, last_active_date, freeze_count)
+        VALUES (1, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          current_streak = excluded.current_streak,
+          last_active_date = excluded.last_active_date,
+          freeze_count = excluded.freeze_count
+      `
+    ).run(next.progress.streak, today, next.progress.streakFreezeCount);
+    return {
+      streak: next.progress.streak,
+      freezeCount: next.progress.streakFreezeCount,
+      usedFreeze,
+      source,
+    };
+  }
+
   toggleStudyBookmark(kind, item = {}, sessionUser = null) {
     const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
     const next = clone(current);
@@ -1689,9 +1743,12 @@ export class SqliteStorageAdapter {
         completedLessons: [...current.progress.completedLessons, lessonId],
       },
     };
+    const streakUpdate = this.advanceStreakForActivity(updated, sessionUser ?? current.admin.sessionUser ?? null, "lesson");
+    updated.progress.streak = streakUpdate.streak;
+    updated.progress.streakFreezeCount = streakUpdate.freezeCount;
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
     this.recordStudySession("lesson", 5, 80, 20, sessionUser ?? current.admin.sessionUser ?? null);
-    this.appendAudit(`Completed lesson: ${lessonId}`);
+    this.appendAudit(`Completed lesson: ${lessonId}${streakUpdate.usedFreeze ? " (used streak freeze)" : ""}`);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
 
@@ -1720,12 +1777,29 @@ export class SqliteStorageAdapter {
         ...current.progress,
         xp: current.progress.xp + task.reward_xp,
         credits: current.progress.credits + task.reward_credits,
-        streak: current.progress.streak + 1,
       },
     };
+    const streakUpdate = this.advanceStreakForActivity(updated, sessionUser ?? current.admin.sessionUser ?? null, "task");
+    updated.progress.streak = streakUpdate.streak;
+    updated.progress.streakFreezeCount = streakUpdate.freezeCount;
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
     this.recordStudySession("task", 3, task.reward_xp, task.reward_credits, sessionUser ?? current.admin.sessionUser ?? null);
-    this.appendAudit(`Completed task: ${task.name}`);
+    this.appendAudit(`Completed task: ${task.name}${streakUpdate.usedFreeze ? " (used streak freeze)" : ""}`);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+  }
+
+  buyStreakFreeze(sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const cost = 50;
+    if (current.progress.credits < cost) {
+      throw new Error("Not enough credits");
+    }
+    const updated = clone(current);
+    updated.progress.credits -= cost;
+    updated.progress.streakFreezeCount = Number(updated.progress.streakFreezeCount ?? 0) + 1;
+    this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.recordStudySession("streak-freeze", 0, 0, -cost, sessionUser ?? current.admin.sessionUser ?? null);
+    this.appendAudit("Purchased a streak freeze");
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
 
@@ -1862,11 +1936,14 @@ export class SqliteStorageAdapter {
       throw new Error(`Unsupported practice kind: ${kind}`);
     }
 
+    const streakUpdate = this.advanceStreakForActivity(updated, sessionUser ?? current.admin.sessionUser ?? null, kind);
+    updated.progress.streak = streakUpdate.streak;
+    updated.progress.streakFreezeCount = streakUpdate.freezeCount;
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
     const xpDelta = updated.progress.xp - current.progress.xp;
     const creditsDelta = updated.progress.credits - current.progress.credits;
     this.recordStudySession(kind, kind === "listening" ? 3 : kind === "speaking" ? 4 : kind === "writing" ? 2 : 3, xpDelta, creditsDelta, sessionUser ?? current.admin.sessionUser ?? null);
-    this.appendAudit(audit);
+    this.appendAudit(`${audit}${streakUpdate.usedFreeze ? " (used streak freeze)" : ""}`);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
 
@@ -2095,6 +2172,8 @@ export class SqliteStorageAdapter {
           level: calculateLevel(progressRow.xp),
           credits: progressRow.credits,
           streak: progressRow.streak,
+          streakFreezeCount: streakRow?.freeze_count ?? 0,
+          streakLastActiveDate: streakRow?.last_active_date ?? currentDateKey(),
           kanji: progressRow.kanji,
           vocab: progressRow.vocab,
           speakingMinutes: progressRow.speaking_minutes,
@@ -2144,6 +2223,7 @@ export class SqliteStorageAdapter {
       progress: {
         ...progress,
         streak: streakState.current_streak,
+        streakFreezeCount: streakState.freeze_count,
       },
       lessons,
       reviews,
@@ -2563,7 +2643,7 @@ export class SqliteStorageAdapter {
     });
 
     this.db.prepare("INSERT INTO streak_state (id, current_streak, last_active_date, freeze_count) VALUES (1, ?, ?, ?)")
-      .run(snapshot.progress.streak, currentDateKey(), 0);
+      .run(snapshot.progress.streak, snapshot.progress.streakLastActiveDate ?? currentDateKey(), Number(snapshot.progress.streakFreezeCount ?? 0));
 
     this.db.prepare("INSERT INTO site_settings (id, announcements, maintenance_mode) VALUES (1, ?, ?)")
       .run(snapshot.admin.announcements, snapshot.admin.maintenanceMode ? 1 : 0);
