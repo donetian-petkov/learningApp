@@ -121,10 +121,25 @@ function normalizeState(snapshot) {
   state.admin.auditLog ??= [];
   state.admin.contentReviewQueue ??= [];
   state.admin.permissions ??= {};
+  state.admin.users ??= Array.isArray(state.users) ? state.users : [];
   state.roleplay ??= clone(INITIAL_APP_STATE.roleplay);
   state.tutor ??= clone(INITIAL_APP_STATE.tutor);
   state.chest ??= clone(INITIAL_APP_STATE.chest);
   return state;
+}
+
+function normalizeUser(item, index = 0) {
+  return {
+    id: item.id ?? `user-${index + 1}`,
+    username: item.username ?? `user${index + 1}`,
+    email: item.email ?? `${item.username ?? `user${index + 1}`}@example.com`,
+    level: Number(item.level ?? 1),
+    status: item.status ?? "active",
+    credits: Number(item.credits ?? 0),
+    streak: Number(item.streak ?? 0),
+    createdAt: item.createdAt ?? nowIso(),
+    updatedAt: item.updatedAt ?? nowIso(),
+  };
 }
 
 function applyAchievementRules(state) {
@@ -143,6 +158,15 @@ function applyAchievementRules(state) {
   unlock("Anime Dialogue Master", state.progress.completedLessons.includes("anime-intro"));
 
   return state;
+}
+
+function getSchemaVersion(db) {
+  const row = db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get();
+  return Number(row?.value ?? 0);
+}
+
+function setSchemaVersion(db, version) {
+  db.prepare("INSERT INTO schema_meta (key, value) VALUES ('version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(version));
 }
 
 function parseRewardText(text) {
@@ -440,8 +464,36 @@ export class SqliteStorageAdapter {
         username TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        level INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'active',
+        credits INTEGER NOT NULL DEFAULT 0,
+        streak INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
-    this.db.exec("INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1')");
+    if (getSchemaVersion(this.db) < 1) setSchemaVersion(this.db, 1);
+    if (getSchemaVersion(this.db) < 2) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT NOT NULL UNIQUE,
+          level INTEGER NOT NULL DEFAULT 1,
+          status TEXT NOT NULL DEFAULT 'active',
+          credits INTEGER NOT NULL DEFAULT 0,
+          streak INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      setSchemaVersion(this.db, 2);
+    }
   }
 
   seedIfNeeded() {
@@ -452,6 +504,22 @@ export class SqliteStorageAdapter {
     this.db.prepare(
       "INSERT OR REPLACE INTO admin_users (id, username, password_hash, role_name, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run("admin-1", ADMIN_CREDENTIALS.username, sha256(ADMIN_CREDENTIALS.password), "Super Admin", nowIso());
+    snapshot.admin.users.forEach((user, index) => {
+      const normalized = normalizeUser(user, index);
+      this.db.prepare(
+        "INSERT OR REPLACE INTO users (id, username, email, level, status, credits, streak, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        normalized.id,
+        normalized.username,
+        normalized.email,
+        normalized.level,
+        normalized.status,
+        normalized.credits,
+        normalized.streak,
+        normalized.createdAt,
+        normalized.updatedAt
+      );
+    });
     const roles = [
       ["role-super-admin", "Super Admin"],
       ["role-content-admin", "Content Admin"],
@@ -916,6 +984,17 @@ export class SqliteStorageAdapter {
     const adminRoles = this.db.prepare("SELECT name FROM roles ORDER BY name").all().map((row) => row.name);
     const permissions = this.getPermissionMatrix();
     const auditLog = this.db.prepare("SELECT entry FROM audit_log ORDER BY id DESC LIMIT 25").all().map((row) => row.entry);
+    const users = this.db.prepare("SELECT * FROM users ORDER BY level DESC, username").all().map((row) => ({
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      level: row.level,
+      status: row.status,
+      credits: row.credits,
+      streak: row.streak,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
     const contentReviewQueue = this.db.prepare("SELECT * FROM content_review_queue ORDER BY created_at DESC, id DESC").all().map((row) => ({
       id: row.id,
       itemType: row.item_type,
@@ -970,6 +1049,7 @@ export class SqliteStorageAdapter {
       auditLog,
       contentReviewQueue,
       permissions,
+      users,
     };
     const streakState = streakRow
       ? streakRow
@@ -1073,6 +1153,7 @@ export class SqliteStorageAdapter {
       DELETE FROM user_cosmetics;
       DELETE FROM site_settings;
       DELETE FROM content_review_queue;
+      DELETE FROM users;
     `);
 
     this.db.prepare(
@@ -1214,6 +1295,23 @@ export class SqliteStorageAdapter {
         .run(entry, nowIso());
     });
 
+    snapshot.admin.users.forEach((user, index) => {
+      const normalized = normalizeUser(user, index);
+      this.db.prepare(
+        "INSERT INTO users (id, username, email, level, status, credits, streak, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        normalized.id,
+        normalized.username,
+        normalized.email,
+        normalized.level,
+        normalized.status,
+        normalized.credits,
+        normalized.streak,
+        normalized.createdAt,
+        normalized.updatedAt
+      );
+    });
+
     const reviewQueue = snapshot.admin.contentReviewQueue.length
       ? snapshot.admin.contentReviewQueue
       : [{
@@ -1321,9 +1419,112 @@ export class SqliteStorageAdapter {
     };
   }
 
+  getUsers(filters = {}) {
+    const conditions = [];
+    const params = [];
+    if (filters.username) {
+      conditions.push("username LIKE ?");
+      params.push(`%${filters.username}%`);
+    }
+    if (filters.email) {
+      conditions.push("email LIKE ?");
+      params.push(`%${filters.email}%`);
+    }
+    if (filters.status) {
+      conditions.push("status = ?");
+      params.push(filters.status);
+    }
+    if (filters.level) {
+      conditions.push("level = ?");
+      params.push(Number(filters.level));
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    return this.db.prepare(`SELECT * FROM users ${where} ORDER BY level DESC, username`).all(...params).map((row) => ({
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      level: row.level,
+      status: row.status,
+      credits: row.credits,
+      streak: row.streak,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  upsertUser(user) {
+    const normalized = normalizeUser(user, 0);
+    this.db.prepare(
+      `
+        INSERT INTO users (id, username, email, level, status, credits, streak, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          username = excluded.username,
+          email = excluded.email,
+          level = excluded.level,
+          status = excluded.status,
+          credits = excluded.credits,
+          streak = excluded.streak,
+          updated_at = excluded.updated_at
+      `
+    ).run(
+      normalized.id,
+      normalized.username,
+      normalized.email,
+      normalized.level,
+      normalized.status,
+      normalized.credits,
+      normalized.streak,
+      normalized.createdAt,
+      normalized.updatedAt
+    );
+    this.appendAudit(`Upserted user: ${normalized.username}`);
+    return normalized;
+  }
+
+  updateUser(userId, patch) {
+    const current = this.db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+    if (!current) return null;
+    const next = {
+      id: current.id,
+      username: patch.username ?? current.username,
+      email: patch.email ?? current.email,
+      level: patch.level ?? current.level,
+      status: patch.status ?? current.status,
+      credits: patch.credits ?? current.credits,
+      streak: patch.streak ?? current.streak,
+      createdAt: current.created_at,
+      updatedAt: nowIso(),
+    };
+    this.db.prepare(
+      "UPDATE users SET username = ?, email = ?, level = ?, status = ?, credits = ?, streak = ?, updated_at = ? WHERE id = ?"
+    ).run(next.username, next.email, next.level, next.status, next.credits, next.streak, next.updatedAt, userId);
+    this.appendAudit(`Updated user: ${next.username}`);
+    return next;
+  }
+
+  deleteUser(userId) {
+    const current = this.db.prepare("SELECT username FROM users WHERE id = ?").get(userId);
+    if (!current) return false;
+    this.db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    this.appendAudit(`Deleted user: ${current.username}`);
+    return true;
+  }
+
+  resetDatabase() {
+    this.db.exec("DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admin_users; DROP TABLE IF EXISTS content_review_queue; DROP TABLE IF EXISTS ai_usage_log; DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS role_permissions; DROP TABLE IF EXISTS permissions; DROP TABLE IF EXISTS roles; DROP TABLE IF EXISTS user_cosmetics; DROP TABLE IF EXISTS cosmetics; DROP TABLE IF EXISTS leaderboard_snapshots; DROP TABLE IF EXISTS streak_state; DROP TABLE IF EXISTS task_completions; DROP TABLE IF EXISTS daily_tasks; DROP TABLE IF EXISTS user_achievements; DROP TABLE IF EXISTS achievements; DROP TABLE IF EXISTS credits_ledger; DROP TABLE IF EXISTS xp_events; DROP TABLE IF EXISTS study_sessions; DROP TABLE IF EXISTS progress_snapshots; DROP TABLE IF EXISTS review_history; DROP TABLE IF EXISTS review_items; DROP TABLE IF EXISTS exercise_items; DROP TABLE IF EXISTS lesson_dialogue_lines; DROP TABLE IF EXISTS lesson_grammar; DROP TABLE IF EXISTS lesson_kanji; DROP TABLE IF EXISTS lesson_vocab; DROP TABLE IF EXISTS lessons; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS progress_state; DROP TABLE IF EXISTS app_state; DROP TABLE IF EXISTS schema_meta;");
+    this.migrate();
+    this.seedIfNeeded();
+    return this.getSnapshot();
+  }
+
   getLatestLeaderboard() {
     const row = this.db.prepare("SELECT payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get();
     return row ? parseJson(row.payload_json, []) : [];
+  }
+
+  getSchemaVersion() {
+    return getSchemaVersion(this.db);
   }
 
   loadLessonVocab(lessonId) {

@@ -28,6 +28,8 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
+    assert.equal(temp.store.getSchemaVersion(), 2);
+    assert.equal(snapshot.admin.users.length, 3);
   } finally {
     cleanupTempStore(temp);
   }
@@ -146,6 +148,36 @@ test("admin content review queue and permissions persist", () => {
     const permissions = temp.store.getPermissionMatrix();
     assert.equal(permissions.roles.some((role) => role.name === "Super Admin"), true);
     assert.equal(permissions.permissions.some((permission) => permission.name === "Manage content"), true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
+test("user management mutations and reset work", () => {
+  const temp = createTempStore();
+  try {
+    const user = temp.store.getUsers({ username: "mika" })[0];
+    assert.ok(user);
+    const updated = temp.store.updateUser(user.id, { status: "suspended", credits: user.credits + 25 });
+    assert.equal(updated.status, "suspended");
+    assert.equal(updated.credits, user.credits + 25);
+    const inserted = temp.store.upsertUser({
+      id: "user-x",
+      username: "akira",
+      email: "akira@example.com",
+      level: 5,
+      status: "active",
+      credits: 50,
+      streak: 2,
+    });
+    assert.equal(inserted.username, "akira");
+    assert.equal(temp.store.getUsers({ username: "akira" }).length, 1);
+    assert.equal(temp.store.deleteUser("user-x"), true);
+    assert.equal(temp.store.getUsers({ username: "akira" }).length, 0);
+
+    const resetSnapshot = temp.store.resetDatabase();
+    assert.equal(resetSnapshot.lessons.length, 3);
+    assert.equal(temp.store.getSchemaVersion(), 2);
   } finally {
     cleanupTempStore(temp);
   }

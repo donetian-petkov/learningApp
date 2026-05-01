@@ -167,6 +167,54 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/admin/users") {
+    const filters = Object.fromEntries(url.searchParams.entries());
+    respondJson(res, 200, store.getUsers(filters));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/admin/users") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    respondJson(res, 200, store.upsertUser(body));
+    return;
+  }
+
+  if (req.method === "PATCH" && url.pathname.startsWith("/api/admin/users/")) {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const userId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    const body = await readJson(req);
+    const updated = store.updateUser(userId, body);
+    respondJson(res, updated ? 200 : 404, updated ?? { error: "Not found" });
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname.startsWith("/api/admin/users/")) {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const userId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    const deleted = store.deleteUser(userId);
+    respondJson(res, deleted ? 200 : 404, deleted ? { ok: true } : { error: "Not found" });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/admin/reset") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    respondJson(res, 200, store.resetDatabase());
+    return;
+  }
+
   if (req.method === "PATCH" && url.pathname === "/api/admin") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });

@@ -131,6 +131,11 @@ const defaultState = {
     contentReviewQueue: [
       { id: "content-review-1", itemType: "lesson", itemId: "anime-intro", status: "pending", notes: "Seeded review queue" },
     ],
+    users: [
+      { id: "user-1", username: "mika", email: "mika@example.com", level: 11, status: "active", credits: 340, streak: 18 },
+      { id: "user-2", username: "ren", email: "ren@example.com", level: 9, status: "active", credits: 220, streak: 12 },
+      { id: "user-3", username: "yui", email: "yui@example.com", level: 7, status: "suspended", credits: 180, streak: 4 },
+    ],
   },
   roleplay: {
     scenario: "restaurant",
@@ -667,6 +672,31 @@ function renderAdmin() {
           <button class="primary" data-action="add-lesson">Add lesson</button>
         </div>
         <div class="grid-card">
+          <h3>User management</h3>
+          <div class="list">
+            ${(state.admin.users ?? [])
+              .map(
+                (user) => `
+                  <div class="list-item">
+                    <strong>${escapeHtml(user.username)}</strong>
+                    <span class="muted">${escapeHtml(user.email)} · Level ${user.level} · ${escapeHtml(user.status)}</span>
+                    <span class="muted">Credits: ${user.credits} · Streak: ${user.streak}</span>
+                    <div class="button-row">
+                      <button class="secondary" data-action="toggle-user-status" data-user-id="${escapeHtml(user.id)}" data-status="${user.status === "active" ? "suspended" : "active"}">${user.status === "active" ? "Suspend" : "Restore"}</button>
+                      <button class="secondary" data-action="adjust-user-credits" data-user-id="${escapeHtml(user.id)}" data-delta="25">+25 credits</button>
+                      <button class="secondary" data-action="adjust-user-credits" data-user-id="${escapeHtml(user.id)}" data-delta="-25">-25 credits</button>
+                      <button class="secondary" data-action="delete-user" data-user-id="${escapeHtml(user.id)}">Delete</button>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+          <div class="button-row spaced">
+            <button class="secondary" data-action="reset-database">Reset database</button>
+          </div>
+        </div>
+        <div class="grid-card">
           <h3>Audit log</h3>
           <div class="list">
             ${state.admin.auditLog.map((item) => `<div class="list-item">${escapeHtml(item)}</div>`).join("")}
@@ -910,6 +940,56 @@ function wireActions() {
           });
           await refreshState();
         }
+      }
+
+      if (action === "toggle-user-status") {
+        const userId = button.dataset.userId;
+        const status = button.dataset.status;
+        if (userId && status) {
+          await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
+            method: "PATCH",
+            body: { status },
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `User ${userId} marked ${status}` },
+          });
+          await refreshState();
+        }
+      }
+
+      if (action === "adjust-user-credits") {
+        const userId = button.dataset.userId;
+        const delta = Number(button.dataset.delta || 0);
+        const user = state.admin.users?.find((entry) => entry.id === userId);
+        if (user && userId && delta) {
+          await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
+            method: "PATCH",
+            body: { credits: Math.max(0, user.credits + delta) },
+          });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Adjusted credits for ${user.username} by ${delta}` },
+          });
+          await refreshState();
+        }
+      }
+
+      if (action === "delete-user") {
+        const userId = button.dataset.userId;
+        if (userId) {
+          await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+          await apiJson("/api/audit-log", {
+            method: "POST",
+            body: { entry: `Deleted user ${userId}` },
+          });
+          await refreshState();
+        }
+      }
+
+      if (action === "reset-database") {
+        await apiJson("/api/admin/reset", { method: "POST" });
+        await refreshState();
       }
 
       if (action === "admin-login") {

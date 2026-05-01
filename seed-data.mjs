@@ -147,6 +147,35 @@ export const INITIAL_APP_STATE = {
     announcements: "Practice 5 minutes a day to keep the streak alive.",
     maintenanceMode: false,
   },
+  users: [
+    {
+      id: "user-1",
+      username: "mika",
+      email: "mika@example.com",
+      level: 11,
+      status: "active",
+      credits: 340,
+      streak: 18,
+    },
+    {
+      id: "user-2",
+      username: "ren",
+      email: "ren@example.com",
+      level: 9,
+      status: "active",
+      credits: 220,
+      streak: 12,
+    },
+    {
+      id: "user-3",
+      username: "yui",
+      email: "yui@example.com",
+      level: 7,
+      status: "suspended",
+      credits: 180,
+      streak: 4,
+    },
+  ],
 };
 
 export const ADMIN_CREDENTIALS = {
