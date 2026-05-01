@@ -812,6 +812,7 @@ test("lesson mastery checklist reflects completed and saved study state", () => 
     {
       completedLessons: [lesson.id],
       completedExercises,
+      lessonNotes: { [lesson.id]: "Remember polite requests." },
     },
     kanjiReviews,
     savedWords,

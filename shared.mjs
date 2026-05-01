@@ -171,11 +171,13 @@ export function buildLessonProgressChecklist(lesson, progress = {}, kanjiReviews
   const safeLesson = lesson ?? {};
   const completedLessons = new Set(Array.isArray(progress.completedLessons) ? progress.completedLessons : []);
   const completedExercises = new Set(Array.isArray(progress.completedExercises) ? progress.completedExercises : []);
+  const lessonNotes = progress.lessonNotes && typeof progress.lessonNotes === "object" ? progress.lessonNotes : {};
   const lessonExercises = Array.isArray(safeLesson.exercises) ? safeLesson.exercises : [];
   const lessonVocab = Array.isArray(safeLesson.vocab) ? safeLesson.vocab : [];
   const lessonKanji = Array.isArray(safeLesson.kanji) ? safeLesson.kanji : [];
   const exerciseCount = lessonExercises.length;
   const completedExerciseCount = lessonExercises.filter((exercise, index) => completedExercises.has(exercise.id ?? `${safeLesson.id}-exercise-${index + 1}`)).length;
+  const noteText = String(lessonNotes?.[safeLesson.id] ?? "").trim();
   const savedWordCount = lessonVocab.filter((item) =>
     Array.isArray(savedWords)
       ? savedWords.some((saved) => String(saved?.term ?? "").trim() === String(item.word ?? item.term ?? "").trim())
@@ -220,6 +222,12 @@ export function buildLessonProgressChecklist(lesson, progress = {}, kanjiReviews
       label: "Review kanji",
       detail: reviewedKanjiCount > 0 ? `${reviewedKanjiCount} lesson kanji already have review cards.` : "Open the kanji drill to rehearse the scene characters.",
       complete: reviewedKanjiCount > 0 || lessonKanji.length === 0,
+    },
+    {
+      key: "write-note",
+      label: "Write a note",
+      detail: noteText ? noteText : "Capture a reminder, translation trick, or grammar cue for this lesson.",
+      complete: Boolean(noteText),
     },
   ];
 }

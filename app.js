@@ -588,6 +588,9 @@ function renderLearn() {
                       <span>${escapeHtml(point.explanation || "")}</span>
                       ${point.example ? `<span class="muted">${escapeHtml(point.example)}</span>` : ""}
                     </div>
+                    <div class="button-row">
+                      <button class="secondary" data-action="append-lesson-note" data-lesson-id="${escapeHtml(activeLesson.id)}" data-snippet="${escapeHtml(`${point.title || "Grammar"}: ${point.explanation || ""}`)}">Add to note</button>
+                    </div>
                   </article>
                 `
               )
@@ -719,6 +722,7 @@ function renderLearn() {
                   <div class="muted">${escapeHtml(item.kana)}</div>
                   <div>${escapeHtml(item.meaning)}</div>
                   <div class="button-row">
+                    <button class="secondary" data-action="append-lesson-note" data-lesson-id="${escapeHtml(activeLesson.id)}" data-snippet="${escapeHtml(`${item.word} (${item.kana}): ${item.meaning}`)}">Add to note</button>
                     <button class="secondary" data-action="toggle-word-bookmark" data-word="${escapeHtml(item.word)}" data-reading="${escapeHtml(item.kana)}" data-meaning="${escapeHtml(item.meaning)}" data-example="${escapeHtml(activeLesson.japanese)}" data-source-lesson-id="${escapeHtml(activeLesson.id)}" data-source-lesson-title="${escapeHtml(activeLesson.title)}">${savedWords.has(savedWordKey(item.word, item.kana)) ? "Remove bookmark" : "Save word"}</button>
                   </div>
                 </div>
@@ -2542,6 +2546,19 @@ function wireActions() {
         });
         lessonNoteFeedback = result?.lessonNotes?.[lessonId] ? "Lesson note saved." : "Lesson note cleared.";
         await refreshState();
+      }
+
+      if (action === "append-lesson-note") {
+        const lessonId = button.dataset.lessonId ?? state.activeLessonId;
+        const input = app.querySelector('[data-field="lesson-note-input"]');
+        if (input) {
+          const snippet = button.dataset.snippet ?? "";
+          const current = input.value.trim();
+          input.value = current ? `${current}\n${snippet}` : snippet;
+          lessonNoteFeedback = `Added a snippet for ${lessonId}.`;
+          input.focus();
+        }
+        render();
       }
 
       if (action === "edit-lesson-note") {
