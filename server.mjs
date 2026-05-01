@@ -153,7 +153,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/ai/response") {
     const body = await readJson(req);
-    respondJson(res, 200, store.aiResponse(body.feature ?? "tutor", body.prompt ?? "", body.context ?? {}, session?.sessionUser ?? null));
+    respondJson(res, 200, await store.aiResponse(body.feature ?? "tutor", body.prompt ?? "", body.context ?? {}, session?.sessionUser ?? null));
     return;
   }
 

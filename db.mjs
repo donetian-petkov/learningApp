@@ -173,6 +173,18 @@ function resolveChallengeTriggers(category, kind) {
   return category === kind;
 }
 
+function getAiProviderInfo() {
+  const provider = String(process.env.AI_PROVIDER ?? (process.env.OLLAMA_HOST ? "ollama" : "fallback")).toLowerCase();
+  const host = String(process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const model = String(process.env.OLLAMA_MODEL ?? "llama3");
+  return {
+    provider: provider === "ollama" ? "ollama" : "fallback",
+    host,
+    model,
+    ready: provider === "ollama",
+  };
+}
+
 function buildLeaderboardRows(progress, users) {
   const personalRow = { name: "You", xp: progress.xp, track: "Local" };
   const userRows = users
@@ -1193,6 +1205,7 @@ export class SqliteStorageAdapter {
       equipped: Boolean(this.db.prepare("SELECT 1 FROM user_cosmetics WHERE cosmetic_id = ? AND equipped = 1").get(row.id)),
     }));
     const aiRows = this.db.prepare("SELECT * FROM ai_usage_log ORDER BY id DESC").all();
+    const aiProvider = getAiProviderInfo();
     const today = currentDateKey();
     const aiUsage = aiRows.length
       ? {
@@ -1200,12 +1213,20 @@ export class SqliteStorageAdapter {
           monthlyRequests: aiRows.length,
           cachedResponses: Math.max(0, 124 + aiRows.length),
           failedRequests: aiRows.filter((row) => row.feature.includes("failed")).length,
+          provider: aiProvider.provider,
+          host: aiProvider.host,
+          model: aiProvider.model,
+          ready: aiProvider.ready,
         }
       : {
           dailyRequests: 0,
           monthlyRequests: 0,
           cachedResponses: 0,
           failedRequests: 0,
+          provider: aiProvider.provider,
+          host: aiProvider.host,
+          model: aiProvider.model,
+          ready: aiProvider.ready,
         };
     const adminRoles = this.db.prepare("SELECT name FROM roles ORDER BY name").all().map((row) => row.name);
     const permissions = this.getPermissionMatrix();
@@ -1815,14 +1836,46 @@ export class SqliteStorageAdapter {
     return this.searchDictionary(query)[0] ?? null;
   }
 
-  aiResponse(feature, prompt, context = {}, sessionUser = null) {
-    const response = answerAiFeature(feature, prompt, context);
+  async aiResponse(feature, prompt, context = {}, sessionUser = null) {
+    const provider = getAiProviderInfo();
+    let response = "";
+    if (provider.provider === "ollama") {
+      try {
+        const promptText = [
+          `You are a concise Japanese learning assistant.`,
+          `Feature: ${feature}`,
+          `Prompt: ${String(prompt ?? "").trim()}`,
+          `Context: ${JSON.stringify(context ?? {})}`,
+          `Return a short, practical answer with one example if helpful.`,
+        ].join("\n");
+        const res = await fetch(`${provider.host}/api/generate`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: provider.model,
+            prompt: promptText,
+            stream: false,
+          }),
+        });
+        if (res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          response = String(payload.response ?? "").trim();
+        }
+      } catch {
+        response = "";
+      }
+    }
+    if (!response) {
+      response = answerAiFeature(feature, prompt, context);
+    }
     this.recordAiUsage(feature, 1, Math.max(40, String(prompt ?? "").length * 3), sessionUser ?? "local");
     return {
       feature,
       prompt,
       response,
       context,
+      provider: provider.provider,
+      model: provider.model,
     };
   }
 

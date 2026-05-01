@@ -205,7 +205,7 @@ test("user management mutations and reset work", () => {
   }
 });
 
-test("dictionary lookup and ai responses are available locally", () => {
+test("dictionary lookup and ai responses are available locally", async () => {
   const temp = createTempStore();
   try {
     const dictionary = temp.store.getDictionary("よろしく");
@@ -217,9 +217,10 @@ test("dictionary lookup and ai responses are available locally", () => {
     assert.equal(particle.partOfSpeech, "particle");
     assert.equal(temp.store.lookupDictionary("ください")?.meaning.includes("please"), true);
 
-    const ai = temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
+    const ai = await temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
     assert.equal(ai.feature, "grammar");
     assert.equal(ai.response.includes("Samurai History"), true);
+    assert.ok(["ollama", "fallback"].includes(ai.provider));
 
     const sessions = temp.store.recordStudySession("lesson", 5, 80, 20);
     assert.equal(Array.isArray(sessions), true);

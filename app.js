@@ -852,6 +852,7 @@ function renderAdmin() {
         </div>
         <div class="grid-card">
           <h3>AI usage</h3>
+          <p>Provider: ${escapeHtml(state.admin.aiUsage.provider ?? "fallback")}${state.admin.aiUsage.ready ? ` · ${escapeHtml(state.admin.aiUsage.model ?? "llama3")} at ${escapeHtml(state.admin.aiUsage.host ?? "http://127.0.0.1:11434")}` : ""}</p>
           <p>Daily requests: ${state.admin.aiUsage.dailyRequests}</p>
           <p>Monthly requests: ${state.admin.aiUsage.monthlyRequests}</p>
           <p>Cached responses: ${state.admin.aiUsage.cachedResponses}</p>
