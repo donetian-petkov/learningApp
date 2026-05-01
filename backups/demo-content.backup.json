@@ -1,0 +1,108 @@
+{
+  "progress": {
+    "xp": 1280,
+    "level": 8,
+    "credits": 245,
+    "streak": 12,
+    "streakFreezeCount": 0,
+    "kanji": 54,
+    "vocab": 218,
+    "speakingMinutes": 34,
+    "listeningMinutes": 89,
+    "completedLessons": ["anime-intro"],
+    "reviewedWords": 118,
+    "speakingSessions": 7,
+    "listeningExercises": 22,
+    "completedExercises": ["anime-intro-exercise-1"],
+    "savedWords": [],
+    "savedKanji": [],
+    "lessonNotes": {}
+  },
+  "reviews": [
+    { "id": "review-1", "prompt": "一つ", "answer": "ひとつ", "meaning": "one item", "due": "Now", "ease": 2.5 },
+    { "id": "review-2", "prompt": "武士", "answer": "ぶし", "meaning": "samurai", "due": "In 1 day", "ease": 2.3 },
+    { "id": "review-3", "prompt": "よろしくお願いします", "answer": "よろしくおねがいします", "meaning": "please treat me well", "due": "Now", "ease": 2.1 }
+  ],
+  "achievements": [
+    { "name": "First Lesson Completed", "unlocked": true },
+    { "name": "7-Day Streak", "unlocked": true },
+    { "name": "50 Kanji Learned", "unlocked": true },
+    { "name": "100 Words Reviewed", "unlocked": false },
+    { "name": "First Spoken Conversation", "unlocked": false },
+    { "name": "Anime Dialogue Master", "unlocked": false }
+  ],
+  "dailyTasks": [
+    { "name": "Complete 1 lesson", "reward": "+40 XP", "complete": true },
+    { "name": "Review 10 vocabulary items", "reward": "+30 XP", "complete": false },
+    { "name": "Practice 3 kanji", "reward": "+20 XP", "complete": false },
+    { "name": "Speak 5 sentences", "reward": "+50 XP", "complete": false }
+  ],
+  "cosmetics": [
+    { "name": "Sakura Theme", "cost": 120, "owned": true, "equipped": true },
+    { "name": "Ramen Master Icon", "cost": 80, "owned": false },
+    { "name": "Manga Panel Background", "cost": 160, "owned": false }
+  ],
+  "admin": {
+    "aiUsage": {
+      "dailyRequests": 18,
+      "monthlyRequests": 362,
+      "cachedResponses": 124,
+      "failedRequests": 1
+    },
+    "siteHealth": "Green",
+    "maintenanceMode": false,
+    "announcements": "Practice 5 minutes a day to keep the streak alive.",
+    "authenticated": false,
+    "sessionUser": null,
+    "auditLog": [
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits"
+    ],
+    "contentReviewQueue": [
+      { "id": "content-review-1", "itemType": "lesson", "itemId": "anime-intro", "status": "pending", "notes": "Seeded review queue" }
+    ],
+    "users": [
+      { "id": "user-1", "username": "mika", "email": "mika@example.com", "level": 11, "status": "active", "credits": 340, "streak": 18 },
+      { "id": "user-2", "username": "ren", "email": "ren@example.com", "level": 9, "status": "active", "credits": 220, "streak": 12 },
+      { "id": "user-3", "username": "yui", "email": "yui@example.com", "level": 7, "status": "suspended", "credits": 180, "streak": 4 }
+    ],
+    "challenges": [
+      { "id": "challenge-anime-dialogue", "title": "7-Day Anime Dialogue Challenge", "description": "Complete anime dialogue lessons to build streak momentum.", "category": "lesson", "targetCount": 3, "rewardXp": 120, "rewardCredits": 40, "claimed": false, "progress": 3 },
+      { "id": "challenge-kanji-sprint", "title": "Kanji Sprint", "description": "Hit focused study sessions for kanji practice.", "category": "study", "targetCount": 5, "rewardXp": 150, "rewardCredits": 50, "claimed": false, "progress": 2 },
+      { "id": "challenge-listening-week", "title": "Listening Week", "description": "Complete listening drills and keep the audio loop going.", "category": "listening", "targetCount": 4, "rewardXp": 100, "rewardCredits": 35, "claimed": false, "progress": 1 }
+    ],
+    "leaderboard": [
+      { "name": "You", "xp": 1280, "track": "Local" },
+      { "name": "Mika", "xp": 1110, "track": "Speaking" },
+      { "name": "Ren", "xp": 980, "track": "Kanji" },
+      { "name": "Yui", "xp": 930, "track": "Listening" }
+    ]
+  },
+  "roleplay": {
+    "scenario": "restaurant",
+    "transcript": [
+      { "speaker": "System", "text": "Welcome to the roleplay table. Pick a scene and answer naturally." },
+      { "speaker": "You", "text": "ラーメンをください。" },
+      { "speaker": "Server", "text": "かしこまりました。スープはあっさりにしますか？" }
+    ]
+  },
+  "tutor": {
+    "question": "Can you explain よろしくお願いします?",
+    "answer": "It is a compact phrase for polite collaboration. In context it means 'please take care of me' or 'I look forward to working with you.'"
+  },
+  "chest": {
+    "ready": true,
+    "lastReward": "Rare badge: Sakura Night"
+  },
+  "users": [
+    { "id": "user-1", "username": "mika", "email": "mika@example.com", "level": 11, "status": "active", "credits": 340, "streak": 18 },
+    { "id": "user-2", "username": "ren", "email": "ren@example.com", "level": 9, "status": "active", "credits": 220, "streak": 12 },
+    { "id": "user-3", "username": "yui", "email": "yui@example.com", "level": 7, "status": "suspended", "credits": 180, "streak": 4 }
+  ],
+  "challenges": [
+    { "id": "challenge-anime-dialogue", "title": "7-Day Anime Dialogue Challenge", "description": "Complete anime dialogue lessons to build streak momentum.", "category": "lesson", "targetCount": 3, "rewardXp": 120, "rewardCredits": 40, "claimed": false, "progress": 3 },
+    { "id": "challenge-kanji-sprint", "title": "Kanji Sprint", "description": "Hit focused study sessions for kanji practice.", "category": "study", "targetCount": 5, "rewardXp": 150, "rewardCredits": 50, "claimed": false, "progress": 2 },
+    { "id": "challenge-listening-week", "title": "Listening Week", "description": "Complete listening drills and keep the audio loop going.", "category": "listening", "targetCount": 4, "rewardXp": 100, "rewardCredits": 35, "claimed": false, "progress": 1 }
+  ]
+}

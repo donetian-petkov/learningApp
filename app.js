@@ -1,229 +1,7 @@
+import { INITIAL_APP_STATE } from "./seed-data.mjs";
 import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
 
-const defaultState = {
-  view: "learn",
-  activeLessonId: "anime-intro",
-  toggles: {
-    furigana: true,
-    romaji: false,
-    translation: true,
-  },
-  progress: {
-    xp: 1280,
-    level: 8,
-    credits: 245,
-    streak: 12,
-    streakFreezeCount: 0,
-    kanji: 54,
-    vocab: 218,
-    speakingMinutes: 34,
-    listeningMinutes: 89,
-    completedLessons: ["anime-intro"],
-    reviewedWords: 118,
-    speakingSessions: 7,
-    listeningExercises: 22,
-    completedExercises: ["anime-intro-exercise-1"],
-    savedWords: [],
-    savedKanji: [],
-    lessonNotes: {},
-  },
-  lessons: [
-    {
-      id: "anime-intro",
-      title: "Anime Dialogue: First Encounter",
-      theme: "anime dialogue",
-      difficulty: "N5",
-      japanese: "はじめまして。今日はよろしくお願いします。",
-      romaji: "Hajimemashite. Kyou wa yoroshiku onegaishimasu.",
-      translation: "Nice to meet you. Please be kind to me today.",
-      grammar: "Polite introductory phrase with はじめまして and よろしくお願いします.",
-      vocab: [
-        { word: "はじめまして", kana: "はじめまして", meaning: "nice to meet you" },
-        { word: "今日", kana: "きょう", meaning: "today" },
-        { word: "よろしく", kana: "よろしく", meaning: "kindly / best regards" },
-      ],
-      kanji: ["今日", "願"],
-    },
-    {
-      id: "food-ramen",
-      title: "Food Culture: Ramen Order",
-      theme: "food culture",
-      difficulty: "N5",
-      japanese: "ラーメンを一つください。スープはあっさりでお願いします。",
-      romaji: "Raamen o hitotsu kudasai. Suupu wa assari de onegaishimasu.",
-      translation: "One ramen, please. Light broth, please.",
-      grammar: "Use を with a quantity and でお願いします for a polite request.",
-      vocab: [
-        { word: "一つ", kana: "ひとつ", meaning: "one item" },
-        { word: "あっさり", kana: "あっさり", meaning: "light / not heavy" },
-        { word: "お願いします", kana: "おねがいします", meaning: "please" },
-      ],
-      kanji: ["一", "汁"],
-    },
-    {
-      id: "history-samurai",
-      title: "Samurai History: Resolve",
-      theme: "samurai/history",
-      difficulty: "N4",
-      japanese: "武士は言葉より行動で示す。",
-      romaji: "Bushi wa kotoba yori koudou de shimesu.",
-      translation: "A samurai shows through action rather than words.",
-      grammar: "Comparison structure より and the dictionary form of 示す for stated principle.",
-      vocab: [
-        { word: "武士", kana: "ぶし", meaning: "samurai / warrior" },
-        { word: "行動", kana: "こうどう", meaning: "action" },
-        { word: "示す", kana: "しめす", meaning: "to show" },
-      ],
-      kanji: ["武", "行", "示"],
-    },
-  ],
-  reviews: [
-    { prompt: "一つ", answer: "ひとつ", meaning: "one item", due: "Now", ease: 2.5 },
-    { prompt: "武士", answer: "ぶし", meaning: "samurai", due: "In 1 day", ease: 2.3 },
-    { prompt: "よろしくお願いします", answer: "よろしくおねがいします", meaning: "please treat me well", due: "Now", ease: 2.1 },
-  ],
-  kanjiReviews: [
-    {
-      id: "kanji-review-今日",
-      character: "今日",
-      prompt: "What does 今日 mean?",
-      answer: "today",
-      meaning: "today",
-      onYomi: "コン",
-      kunYomi: "きょう",
-      examples: ["今日はよろしくお願いします。"],
-      due: "Now",
-      ease: 2.5,
-      interval_days: 1,
-      repetitions: 0,
-      mistakes: 0,
-      source_entry_id: "kanji-kiyou",
-      source: "seed",
-    },
-    {
-      id: "kanji-review-一",
-      character: "一",
-      prompt: "What does 一 mean?",
-      answer: "one",
-      meaning: "one",
-      onYomi: "イチ",
-      kunYomi: "ひとつ",
-      examples: ["ラーメンを一つください。"],
-      due: "In 1 day",
-      ease: 2.4,
-      interval_days: 1,
-      repetitions: 0,
-      mistakes: 0,
-      source_entry_id: "kanji-ichiji",
-      source: "seed",
-    },
-    {
-      id: "kanji-review-武",
-      character: "武",
-      prompt: "What does 武 mean?",
-      answer: "warrior",
-      meaning: "warrior",
-      onYomi: "ブ",
-      kunYomi: "たけ",
-      examples: ["武士は言葉より行動で示す。"],
-      due: "In 1 day",
-      ease: 2.3,
-      interval_days: 1,
-      repetitions: 0,
-      mistakes: 0,
-      source_entry_id: "kanji-bushi",
-      source: "seed",
-    },
-  ],
-  achievements: [
-    { name: "First Lesson Completed", unlocked: true },
-    { name: "7-Day Streak", unlocked: true },
-    { name: "50 Kanji Learned", unlocked: true },
-    { name: "100 Words Reviewed", unlocked: false },
-    { name: "First Spoken Conversation", unlocked: false },
-    { name: "Anime Dialogue Master", unlocked: false },
-  ],
-  dailyTasks: [
-    { name: "Complete 1 lesson", reward: "+40 XP", complete: true },
-    { name: "Review 10 vocabulary items", reward: "+30 XP", complete: false },
-    { name: "Practice 3 kanji", reward: "+20 XP", complete: false },
-    { name: "Speak 5 sentences", reward: "+50 XP", complete: false },
-  ],
-  cosmetics: [
-    { name: "Sakura Theme", cost: 120, owned: true, equipped: true },
-    { name: "Ramen Master Icon", cost: 80, owned: false },
-    { name: "Manga Panel Background", cost: 160, owned: false },
-  ],
-  admin: {
-    roles: ["Super Admin", "Content Admin", "Support Admin", "Analytics Admin"],
-    permissions: {
-      roles: [
-        { name: "Super Admin", permissions: ["Manage content", "Manage users", "View analytics", "Manage AI usage"] },
-        { name: "Content Admin", permissions: ["Manage content", "Manage AI usage"] },
-        { name: "Support Admin", permissions: ["Manage users"] },
-        { name: "Analytics Admin", permissions: ["View analytics"] },
-      ],
-      permissions: [
-        { name: "Manage content" },
-        { name: "Manage users" },
-        { name: "View analytics" },
-        { name: "Manage AI usage" },
-      ],
-    },
-    aiUsage: {
-      dailyRequests: 18,
-      monthlyRequests: 362,
-      cachedResponses: 124,
-      failedRequests: 1,
-    },
-    siteHealth: "Green",
-    maintenanceMode: false,
-    announcements: "Practice 5 minutes a day to keep the streak alive.",
-    authenticated: false,
-    sessionUser: null,
-    auditLog: [
-      "Published anime dialogue module",
-      "Approved 12 grammar explanations",
-      "Updated free AI usage limits",
-    ],
-    contentReviewQueue: [
-      { id: "content-review-1", itemType: "lesson", itemId: "anime-intro", status: "pending", notes: "Seeded review queue" },
-    ],
-    users: [
-      { id: "user-1", username: "mika", email: "mika@example.com", level: 11, status: "active", credits: 340, streak: 18 },
-      { id: "user-2", username: "ren", email: "ren@example.com", level: 9, status: "active", credits: 220, streak: 12 },
-      { id: "user-3", username: "yui", email: "yui@example.com", level: 7, status: "suspended", credits: 180, streak: 4 },
-    ],
-    challenges: [
-      { id: "challenge-anime-dialogue", title: "7-Day Anime Dialogue Challenge", description: "Complete anime dialogue lessons to build streak momentum.", category: "lesson", targetCount: 3, rewardXp: 120, rewardCredits: 40, claimed: false, progress: 3 },
-      { id: "challenge-kanji-sprint", title: "Kanji Sprint", description: "Hit focused study sessions for kanji practice.", category: "study", targetCount: 5, rewardXp: 150, rewardCredits: 50, claimed: false, progress: 2 },
-      { id: "challenge-listening-week", title: "Listening Week", description: "Complete listening drills and keep the audio loop going.", category: "listening", targetCount: 4, rewardXp: 100, rewardCredits: 35, claimed: false, progress: 1 },
-    ],
-    leaderboard: [
-      { name: "You", xp: 1280, track: "Local" },
-      { name: "Mika", xp: 1110, track: "Speaking" },
-      { name: "Ren", xp: 980, track: "Kanji" },
-      { name: "Yui", xp: 930, track: "Listening" },
-    ],
-  },
-  roleplay: {
-    scenario: "restaurant",
-    transcript: [
-      { speaker: "System", text: "Welcome to the roleplay table. Pick a scene and answer naturally." },
-      { speaker: "You", text: "ラーメンをください。" },
-      { speaker: "Server", text: "かしこまりました。スープはあっさりにしますか？" },
-    ],
-  },
-  tutor: {
-    question: "Can you explain よろしくお願いします?",
-    answer:
-      "It is a compact phrase for polite collaboration. In context it means 'please take care of me' or 'I look forward to working with you.'",
-  },
-  chest: {
-    ready: true,
-    lastReward: "Rare badge: Sakura Night",
-  },
-};
+const defaultState = structuredClone(INITIAL_APP_STATE);
 
 let state = structuredClone(defaultState);
 let dictionaryLookup = [];
@@ -268,6 +46,20 @@ let moderationFilters = {
   reviewer: "",
 };
 let permissionDraft = null;
+
+function feedbackTone(message = "") {
+  const text = String(message ?? "").trim().toLowerCase();
+  if (!text) return "";
+  if (text.startsWith("correct") || text.includes("saved") || text.includes("completed")) return "good";
+  if (text.startsWith("not quite") || text.startsWith("wrong") || text.includes("failed")) return "bad";
+  if (text.startsWith("choose") || text.startsWith("pick")) return "warn";
+  return "";
+}
+
+function feedbackClass(message = "") {
+  const tone = feedbackTone(message);
+  return tone ? `feedback feedback-${tone}` : "feedback feedback-neutral";
+}
 
 function savedWordKey(term, reading = "") {
   return `${String(term ?? "").trim()}|${String(reading ?? "").trim()}`;
@@ -475,6 +267,7 @@ function render() {
     practice: renderPractice,
     review: renderReview,
     progress: renderProgress,
+    settings: renderSettings,
     admin: renderAdmin,
   };
 
@@ -584,6 +377,18 @@ function renderLearn() {
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(activeLesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(activeLesson.translation)}</p>` : ""}
         <p>${escapeHtml(activeLesson.grammar)}</p>
+        <div class="grid-card spaced lesson-blueprint">
+          <h3>What this lesson contains</h3>
+          <p class="muted">A complete lesson combines a scene, grammar notes, vocabulary, kanji, exercises, and a note-taking area.</p>
+          <div class="tag-row">
+            <span class="tag">Scene</span>
+            <span class="tag">Grammar</span>
+            <span class="tag">Vocabulary</span>
+            <span class="tag">Kanji</span>
+            <span class="tag">Exercises</span>
+            <span class="tag">Notes</span>
+          </div>
+        </div>
         <div class="grid-card spaced">
           <h3>Lesson mastery</h3>
           <p class="muted">${lessonChecklistCompleteCount}/${lessonChecklist.length} goals complete</p>
@@ -1493,6 +1298,66 @@ function renderProgress() {
   `;
 }
 
+function renderSettings() {
+  const aiRuntime = systemStatus?.aiRuntime ?? {};
+  const speechStatus = systemStatus?.speech ?? {};
+  const ttsStatus = systemStatus?.tts ?? {};
+  return `
+    <section class="panel">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h2>Reading aids, audio helpers, and local runtime status</h2>
+        </div>
+        <p>Display controls are in the header. Content editing stays in Admin.</p>
+      </div>
+      <div class="settings-grid">
+        <div class="grid-card">
+          <h3>Reading aids</h3>
+          <p class="muted">These are display preferences for the learner UI.</p>
+          <ul class="feature-list">
+            <li>Furigana: ${state.toggles.furigana ? "On" : "Off"}</li>
+            <li>Romaji: ${state.toggles.romaji ? "On" : "Off"}</li>
+            <li>Translation: ${state.toggles.translation ? "On" : "Off"}</li>
+          </ul>
+          <p class="muted">Use the header chips to switch them quickly while studying.</p>
+        </div>
+        <div class="grid-card">
+          <h3>Local audio</h3>
+          <p class="muted">Speaking and listening use browser audio first, then local system helpers when available.</p>
+          <ul class="feature-list">
+            <li>Speech-to-text: ${speechStatus.ready ? `Ready · ${escapeHtml(speechStatus.provider ?? "local")}` : "Fallback mode"}</li>
+            <li>Text-to-speech: ${ttsStatus.ready ? `Ready · ${escapeHtml(ttsStatus.provider ?? "local")}` : "Fallback mode"}</li>
+            <li>AI tutor: ${aiRuntime.ready ? `Ready · ${escapeHtml(aiRuntime.provider ?? "local")}` : "Fallback mode"}</li>
+          </ul>
+          <p class="muted">If one of these says fallback, the app still works. It just uses the browser or a deterministic helper.</p>
+        </div>
+        <div class="grid-card">
+          <h3>Admin access</h3>
+          <p class="muted">The local bootstrap admin account is created on startup, even on an existing database.</p>
+          <ul class="feature-list">
+            <li>Username: <code>admin</code></li>
+            <li>Password: <code>fieldguide123</code></li>
+            <li>Role: Super Admin</li>
+          </ul>
+          <p class="muted">If login still fails, reset the local database from Admin and let the bootstrap seed run again.</p>
+        </div>
+        <div class="grid-card">
+          <h3>What settings are for</h3>
+          <p class="muted">This tab is only for display and runtime preferences. It is not a lesson screen.</p>
+          <ul class="feature-list">
+            <li>Use Learn for lessons and dialogue scenes.</li>
+            <li>Use Practice for speaking, listening, reading, and writing drills.</li>
+            <li>Use Review for SRS cards and saved study items.</li>
+            <li>Use Progress for streaks, rewards, and bookmarks.</li>
+            <li>Use Admin for content, moderation, imports, and system tools.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderAdmin() {
   if (!state.admin.authenticated) {
     return `
@@ -1516,6 +1381,7 @@ function renderAdmin() {
           <div class="button-row">
             <button class="primary" data-action="admin-login">Sign in</button>
           </div>
+          <p class="muted">Local bootstrap credentials are seeded on startup: <code>admin</code> / <code>fieldguide123</code>.</p>
         </div>
       </section>
     `;

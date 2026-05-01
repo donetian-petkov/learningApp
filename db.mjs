@@ -1221,8 +1221,16 @@ export class SqliteStorageAdapter {
 
   seedIfNeeded() {
     const lessonCount = this.db.prepare("SELECT COUNT(*) AS count FROM lessons").get().count;
+    const reviewCount = this.db.prepare("SELECT COUNT(*) AS count FROM review_items").get().count;
     const kanjiReviewCount = this.db.prepare("SELECT COUNT(*) AS count FROM kanji_review_items").get().count;
+    const adminCount = this.db.prepare("SELECT COUNT(*) AS count FROM admin_users").get().count;
+    if (adminCount === 0) {
+      this.seedAdminAccount();
+    }
     if (lessonCount > 0) {
+      if (reviewCount === 0) {
+        this.seedReviewItemsFromLessons();
+      }
       if (kanjiReviewCount === 0) {
         this.seedKanjiReviewsFromEntries();
       }
@@ -1230,9 +1238,7 @@ export class SqliteStorageAdapter {
     }
     const snapshot = normalizeState(INITIAL_APP_STATE);
     this.replaceMirrorTables(snapshot);
-    this.db.prepare(
-      "INSERT OR REPLACE INTO admin_users (id, username, password_hash, role_name, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run("admin-1", ADMIN_CREDENTIALS.username, sha256(ADMIN_CREDENTIALS.password), "Super Admin", nowIso());
+    this.seedAdminAccount();
     snapshot.admin.users.forEach((user, index) => {
       const normalized = normalizeUser(user, index);
       this.db.prepare(
@@ -1249,6 +1255,8 @@ export class SqliteStorageAdapter {
         normalized.updatedAt
       );
     });
+    this.seedReviewItemsFromLessons();
+    this.seedKanjiReviewsFromEntries();
 
     snapshot.challenges.forEach((challenge, index) => {
       const normalized = normalizeChallenge(challenge, index);
@@ -2967,6 +2975,75 @@ export class SqliteStorageAdapter {
           review.source_entry_id,
           review.source
         );
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  seedAdminAccount() {
+    this.db.prepare(
+      "INSERT OR REPLACE INTO admin_users (id, username, password_hash, role_name, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run("admin-1", ADMIN_CREDENTIALS.username, sha256(ADMIN_CREDENTIALS.password), "Super Admin", nowIso());
+  }
+
+  seedReviewItemsFromLessons() {
+    const lessons = this.db.prepare("SELECT id, title, japanese, translation FROM lessons ORDER BY order_index, id").all();
+    if (!lessons.length) return;
+    const existingIds = new Set(this.db.prepare("SELECT id FROM review_items").all().map((row) => row.id));
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      lessons.forEach((lesson) => {
+        const vocabRows = this.db.prepare(
+          "SELECT word, kana, meaning, order_index FROM lesson_vocab WHERE lesson_id = ? ORDER BY order_index, id"
+        ).all(lesson.id);
+        vocabRows.forEach((entry, index) => {
+          const review = normalizeReviewItem({
+            id: `review-${lesson.id}-${index + 1}`,
+            prompt: entry.word,
+            answer: entry.kana,
+            meaning: entry.meaning,
+            due: "Now",
+            ease: 2.5,
+            interval_days: 1,
+            repetitions: 0,
+            mistakes: 0,
+            source_lesson_id: lesson.id,
+          }, index);
+          this.db.prepare(
+            `
+              INSERT INTO review_items (id, prompt, answer, meaning, due, ease, interval_days, repetitions, mistakes, source_lesson_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                prompt = excluded.prompt,
+                answer = excluded.answer,
+                meaning = excluded.meaning,
+                due = excluded.due,
+                ease = excluded.ease,
+                interval_days = excluded.interval_days,
+                repetitions = excluded.repetitions,
+                mistakes = excluded.mistakes,
+                source_lesson_id = excluded.source_lesson_id
+            `
+          ).run(
+            review.id,
+            review.prompt,
+            review.answer,
+            review.meaning,
+            review.due,
+            review.ease,
+            review.interval_days,
+            review.repetitions,
+            review.mistakes,
+            review.source_lesson_id
+          );
+          existingIds.delete(review.id);
+        });
+      });
+      existingIds.forEach((id) => {
+        this.db.prepare("DELETE FROM review_items WHERE id = ?").run(id);
       });
       this.db.exec("COMMIT");
     } catch (error) {
