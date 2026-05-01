@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayTranscript, calculateLevel, escapeHtml, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -303,6 +303,14 @@ test("lesson draft generation returns theme-based content", () => {
   assert.equal(draft.theme, "travel");
   assert.ok(draft.japanese.includes("切符売り場") || draft.japanese.includes("どこ"));
   assert.ok(Array.isArray(draft.vocab));
+});
+
+test("lesson pack generation returns multiple imported lessons", () => {
+  const pack = buildLessonPack("Travel Pack", "travel", 4);
+  assert.equal(pack.length, 4);
+  assert.equal(new Set(pack.map((lesson) => lesson.id)).size, 4);
+  assert.ok(pack.every((lesson) => lesson.title.startsWith("Travel Pack")));
+  assert.ok(pack.some((lesson) => lesson.japanese.includes("切符売り場")));
 });
 
 test("lesson draft generation covers broader themes", () => {

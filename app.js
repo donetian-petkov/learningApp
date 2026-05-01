@@ -1,4 +1,4 @@
-import { buildLessonDraft, escapeHtml } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, escapeHtml } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -923,6 +923,16 @@ function renderAdmin() {
             <span>Grammar</span>
             <input type="text" data-field="lesson-grammar" value="${escapeHtml(lessonDraft.grammar)}" placeholder="Custom lesson created from the admin panel." />
           </label>
+          <div class="field-row">
+            <label class="field">
+              <span>Pack title</span>
+              <input type="text" data-field="lesson-pack-title" value="${escapeHtml(lessonDraft.title)}" placeholder="Anime Pack" />
+            </label>
+            <label class="field">
+              <span>Pack count</span>
+              <input type="number" min="1" max="6" data-field="lesson-pack-count" value="3" />
+            </label>
+          </div>
           <label class="field">
             <span>Import lesson JSON</span>
             <textarea
@@ -952,6 +962,7 @@ function renderAdmin() {
           <div class="button-row spaced">
             <button class="primary" data-action="save-lesson">${adminLessonEditor ? "Save changes" : "Add lesson"}</button>
             <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>
+            <button class="secondary" data-action="generate-lesson-pack">Generate pack</button>
             <button class="secondary" data-action="import-lessons">Import JSON</button>
             ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
           </div>
@@ -1447,6 +1458,29 @@ function wireActions() {
         const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
         adminLessonEditor = buildLessonDraft(title, theme);
         render();
+      }
+
+      if (action === "generate-lesson-pack") {
+        const titleInput = app.querySelector('[data-field="lesson-pack-title"]');
+        const themeInput = app.querySelector('[data-field="lesson-theme"]');
+        const countInput = app.querySelector('[data-field="lesson-pack-count"]');
+        const importInput = app.querySelector('[data-field="lesson-import-json"]');
+        const title = titleInput?.value?.trim() || adminLessonEditor?.title || "New Lesson Pack";
+        const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
+        const count = Number(countInput?.value ?? 3) || 3;
+        const lessons = buildLessonPack(title, theme, count);
+        if (importInput) {
+          importInput.value = JSON.stringify(lessons, null, 2);
+        }
+        const result = await apiJson("/api/lessons/import", {
+          method: "POST",
+          body: { lessons },
+        });
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Generated lesson pack: ${result.imported} lessons` },
+        });
+        await refreshState();
       }
 
       if (action === "import-lessons") {
