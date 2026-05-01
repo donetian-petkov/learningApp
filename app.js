@@ -1,4 +1,4 @@
-import { buildLessonDraft, buildLessonPack, chooseJapaneseVoice, escapeHtml } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, chooseJapaneseVoice, escapeHtml, filterLessonCatalog } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -248,6 +248,9 @@ let lessonDialogueIndex = 0;
 let roleplayDraft = "";
 let reviewDeckIndex = 0;
 let reviewReveal = false;
+let lessonCatalogQuery = "";
+let lessonCatalogTheme = "";
+let lessonCatalogDifficulty = "";
 let permissionDraft = null;
 
 const listeningScenarios = [
@@ -428,7 +431,8 @@ function renderLearn() {
   const activeExercise = exercises.length ? exercises[lessonExerciseIndex % exercises.length] : null;
   const activeExerciseKey = activeExercise?.id || `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`;
   const activeExerciseComplete = completedExercises.has(activeExerciseKey);
-  const moduleCards = state.lessons.map(
+  const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
+  const moduleCards = filteredLessons.map(
     (lesson) => `
       <article class="grid-card">
         <p class="tag">${escapeHtml(lesson.theme)}</p>
@@ -665,6 +669,35 @@ function renderLearn() {
         </div>
       </div>
     </section>
+    <section class="panel spaced">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">Lesson explorer</p>
+          <h2>Search and filter modules</h2>
+        </div>
+        <p>${filteredLessons.length}/${state.lessons.length} lessons shown</p>
+      </div>
+      <div class="grid-card">
+        <div class="field-row">
+          <label class="field">
+            <span>Search</span>
+            <input type="text" data-field="lesson-filter-query" value="${escapeHtml(lessonCatalogQuery)}" placeholder="ramen, station, polite" />
+          </label>
+          <label class="field">
+            <span>Theme</span>
+            <input type="text" data-field="lesson-filter-theme" value="${escapeHtml(lessonCatalogTheme)}" placeholder="anime, travel, manga" />
+          </label>
+          <label class="field">
+            <span>Difficulty</span>
+            <input type="text" data-field="lesson-filter-difficulty" value="${escapeHtml(lessonCatalogDifficulty)}" placeholder="N5" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button class="primary" data-action="apply-lesson-filters">Apply filters</button>
+          <button class="secondary" data-action="clear-lesson-filters">Clear filters</button>
+        </div>
+      </div>
+    </section>
     <section class="panel">
       <div class="section-title">
         <div>
@@ -673,7 +706,11 @@ function renderLearn() {
         </div>
         <p>Anime dialogue, food culture, samurai history, daily life.</p>
       </div>
-      <div class="module-grid">${moduleCards.join("")}</div>
+      ${
+        moduleCards.length
+          ? `<div class="module-grid">${moduleCards.join("")}</div>`
+          : "<p class='muted'>No lessons match the current filters.</p>"
+      }
     </section>
   `;
 }
@@ -1828,6 +1865,23 @@ function wireActions() {
       if (action === "open-roleplay") {
         state.view = "practice";
         persist();
+        render();
+      }
+
+      if (action === "apply-lesson-filters") {
+        const query = app.querySelector('[data-field="lesson-filter-query"]');
+        const theme = app.querySelector('[data-field="lesson-filter-theme"]');
+        const difficulty = app.querySelector('[data-field="lesson-filter-difficulty"]');
+        lessonCatalogQuery = query?.value?.trim() ?? "";
+        lessonCatalogTheme = theme?.value?.trim() ?? "";
+        lessonCatalogDifficulty = difficulty?.value?.trim() ?? "";
+        render();
+      }
+
+      if (action === "clear-lesson-filters") {
+        lessonCatalogQuery = "";
+        lessonCatalogTheme = "";
+        lessonCatalogDifficulty = "";
         render();
       }
 

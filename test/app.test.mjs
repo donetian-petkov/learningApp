@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -721,6 +721,18 @@ test("lesson pack generation returns multiple imported lessons", () => {
   assert.ok(pack.some((lesson) => lesson.japanese.includes("切符売り場")));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.grammarPoints) && lesson.grammarPoints.length >= 2));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length >= 3));
+});
+
+test("lesson catalog filters by query, theme, and difficulty", () => {
+  const lessons = [
+    buildLessonDraft("Train Station", "travel"),
+    buildLessonDraft("Anime Scene", "anime"),
+    buildLessonDraft("Polite Request", "etiquette"),
+  ];
+  assert.equal(filterLessonCatalog(lessons, "station").length, 1);
+  assert.equal(filterLessonCatalog(lessons, "", "anime").length, 1);
+  assert.equal(filterLessonCatalog(lessons, "", "", "N5").length >= 1, true);
+  assert.equal(filterLessonCatalog(lessons, "request", "etiquette", "N5").length, 1);
 });
 
 test("lesson exercise completion persists and awards study progress", () => {

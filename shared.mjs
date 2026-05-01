@@ -134,6 +134,30 @@ export function buildLessonStudyMaterials(japanese, translation, grammar, title,
   };
 }
 
+export function filterLessonCatalog(lessons, query = "", theme = "", difficulty = "") {
+  const normalizedQuery = String(query ?? "").trim().toLowerCase();
+  const normalizedTheme = String(theme ?? "").trim().toLowerCase();
+  const normalizedDifficulty = String(difficulty ?? "").trim().toLowerCase();
+  return (Array.isArray(lessons) ? lessons : []).filter((lesson) => {
+    const lessonText = [
+      lesson.title,
+      lesson.theme,
+      lesson.difficulty,
+      lesson.japanese,
+      lesson.translation,
+      lesson.grammar,
+      ...(Array.isArray(lesson.vocab) ? lesson.vocab.flatMap((item) => [item.word, item.kana, item.meaning]) : []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (normalizedTheme && !String(lesson.theme ?? "").toLowerCase().includes(normalizedTheme)) return false;
+    if (normalizedDifficulty && !String(lesson.difficulty ?? "").toLowerCase().includes(normalizedDifficulty)) return false;
+    if (normalizedQuery && !lessonText.includes(normalizedQuery)) return false;
+    return true;
+  });
+}
+
 export function buildLessonDialogueLines(title, japanese, translation, theme) {
   const safeTitle = String(title ?? "Lesson").trim() || "Lesson";
   const safeJapanese = String(japanese ?? "").trim();
