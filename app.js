@@ -1,4 +1,4 @@
-import { buildLessonDraft, buildLessonPack, escapeHtml } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, chooseJapaneseVoice, escapeHtml } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -544,8 +544,8 @@ function renderPractice() {
       <div class="practice-grid">
         ${practiceCard(
           "Speaking",
-          "Record yourself, then compare your sentence against a natural Japanese correction.",
-          ["Transcribe", "Correct", "Suggest natural phrasing"],
+          "Record yourself, transcribe locally when available, then compare your sentence against a natural Japanese correction.",
+          ["Local STT", "Correct", "Suggest natural phrasing"],
           `
             <p>${escapeHtml(speakingPrompt.title)}</p>
             <p class="muted">${escapeHtml(speakingPrompt.prompt)}</p>
@@ -1418,30 +1418,38 @@ function wireActions() {
         const transcriptOutput = app.querySelector('[data-output="transcription-feedback"]');
         const speakingInput = app.querySelector('[data-field="speaking-input"]');
         const recognition = createSpeechRecognition();
-        if (!recognition) {
-          const fallback = speakingInput?.value?.trim() || "ラーメンをください。";
-          if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
-          if (speakingInput) speakingInput.value = fallback;
+        if (recognition) {
+          let handled = false;
+          const useFallback = async (reason = "speech recognition unavailable") => {
+            if (handled) return;
+            handled = true;
+            const result = await recordSpeechFallback(speakingInput?.value ?? "", transcriptOutput);
+            if (speakingInput && result.transcript) speakingInput.value = result.transcript;
+            if (transcriptOutput && reason) {
+              transcriptOutput.textContent = transcriptOutput.textContent.includes("Transcript") ? transcriptOutput.textContent : `${reason}. Using local fallback.`;
+            }
+          };
+          if (transcriptOutput) transcriptOutput.textContent = "Listening for speech...";
+          recognition.onresult = (event) => {
+            if (handled) return;
+            handled = true;
+            const transcript = Array.from(event.results)
+              .map((result) => result[0]?.transcript ?? "")
+              .join(" ")
+              .trim();
+            if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript || "No speech detected."}`;
+            if (speakingInput && transcript) speakingInput.value = transcript;
+          };
+          recognition.onerror = () => useFallback("Speech recognition failed");
+          recognition.onend = () => {
+            if (!handled) useFallback("Speech recognition ended without a result");
+          };
+          recognition.start();
           return;
         }
-        if (transcriptOutput) transcriptOutput.textContent = "Listening for speech...";
-        recognition.onresult = (event) => {
-          const transcript = Array.from(event.results)
-            .map((result) => result[0]?.transcript ?? "")
-            .join(" ")
-            .trim();
-          if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript || "No speech detected."}`;
-          if (speakingInput && transcript) speakingInput.value = transcript;
-        };
-        recognition.onerror = () => {
-          if (transcriptOutput) transcriptOutput.textContent = "Speech recognition failed. Use the text box instead.";
-        };
-        recognition.onend = () => {
-          if (transcriptOutput && transcriptOutput.textContent === "Listening for speech...") {
-            transcriptOutput.textContent = "Speech recognition ended without a result.";
-          }
-        };
-        recognition.start();
+
+        const result = await recordSpeechFallback(speakingInput?.value ?? "", transcriptOutput);
+        if (speakingInput && result.transcript) speakingInput.value = result.transcript;
       }
 
       if (action === "open-feature") {
@@ -2255,8 +2263,20 @@ function buildLesson(title, theme) {
 
 function speakText(text) {
   if (!("speechSynthesis" in window)) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "ja-JP";
+  utterance.rate = 0.95;
+  utterance.pitch = 1;
+  const voices = speechSynthesis.getVoices();
+  const japaneseVoice = chooseJapaneseVoice(voices);
+  if (japaneseVoice) {
+    utterance.voice = japaneseVoice;
+    if (!utterance.lang && japaneseVoice.lang) {
+      utterance.lang = japaneseVoice.lang;
+    }
+  }
   speechSynthesis.cancel();
-  speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  speechSynthesis.speak(utterance);
 }
 
 function createSpeechRecognition() {
@@ -2272,6 +2292,88 @@ function createSpeechRecognition() {
 async function refreshState() {
   state = await loadState();
   render();
+}
+
+async function recordSpeechFallback(fallbackText, transcriptOutput) {
+  const fallback = String(fallbackText ?? "").trim() || "ラーメンをください。";
+  if (transcriptOutput) transcriptOutput.textContent = "Recording locally...";
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+    return { transcript: fallback, source: "typed" };
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chunks = [];
+    const recorder = createAudioRecorder(stream);
+    if (!recorder) {
+      stream.getTracks().forEach((track) => track.stop());
+      if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+      return { transcript: fallback, source: "fallback" };
+    }
+    const transcription = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onerror = () => reject(new Error("Unable to record speech."));
+      recorder.onstop = async () => {
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+          const blob = new Blob(chunks, { type: "audio/webm" });
+          if (!blob.size) {
+            resolve({ transcript: fallback, source: "empty" });
+            return;
+          }
+          if (transcriptOutput) transcriptOutput.textContent = "Transcribing locally with Whisper...";
+          const response = await fetch("/api/speech/transcribe", {
+            method: "POST",
+            headers: { "content-type": blob.type || "audio/webm" },
+            body: blob,
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || "Local transcription unavailable.");
+          }
+          const payload = await response.json();
+          const transcript = String(payload.transcript ?? "").trim() || fallback;
+          if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript}`;
+          resolve({ transcript, source: payload.source ?? "whisper" });
+        } catch (error) {
+          if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+          resolve({ transcript: fallback, source: "fallback", error });
+        }
+      };
+    });
+    recorder.start();
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
+    return await transcription;
+  } catch {
+    if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+    return { transcript: fallback, source: "fallback" };
+  }
+}
+
+function createAudioRecorder(stream) {
+  if (!("MediaRecorder" in window)) return null;
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "",
+  ];
+  for (const mimeType of candidates) {
+    try {
+      return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    } catch {
+      // Try the next supported mime type.
+    }
+  }
+  return null;
 }
 
 function mergeState(base, saved) {

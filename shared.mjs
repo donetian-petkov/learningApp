@@ -17,6 +17,19 @@ export function normalizeSentence(sentence) {
   return `${sentence.replace(/[。！？]$/, "")}。`;
 }
 
+export function chooseJapaneseVoice(voices = []) {
+  const list = Array.isArray(voices) ? voices.filter(Boolean) : [];
+  if (!list.length) return null;
+  const lowered = (value) => String(value ?? "").toLowerCase();
+  return (
+    list.find((voice) => lowered(voice.lang).startsWith("ja")) ||
+    list.find((voice) => lowered(voice.lang).includes("ja")) ||
+    list.find((voice) => lowered(voice.name).includes("japanese")) ||
+    list.find((voice) => /(kyoko|yuki|sakura|mika|haruka|nami)/i.test(String(voice.name ?? ""))) ||
+    list[0]
+  );
+}
+
 export function answerTutor(question) {
   const normalized = String(question ?? "").toLowerCase();
   if (normalized.includes("よろしく")) {

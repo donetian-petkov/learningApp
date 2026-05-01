@@ -1,11 +1,16 @@
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { extname, join, normalize } from "node:path";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createStorageAdapter } from "./db.mjs";
 
 const store = createStorageAdapter();
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);
+const execFileAsync = promisify(execFile);
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -211,6 +216,41 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/ai/response") {
     const body = await readJson(req);
     respondJson(res, 200, await store.aiResponse(body.feature ?? "tutor", body.prompt ?? "", body.context ?? {}, session?.sessionUser ?? null));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/speech/status") {
+    respondJson(res, 200, getSpeechStatus());
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/speech/transcribe") {
+    const contentType = String(req.headers["content-type"] ?? "");
+    if (contentType.includes("application/json")) {
+      const body = await readJson(req);
+      respondJson(res, 200, {
+        transcript: normalizeTranscript(body.transcript ?? body.text ?? body.input ?? ""),
+        source: "typed",
+        provider: "none",
+      });
+      return;
+    }
+
+    const audio = await readBuffer(req);
+    if (!audio.length) {
+      respondJson(res, 400, { error: "No audio provided" });
+      return;
+    }
+
+    try {
+      const transcript = await transcribeWithWhisper(audio, contentType);
+      respondJson(res, 200, transcript);
+    } catch (error) {
+      respondJson(res, 503, {
+        error: error instanceof Error ? error.message : "Local transcription unavailable",
+        provider: "whisper",
+      });
+    }
     return;
   }
 
@@ -471,6 +511,87 @@ async function readJson(req) {
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString("utf8");
   return raw ? JSON.parse(raw) : {};
+}
+
+async function readBuffer(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function normalizeTranscript(text) {
+  return String(text ?? "")
+    .replaceAll(/\s+/g, " ")
+    .replaceAll(/[ 　]+/g, " ")
+    .trim();
+}
+
+function getSpeechStatus() {
+  const whisperBinary = process.env.WHISPER_BIN ?? "whisper";
+  const whisperModel = process.env.WHISPER_MODEL ?? "tiny";
+  const modelDir = process.env.WHISPER_MODEL_DIR ?? "";
+  const binaryConfigured = whisperBinary === "whisper" ? true : existsSync(whisperBinary);
+  return {
+    provider: "whisper",
+    binary: whisperBinary,
+    model: whisperModel,
+    language: process.env.WHISPER_LANGUAGE ?? "ja",
+    available: true,
+    binaryConfigured,
+    modelConfigured: Boolean(whisperModel || modelDir),
+    modelDir: modelDir || null,
+  };
+}
+
+async function transcribeWithWhisper(audioBuffer, contentType = "") {
+  const whisperBinary = process.env.WHISPER_BIN ?? "whisper";
+  const whisperModel = process.env.WHISPER_MODEL ?? "tiny";
+  const modelDir = process.env.WHISPER_MODEL_DIR ?? "";
+  const language = process.env.WHISPER_LANGUAGE ?? "ja";
+  const tempDir = await mkdtemp(join(tmpdir(), "learningapp-whisper-"));
+  const extension = contentType.includes("wav")
+    ? "wav"
+    : contentType.includes("mpeg")
+      ? "mp3"
+      : contentType.includes("mp4")
+        ? "mp4"
+        : "webm";
+  const audioPath = join(tempDir, `input.${extension}`);
+  try {
+    await writeFile(audioPath, audioBuffer);
+    const args = [
+      audioPath,
+      "--task",
+      "transcribe",
+      "--language",
+      language,
+      "--output_dir",
+      tempDir,
+      "--output_format",
+      "txt",
+      "--verbose",
+      "False",
+      "--model",
+      whisperModel,
+    ];
+    if (modelDir) {
+      args.splice(1, 0, "--model_dir", modelDir);
+    }
+    await execFileAsync(whisperBinary, args, { maxBuffer: 10 * 1024 * 1024 });
+    const transcriptPath = join(tempDir, "input.txt");
+    const transcript = normalizeTranscript(await readFile(transcriptPath, "utf8").catch(() => ""));
+    return {
+      transcript,
+      source: "whisper",
+      provider: "whisper",
+      model: whisperModel,
+      language,
+    };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 function respondJson(res, statusCode, payload) {
