@@ -1152,6 +1152,7 @@ function renderAdmin() {
           <p>${state.admin.analytics?.creditEvents ?? 0} credit events · ${state.admin.analytics?.creditsAwarded ?? 0} credits awarded</p>
           <p>${state.admin.analytics?.studySessions ?? 0} study sessions · ${state.admin.analytics?.studyMinutes ?? 0} minutes</p>
           <p>${state.admin.analytics?.reviewHistory ?? 0} review events · ${state.admin.analytics?.kanjiReviewHistory ?? 0} kanji review events</p>
+          <p>${state.admin.analytics?.aiRequests ?? 0} AI requests · ${state.admin.analytics?.aiCacheHits ?? 0} cache hits</p>
           <p>${state.kanjiEntries?.length ?? 0} kanji entries · ${state.kanjiReviews?.length ?? 0} kanji drills</p>
           <p>${state.admin.analytics?.topLessons?.length ?? 0} lesson-linked review groups · ${state.admin.analytics?.topKanji?.length ?? 0} trending kanji</p>
           ${renderBarChart("Top study kinds", state.admin.analytics?.sessionKinds ?? [], (item) => item.kind, (item) => item.count, (item) => `${item.count} sessions · ${item.durationMinutes} min`, "No study sessions yet.")}

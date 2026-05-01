@@ -39,6 +39,19 @@ function toJson(value) {
   return JSON.stringify(value ?? null);
 }
 
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -770,6 +783,19 @@ export class SqliteStorageAdapter {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS ai_response_cache (
+        cache_key TEXT PRIMARY KEY,
+        feature TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        context_json TEXT NOT NULL,
+        response TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        hits INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS content_review_queue (
         id TEXT PRIMARY KEY,
         item_type TEXT NOT NULL,
@@ -859,6 +885,20 @@ export class SqliteStorageAdapter {
     } catch {
       // Column already exists in existing databases.
     }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_response_cache (
+        cache_key TEXT PRIMARY KEY,
+        feature TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        context_json TEXT NOT NULL,
+        response TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        hits INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
     if (getSchemaVersion(this.db) < 1) setSchemaVersion(this.db, 1);
     if (getSchemaVersion(this.db) < 2) {
       this.db.exec(`
@@ -972,6 +1012,9 @@ export class SqliteStorageAdapter {
     }
     if (getSchemaVersion(this.db) < 9) {
       setSchemaVersion(this.db, 9);
+    }
+    if (getSchemaVersion(this.db) < 10) {
+      setSchemaVersion(this.db, 10);
     }
   }
 
@@ -1749,13 +1792,14 @@ export class SqliteStorageAdapter {
       equipped: Boolean(this.db.prepare("SELECT 1 FROM user_cosmetics WHERE cosmetic_id = ? AND equipped = 1").get(row.id)),
     }));
     const aiRows = this.db.prepare("SELECT * FROM ai_usage_log ORDER BY id DESC").all();
+    const aiCacheRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CASE WHEN hits > 0 THEN hits - 1 ELSE 0 END), 0) AS hits FROM ai_response_cache").get();
     const aiProvider = getAiProviderInfo();
     const today = currentDateKey();
     const aiUsage = aiRows.length
       ? {
           dailyRequests: aiRows.filter((row) => row.created_at.slice(0, 10) === today).length,
           monthlyRequests: aiRows.length,
-          cachedResponses: Math.max(0, 124 + aiRows.length),
+          cachedResponses: aiCacheRow.hits,
           failedRequests: aiRows.filter((row) => row.feature.includes("failed")).length,
           provider: aiProvider.provider,
           host: aiProvider.host,
@@ -1765,7 +1809,7 @@ export class SqliteStorageAdapter {
       : {
           dailyRequests: 0,
           monthlyRequests: 0,
-          cachedResponses: 0,
+          cachedResponses: aiCacheRow.hits,
           failedRequests: 0,
           provider: aiProvider.provider,
           host: aiProvider.host,
@@ -2789,6 +2833,27 @@ export class SqliteStorageAdapter {
 
   async aiResponse(feature, prompt, context = {}, sessionUser = null) {
     const provider = getAiProviderInfo();
+    const contextPayload = context ?? {};
+    const cacheKey = sha256(stableStringify({
+      feature,
+      prompt: String(prompt ?? "").trim(),
+      context: contextPayload,
+      provider: provider.provider,
+      model: provider.model,
+    }));
+    const cached = this.db.prepare("SELECT * FROM ai_response_cache WHERE cache_key = ?").get(cacheKey);
+    if (cached) {
+      this.db.prepare("UPDATE ai_response_cache SET hits = hits + 1, updated_at = ? WHERE cache_key = ?").run(nowIso(), cacheKey);
+      return {
+        feature,
+        prompt,
+        response: cached.response,
+        context: contextPayload,
+        provider: cached.provider,
+        model: cached.model,
+        cached: true,
+      };
+    }
     let response = "";
     if (provider.provider === "ollama") {
       try {
@@ -2796,7 +2861,7 @@ export class SqliteStorageAdapter {
           `You are a concise Japanese learning assistant.`,
           `Feature: ${feature}`,
           `Prompt: ${String(prompt ?? "").trim()}`,
-          `Context: ${JSON.stringify(context ?? {})}`,
+          `Context: ${JSON.stringify(contextPayload)}`,
           `Return a short, practical answer with one example if helpful.`,
         ].join("\n");
         const res = await fetch(`${provider.host}/api/generate`, {
@@ -2817,16 +2882,44 @@ export class SqliteStorageAdapter {
       }
     }
     if (!response) {
-      response = answerAiFeature(feature, prompt, context);
+      response = answerAiFeature(feature, prompt, contextPayload);
     }
+    const now = nowIso();
+    this.db.prepare(
+      `
+        INSERT INTO ai_response_cache (
+          cache_key, feature, prompt, context_json, response, provider, model, hits, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+          feature = excluded.feature,
+          prompt = excluded.prompt,
+          context_json = excluded.context_json,
+          response = excluded.response,
+          provider = excluded.provider,
+          model = excluded.model,
+          hits = ai_response_cache.hits + 1,
+          updated_at = excluded.updated_at
+      `
+    ).run(
+      cacheKey,
+      feature,
+      String(prompt ?? "").trim(),
+      stableStringify(contextPayload),
+      response,
+      provider.provider,
+      provider.model,
+      now,
+      now
+    );
     this.recordAiUsage(feature, 1, Math.max(40, String(prompt ?? "").length * 3), sessionUser ?? "local");
     return {
       feature,
       prompt,
       response,
-      context,
+      context: contextPayload,
       provider: provider.provider,
       model: provider.model,
+      cached: false,
     };
   }
 
@@ -2976,6 +3069,7 @@ export class SqliteStorageAdapter {
     const reviewRow = this.db.prepare("SELECT COUNT(*) AS count FROM review_history").get();
     const kanjiReviewRow = this.db.prepare("SELECT COUNT(*) AS count FROM kanji_review_history").get();
     const aiRow = this.db.prepare("SELECT COUNT(*) AS count FROM ai_usage_log").get();
+    const aiCacheRow = this.db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CASE WHEN hits > 0 THEN hits - 1 ELSE 0 END), 0) AS hits FROM ai_response_cache").get();
     const sessionKinds = this.db.prepare(
       "SELECT kind, COUNT(*) AS count, COALESCE(SUM(duration_minutes), 0) AS duration FROM study_sessions GROUP BY kind ORDER BY count DESC, kind LIMIT 6"
     ).all();
@@ -2999,6 +3093,7 @@ export class SqliteStorageAdapter {
       reviewHistory: reviewRow.count,
       kanjiReviewHistory: kanjiReviewRow.count,
       aiRequests: aiRow.count,
+      aiCacheHits: aiCacheRow.hits,
       sessionKinds: sessionKinds.map((row) => ({
         kind: row.kind,
         count: row.count,
