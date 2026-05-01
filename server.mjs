@@ -151,6 +151,18 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/study-sessions") {
+    const limit = Number(url.searchParams.get("limit") ?? 20);
+    respondJson(res, 200, store.getStudySessions(limit));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/study-sessions") {
+    const body = await readJson(req);
+    respondJson(res, 200, store.recordStudySession(body.kind ?? "manual", Number(body.durationMinutes ?? 0), Number(body.xpDelta ?? 0), Number(body.creditsDelta ?? 0), session?.sessionUser ?? null));
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/admin") {
     respondJson(res, 200, store.loadAdminState(session?.sessionUser ?? null));
     return;

@@ -581,6 +581,21 @@ function renderProgress() {
           <p>Reviewed words: ${state.progress.reviewedWords}</p>
           <p>Speaking sessions: ${state.progress.speakingSessions}</p>
         </div>
+        <div class="grid-card">
+          <h3>Recent study sessions</h3>
+          <div class="list">
+            ${(state.admin.studySessions ?? [])
+              .map(
+                (session) => `
+                  <div class="list-item">
+                    <strong>${escapeHtml(session.kind)}</strong>
+                    <span class="muted">${session.durationMinutes} min · ${session.xpDelta} XP · ${session.creditsDelta} credits</span>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
       </div>
     </section>
   `;

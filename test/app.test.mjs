@@ -193,6 +193,10 @@ test("dictionary lookup and ai responses are available locally", () => {
     const ai = temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
     assert.equal(ai.feature, "grammar");
     assert.equal(ai.response.includes("Samurai History"), true);
+
+    const sessions = temp.store.recordStudySession("lesson", 5, 80, 20);
+    assert.equal(Array.isArray(sessions), true);
+    assert.equal(temp.store.getStudySessions(1).length, 1);
   } finally {
     cleanupTempStore(temp);
   }

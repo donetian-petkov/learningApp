@@ -764,6 +764,7 @@ export class SqliteStorageAdapter {
       },
     };
     this.saveAppState(next, current.admin.sessionUser ?? null);
+    this.recordStudySession("manual-award", 0, Number(delta.xp || 0), Number(delta.credits || 0), current.admin.sessionUser ?? null);
     this.appendAudit(`${source}: progress delta`);
     return this.getSnapshot();
   }
@@ -785,6 +786,7 @@ export class SqliteStorageAdapter {
       },
     };
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.recordStudySession("lesson", 5, 80, 20, sessionUser ?? current.admin.sessionUser ?? null);
     this.appendAudit(`Completed lesson: ${lessonId}`);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
@@ -818,6 +820,7 @@ export class SqliteStorageAdapter {
       },
     };
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.recordStudySession("task", 3, task.reward_xp, task.reward_credits, sessionUser ?? current.admin.sessionUser ?? null);
     this.appendAudit(`Completed task: ${task.name}`);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
@@ -849,6 +852,7 @@ export class SqliteStorageAdapter {
       },
     };
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.recordStudySession("cosmetic", 1, 0, -cosmetic.cost, sessionUser ?? current.admin.sessionUser ?? null);
     this.appendAudit(`Purchased cosmetic: ${cosmetic.name}`);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
@@ -908,6 +912,9 @@ export class SqliteStorageAdapter {
     }
 
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    const xpDelta = updated.progress.xp - current.progress.xp;
+    const creditsDelta = updated.progress.credits - current.progress.credits;
+    this.recordStudySession(kind, kind === "listening" ? 3 : kind === "speaking" ? 4 : kind === "writing" ? 2 : 3, xpDelta, creditsDelta, sessionUser ?? current.admin.sessionUser ?? null);
     this.appendAudit(audit);
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
@@ -963,6 +970,7 @@ export class SqliteStorageAdapter {
       chest: { ready: true, lastReward: reward },
     };
     this.saveAppState(next, current.admin.sessionUser ?? null);
+    this.recordStudySession("reward-chest", 1, parsed.xp, parsed.credits + (parsed.xp === 0 && parsed.credits === 0 ? 25 : 0), current.admin.sessionUser ?? null);
     this.appendAudit(`Opened reward chest: ${reward}`);
     return { reward, state: this.getSnapshot() };
   }
@@ -1107,6 +1115,8 @@ export class SqliteStorageAdapter {
       contentReviewQueue,
       permissions,
       users,
+      studySessions: this.getStudySessions(10),
+      leaderboard: this.getLatestLeaderboard(),
     };
     const streakState = streakRow
       ? streakRow
@@ -1125,6 +1135,13 @@ export class SqliteStorageAdapter {
       cosmetics,
       admin,
     });
+  }
+
+  recordStudySession(kind, durationMinutes, xpDelta, creditsDelta, sessionUser = null) {
+    this.db.prepare(
+      "INSERT INTO study_sessions (kind, duration_minutes, xp_delta, credits_delta, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(kind, durationMinutes, xpDelta, creditsDelta, nowIso());
+    return this.getStudySessions(20);
   }
 
   saveAppState(nextSnapshot, sessionUser = null) {
@@ -1622,6 +1639,17 @@ export class SqliteStorageAdapter {
   getLatestLeaderboard() {
     const row = this.db.prepare("SELECT payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get();
     return row ? parseJson(row.payload_json, []) : [];
+  }
+
+  getStudySessions(limit = 20) {
+    return this.db.prepare("SELECT * FROM study_sessions ORDER BY id DESC LIMIT ?").all(Number(limit) || 20).map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      durationMinutes: row.duration_minutes,
+      xpDelta: row.xp_delta,
+      creditsDelta: row.credits_delta,
+      createdAt: row.created_at,
+    }));
   }
 
   getSchemaVersion() {
