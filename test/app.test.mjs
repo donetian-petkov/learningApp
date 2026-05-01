@@ -355,6 +355,43 @@ test("dataset bundles import JMdict and KANJIDIC shaped entries", () => {
   }
 });
 
+test("dataset bundles import raw JMdict and KANJIDIC xml", () => {
+  const temp = createTempStore();
+  try {
+    const result = temp.store.importDatasetBundle(`
+      <JMdict>
+        <entry>
+          <ent_seq>1001</ent_seq>
+          <k_ele><keb>ありがとうございます</keb></k_ele>
+          <r_ele><reb>ありがとうございます</reb></r_ele>
+          <sense>
+            <pos>expression</pos>
+            <gloss>thank you very much</gloss>
+          </sense>
+        </entry>
+      </JMdict>
+      <kanjidic2>
+        <character>
+          <literal>駅</literal>
+          <reading_meaning>
+            <rmgroup>
+              <reading r_type="ja_on">エキ</reading>
+              <reading r_type="ja_kun">うまや</reading>
+              <meaning>station</meaning>
+            </rmgroup>
+          </reading_meaning>
+        </character>
+      </kanjidic2>
+    `);
+    assert.equal(result.dictionaryEntries >= 1, true);
+    assert.equal(result.kanjiEntries >= 1, true);
+    assert.equal(temp.store.getDictionary("ありがとうございます").length >= 1, true);
+    assert.equal(temp.store.getKanjiEntries("駅").length >= 1, true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("kanji entries can be imported and looked up", () => {
   const temp = createTempStore();
   try {

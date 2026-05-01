@@ -1269,10 +1269,10 @@ function renderAdmin() {
             <textarea
               data-field="dataset-import-json"
               rows="6"
-              placeholder='{"jmdictEntries":[{"ent_seq":"1","k_ele":[{"keb":"ありがとう"}],"r_ele":[{"reb":"ありがとう"}],"sense":[{"gloss":[{"text":"thank you"}],"pos":["expression"]}]}],"kanjidicEntries":[{"literal":"駅","readingMeaning":{"groups":[{"readings":[{"type":"ja_on","value":"エキ"}],"meanings":[{"text":"station"}]}]}}]}'
+              placeholder='Paste JSON or raw JMdict/KANJIDIC XML here.'
             ></textarea>
           </label>
-          <p class="muted">Bundle imports accept JMdict / KANJIDIC style objects and expand them into dictionary, kanji, lesson, and review tables.</p>
+          <p class="muted">Bundle imports accept JSON objects, raw JMdict XML, or raw KANJIDIC XML and expand them into dictionary, kanji, lesson, and review tables.</p>
           <div class="button-row">
             <button class="secondary" data-action="import-dataset">Import dataset bundle</button>
           </div>
@@ -2070,16 +2070,9 @@ function wireActions() {
         if (!raw) {
           return;
         }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Dataset bundle JSON is not valid.");
-          return;
-        }
         const result = await apiJson("/api/datasets/import", {
           method: "POST",
-          body: { bundle: parsed },
+          body: { bundle: raw },
         });
         if (datasetInput) {
           datasetInput.value = "";

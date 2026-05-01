@@ -211,6 +211,87 @@ function normalizeKanjidicEntry(entry, index = 0) {
   };
 }
 
+function parseXmlText(xml, tag) {
+  const match = String(xml ?? "").match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+  return match ? match[1].trim() : "";
+}
+
+function parseXmlBlocks(xml, tag) {
+  return String(xml ?? "").match(new RegExp(`<${tag}[^>]*>[\\s\\S]*?</${tag}>`, "gi")) ?? [];
+}
+
+function parseJmdictXmlEntries(raw) {
+  return parseXmlBlocks(raw, "entry").map((chunk, index) => {
+    const headwords = parseXmlBlocks(chunk, "k_ele").map((block) => parseXmlText(block, "keb")).filter(Boolean);
+    const readings = parseXmlBlocks(chunk, "r_ele").map((block) => parseXmlText(block, "reb")).filter(Boolean);
+    const senseBlocks = parseXmlBlocks(chunk, "sense");
+    const glosses = senseBlocks.flatMap((sense) =>
+      parseXmlBlocks(sense, "gloss").map((gloss) => parseXmlText(gloss, "gloss") || gloss.replace(/<[^>]+>/g, "").trim()).filter(Boolean)
+    );
+    const pos = senseBlocks.flatMap((sense) =>
+      parseXmlBlocks(sense, "pos").map((posBlock) => parseXmlText(posBlock, "pos") || posBlock.replace(/<[^>]+>/g, "").trim()).filter(Boolean)
+    );
+    const term = headwords[0] || readings[0] || `entry-${index + 1}`;
+    return {
+      id: `jmdict-${String(term).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `entry-${index}`}`,
+      term,
+      reading: readings[0] || "",
+      meaning: glosses[0] || "",
+      partOfSpeech: pos[0] || "noun",
+      example: glosses.slice(0, 2).join(" · "),
+      source: "jmdict-xml",
+    };
+  });
+}
+
+function parseKanjidicXmlEntries(raw) {
+  return parseXmlBlocks(raw, "character").map((chunk, index) => {
+    const literal = parseXmlText(chunk, "literal");
+    const rmBlocks = parseXmlBlocks(chunk, "reading_meaning");
+    const readingMeaning = rmBlocks.length ? rmBlocks[0] : "";
+    const onYomi = [];
+    const kunYomi = [];
+    const meanings = [];
+    parseXmlBlocks(readingMeaning, "rmgroup").forEach((group) => {
+      parseXmlBlocks(group, "reading").forEach((reading) => {
+        const type = /r_type="([^"]+)"/i.exec(reading)?.[1] ?? "";
+        const value = parseXmlText(reading, "reading");
+        if (!value) return;
+        if (type.includes("ja_on") || type === "on") onYomi.push(value);
+        if (type.includes("ja_kun") || type === "kun") kunYomi.push(value);
+      });
+      parseXmlBlocks(group, "meaning").forEach((meaning) => {
+        const text = parseXmlText(meaning, "meaning") || meaning.replace(/<[^>]+>/g, "").trim();
+        if (text) meanings.push(text);
+      });
+    });
+    return {
+      id: `kanjidic-${String(literal || index).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `entry-${index}`}`,
+      character: literal,
+      meaning: meanings[0] || "",
+      onYomi: onYomi.join(" / "),
+      kunYomi: kunYomi.join(" / "),
+      examples: [],
+      source: "kanjidic-xml",
+    };
+  });
+}
+
+function parseDatasetBundleInput(bundle) {
+  if (typeof bundle === "string") {
+    const raw = bundle.trim();
+    if (!raw) return {};
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      return parseJson(raw, {});
+    }
+    return {
+      jmdictEntries: parseJmdictXmlEntries(raw),
+      kanjidicEntries: parseKanjidicXmlEntries(raw),
+    };
+  }
+  return bundle && typeof bundle === "object" ? bundle : {};
+}
+
 function buildKanjiReviewItem(entry, index = 0) {
   const normalized = normalizeKanjiEntry(entry, index);
   const id = String(entry.id ?? `kanji-review-${normalized.character || index}`).trim() || `kanji-review-${index}`;
@@ -2632,7 +2713,7 @@ export class SqliteStorageAdapter {
   }
 
   importDatasetBundle(bundle) {
-    const payload = bundle && typeof bundle === "object" ? bundle : {};
+    const payload = parseDatasetBundleInput(bundle);
     const dictionaryEntries = [
       ...(Array.isArray(payload.dictionaryEntries) ? payload.dictionaryEntries : []),
       ...(Array.isArray(payload.jmdictEntries) ? payload.jmdictEntries.map(normalizeJmdictEntry) : []),
