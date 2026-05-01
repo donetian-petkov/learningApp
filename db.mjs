@@ -695,6 +695,30 @@ export class SqliteStorageAdapter {
     }
 
     const dictionaryRows = new Map();
+    const coreDictionaryEntries = [
+      { id: "dict-core-ha", term: "は", reading: "は", meaning: "topic marker", part_of_speech: "particle", example: "今日はよろしくお願いします。" },
+      { id: "dict-core-ga", term: "が", reading: "が", meaning: "subject marker / contrast", part_of_speech: "particle", example: "武士は言葉より行動で示す。" },
+      { id: "dict-core-o", term: "を", reading: "を", meaning: "direct object marker", part_of_speech: "particle", example: "ラーメンをください。" },
+      { id: "dict-core-ni", term: "に", reading: "に", meaning: "destination / direction marker", part_of_speech: "particle", example: "駅に行きます。" },
+      { id: "dict-core-de", term: "で", reading: "で", meaning: "location of action / means", part_of_speech: "particle", example: "店で食べます。" },
+      { id: "dict-core-to", term: "と", reading: "と", meaning: "and / with / quoted content marker", part_of_speech: "particle", example: "友だちと話します。" },
+      { id: "dict-core-desu", term: "です", reading: "です", meaning: "polite copula", part_of_speech: "auxiliary verb", example: "今日は雨です。" },
+      { id: "dict-core-masu", term: "ます", reading: "ます", meaning: "polite verb ending", part_of_speech: "auxiliary verb", example: "勉強します。" },
+      { id: "dict-core-kudasai", term: "ください", reading: "ください", meaning: "please give / please do", part_of_speech: "auxiliary verb", example: "ラーメンをください。" },
+      { id: "dict-core-yoroshiku", term: "よろしくお願いします", reading: "よろしくおねがいします", meaning: "please take care of me / best regards", part_of_speech: "expression", example: "今日はよろしくお願いします。" },
+      { id: "dict-core-doko", term: "どこ", reading: "どこ", meaning: "where", part_of_speech: "adverb", example: "切符売り場はどこですか。" },
+      { id: "dict-core-one", term: "一つ", reading: "ひとつ", meaning: "one item", part_of_speech: "counter", example: "ラーメンを一つください。" },
+    ];
+    coreDictionaryEntries.forEach((entry) => {
+      dictionaryRows.set(entry.id, {
+        id: entry.id,
+        term: entry.term,
+        reading: entry.reading,
+        meaning: entry.meaning,
+        part_of_speech: entry.part_of_speech ?? entry.partOfSpeech ?? "noun",
+        example: entry.example ?? "",
+      });
+    });
     snapshot.lessons.forEach((lesson) => {
       lesson.vocab.forEach((item, index) => {
         const key = `${item.word}-${item.kana}`.toLowerCase();

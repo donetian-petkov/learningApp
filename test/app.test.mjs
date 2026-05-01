@@ -207,6 +207,11 @@ test("dictionary lookup and ai responses are available locally", () => {
     assert.ok(dictionary.length >= 1);
     assert.equal(dictionary[0].term.includes("よろしく"), true);
 
+    const particle = temp.store.getDictionary("は")[0];
+    assert.ok(particle);
+    assert.equal(particle.partOfSpeech, "particle");
+    assert.equal(temp.store.lookupDictionary("ください")?.meaning.includes("please"), true);
+
     const ai = temp.store.aiResponse("grammar", "Explain より", { lessonTitle: "Samurai History" });
     assert.equal(ai.feature, "grammar");
     assert.equal(ai.response.includes("Samurai History"), true);
