@@ -1224,6 +1224,18 @@ function renderAdmin() {
           <div class="button-row">
             <button class="secondary" data-action="import-reviews">Import reviews</button>
           </div>
+          <label class="field spaced">
+            <span>Dataset bundle JSON</span>
+            <textarea
+              data-field="dataset-import-json"
+              rows="6"
+              placeholder='{"jmdictEntries":[{"ent_seq":"1","k_ele":[{"keb":"ありがとう"}],"r_ele":[{"reb":"ありがとう"}],"sense":[{"gloss":[{"text":"thank you"}],"pos":["expression"]}]}],"kanjidicEntries":[{"literal":"駅","readingMeaning":{"groups":[{"readings":[{"type":"ja_on","value":"エキ"}],"meanings":[{"text":"station"}]}]}}]}'
+            ></textarea>
+          </label>
+          <p class="muted">Bundle imports accept JMdict / KANJIDIC style objects and expand them into dictionary, kanji, lesson, and review tables.</p>
+          <div class="button-row">
+            <button class="secondary" data-action="import-dataset">Import dataset bundle</button>
+          </div>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
             ${(state.admin.contentReviewQueue ?? [])
@@ -1953,6 +1965,35 @@ function wireActions() {
         await apiJson("/api/audit-log", {
           method: "POST",
           body: { entry: `Imported review items: ${result.imported}` },
+        });
+        await refreshState();
+      }
+
+      if (action === "import-dataset") {
+        const datasetInput = app.querySelector('[data-field="dataset-import-json"]');
+        const raw = datasetInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Dataset bundle JSON is not valid.");
+          return;
+        }
+        const result = await apiJson("/api/datasets/import", {
+          method: "POST",
+          body: { bundle: parsed },
+        });
+        if (datasetInput) {
+          datasetInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: {
+            entry: `Imported dataset bundle: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
+          },
         });
         await refreshState();
       }

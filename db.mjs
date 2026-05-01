@@ -113,6 +113,37 @@ function normalizeDictionaryEntry(entry, index = 0) {
   };
 }
 
+function normalizeJmdictEntry(entry, index = 0) {
+  const headwords = Array.isArray(entry.k_ele)
+    ? entry.k_ele.map((item) => String(item?.keb ?? item ?? "").trim()).filter(Boolean)
+    : [];
+  const readings = Array.isArray(entry.r_ele)
+    ? entry.r_ele.map((item) => String(item?.reb ?? item ?? "").trim()).filter(Boolean)
+    : [];
+  const senses = Array.isArray(entry.sense) ? entry.sense : [];
+  const glosses = senses.flatMap((sense) => {
+    const gloss = sense?.gloss ?? [];
+    if (Array.isArray(gloss)) return gloss.map((item) => String(item?.text ?? item ?? "").trim()).filter(Boolean);
+    return String(gloss ?? "").trim() ? [String(gloss).trim()] : [];
+  });
+  const pos = senses.flatMap((sense) => {
+    const value = sense?.pos ?? [];
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    return String(value ?? "").trim() ? [String(value).trim()] : [];
+  });
+  const term = String(entry.term ?? entry.word ?? headwords[0] ?? readings[0] ?? entry.kanji ?? entry.literal ?? "").trim();
+  const reading = String(entry.reading ?? readings[0] ?? entry.kana ?? "").trim();
+  return {
+    id: entry.id ?? entry.ent_seq ?? `jmdict-${String(term || index).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `entry-${index}`}`,
+    term,
+    reading,
+    meaning: String(entry.meaning ?? glosses[0] ?? "").trim(),
+    partOfSpeech: String(entry.partOfSpeech ?? entry.part_of_speech ?? pos[0] ?? "noun").trim() || "noun",
+    example: String(entry.example ?? entry.sentence ?? glosses.slice(0, 2).join(" · ") ?? "").trim(),
+    source: String(entry.source ?? "jmdict").trim() || "jmdict",
+  };
+}
+
 function normalizeKanjiEntry(entry, index = 0) {
   const character = String(entry.character ?? entry.kanji ?? "").trim();
   return {
@@ -123,6 +154,34 @@ function normalizeKanjiEntry(entry, index = 0) {
     kunYomi: String(entry.kunYomi ?? entry.kun_yomi ?? "").trim(),
     examples: Array.isArray(entry.examples) ? entry.examples.map(String).filter(Boolean) : [],
     source: String(entry.source ?? "manual").trim() || "manual",
+  };
+}
+
+function normalizeKanjidicEntry(entry, index = 0) {
+  const character = String(entry.character ?? entry.literal ?? entry.kanji ?? "").trim();
+  const readingMeaning = entry.readingMeaning ?? entry.reading_meaning ?? {};
+  const groups = Array.isArray(readingMeaning.groups) ? readingMeaning.groups : [];
+  const readings = groups.flatMap((group) => Array.isArray(group?.readings) ? group.readings : []);
+  const meanings = groups.flatMap((group) => Array.isArray(group?.meanings) ? group.meanings : []);
+  const onYomi = readings
+    .filter((item) => String(item?.type ?? item?.r_type ?? "").toLowerCase().includes("ja_on") || String(item?.type ?? item?.r_type ?? "").toLowerCase() === "on")
+    .map((item) => String(item?.value ?? item?.reading ?? item ?? "").trim())
+    .filter(Boolean)
+    .join(" / ");
+  const kunYomi = readings
+    .filter((item) => String(item?.type ?? item?.r_type ?? "").toLowerCase().includes("ja_kun") || String(item?.type ?? item?.r_type ?? "").toLowerCase() === "kun")
+    .map((item) => String(item?.value ?? item?.reading ?? item ?? "").trim())
+    .filter(Boolean)
+    .join(" / ");
+  const exampleList = Array.isArray(entry.examples) ? entry.examples : Array.isArray(entry.meaningExamples) ? entry.meaningExamples : [];
+  return {
+    id: entry.id ?? `kanjidic-${String(character || index).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `entry-${index}`}`,
+    character,
+    meaning: String(entry.meaning ?? meanings.map((item) => String(item?.text ?? item?.value ?? item ?? "").trim()).find(Boolean) ?? entry.meaningText ?? "").trim(),
+    onYomi,
+    kunYomi,
+    examples: exampleList.map((item) => String(item?.example ?? item?.text ?? item ?? "").trim()).filter(Boolean),
+    source: String(entry.source ?? "kanjidic").trim() || "kanjidic",
   };
 }
 
@@ -2496,6 +2555,39 @@ export class SqliteStorageAdapter {
       throw error;
     }
     return imported;
+  }
+
+  importDatasetBundle(bundle) {
+    const payload = bundle && typeof bundle === "object" ? bundle : {};
+    const dictionaryEntries = [
+      ...(Array.isArray(payload.dictionaryEntries) ? payload.dictionaryEntries : []),
+      ...(Array.isArray(payload.jmdictEntries) ? payload.jmdictEntries.map(normalizeJmdictEntry) : []),
+    ];
+    const kanjiEntries = [
+      ...(Array.isArray(payload.kanjiEntries) ? payload.kanjiEntries : []),
+      ...(Array.isArray(payload.kanjidicEntries) ? payload.kanjidicEntries.map(normalizeKanjidicEntry) : []),
+    ];
+    const lessonEntries = Array.isArray(payload.lessons) ? payload.lessons : [];
+    const reviewEntries = Array.isArray(payload.reviews) ? payload.reviews : [];
+
+    const importedLessons = lessonEntries.length ? this.importLessons(lessonEntries) : [];
+    const importedDictionary = dictionaryEntries.length ? this.importDictionaryEntries(dictionaryEntries) : [];
+    const importedKanji = kanjiEntries.length ? this.importKanjiEntries(kanjiEntries) : [];
+    const importedReviews = reviewEntries.length ? this.importReviewItems(reviewEntries) : [];
+
+    if (importedLessons.length || importedDictionary.length || importedKanji.length || importedReviews.length) {
+      this.appendAudit(
+        `Imported dataset bundle: ${importedLessons.length} lessons, ${importedDictionary.length} dictionary entries, ${importedKanji.length} kanji entries, ${importedReviews.length} review items`
+      );
+    }
+
+    return {
+      lessons: importedLessons.length,
+      dictionaryEntries: importedDictionary.length,
+      kanjiEntries: importedKanji.length,
+      reviewItems: importedReviews.length,
+      snapshot: this.getSnapshot(),
+    };
   }
 
   async aiResponse(feature, prompt, context = {}, sessionUser = null) {

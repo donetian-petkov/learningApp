@@ -87,6 +87,17 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/datasets/import") {
+    if (!session.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    const result = store.importDatasetBundle(body.bundle ?? body.dataset ?? body);
+    respondJson(res, 200, result);
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/kanji/import") {
     if (!session.authenticated) {
       respondJson(res, 401, { error: "Unauthorized" });

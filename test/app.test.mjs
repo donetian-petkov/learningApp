@@ -293,6 +293,42 @@ test("dictionary entries can be imported in batch", () => {
   }
 });
 
+test("dataset bundles import JMdict and KANJIDIC shaped entries", () => {
+  const temp = createTempStore();
+  try {
+    const result = temp.store.importDatasetBundle({
+      jmdictEntries: [
+        {
+          ent_seq: "1000000",
+          k_ele: [{ keb: "感謝" }],
+          r_ele: [{ reb: "かんしゃ" }],
+          sense: [{ gloss: [{ text: "gratitude" }], pos: ["noun"] }],
+        },
+      ],
+      kanjidicEntries: [
+        {
+          literal: "駅",
+          readingMeaning: {
+            groups: [
+              {
+                readings: [{ type: "ja_on", value: "エキ" }, { type: "ja_kun", value: "えき" }],
+                meanings: [{ text: "station" }],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    assert.equal(result.dictionaryEntries, 1);
+    assert.equal(result.kanjiEntries, 1);
+    assert.equal(temp.store.lookupDictionary("感謝")?.meaning, "gratitude");
+    assert.equal(temp.store.lookupKanji("駅")?.meaning, "station");
+    assert.equal(temp.store.getSnapshot().admin.auditLog.some((entry) => entry.includes("Imported dataset bundle")), true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("kanji entries can be imported and looked up", () => {
   const temp = createTempStore();
   try {
