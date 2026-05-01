@@ -388,6 +388,16 @@ function normalizeChallenge(item, index = 0) {
   };
 }
 
+function normalizeReviewStatus(status) {
+  const value = String(status ?? "pending").trim().toLowerCase();
+  if (value === "approve" || value === "approved") return "published";
+  if (value === "reject" || value === "rejected") return "archived";
+  if (value === "publish") return "published";
+  if (value === "archive") return "archived";
+  if (value === "draft" || value === "pending" || value === "published" || value === "archived") return value;
+  return "pending";
+}
+
 function resolveChallengeTriggers(category, kind) {
   if (category === "lesson") return kind === "lesson";
   if (category === "study") return kind === "study" || kind === "manual-award" || kind === "reward-chest" || kind === "task" || kind === "cosmetic" || kind === "kanji-review";
@@ -767,6 +777,9 @@ export class SqliteStorageAdapter {
         status TEXT NOT NULL,
         notes TEXT NOT NULL,
         source TEXT NOT NULL DEFAULT 'seed',
+        decision_reason TEXT NOT NULL DEFAULT '',
+        reviewed_by TEXT NOT NULL DEFAULT '',
+        reviewed_at TEXT,
         created_at TEXT NOT NULL
       );
 
@@ -828,6 +841,21 @@ export class SqliteStorageAdapter {
 
     try {
       this.db.prepare("ALTER TABLE content_review_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'seed'").run();
+    } catch {
+      // Column already exists in existing databases.
+    }
+    try {
+      this.db.prepare("ALTER TABLE content_review_queue ADD COLUMN decision_reason TEXT NOT NULL DEFAULT ''").run();
+    } catch {
+      // Column already exists in existing databases.
+    }
+    try {
+      this.db.prepare("ALTER TABLE content_review_queue ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''").run();
+    } catch {
+      // Column already exists in existing databases.
+    }
+    try {
+      this.db.prepare("ALTER TABLE content_review_queue ADD COLUMN reviewed_at TEXT").run();
     } catch {
       // Column already exists in existing databases.
     }
@@ -941,6 +969,9 @@ export class SqliteStorageAdapter {
         this.db.exec("ALTER TABLE lesson_grammar ADD COLUMN example TEXT NOT NULL DEFAULT ''");
       } catch {}
       setSchemaVersion(this.db, 8);
+    }
+    if (getSchemaVersion(this.db) < 9) {
+      setSchemaVersion(this.db, 9);
     }
   }
 
@@ -1778,6 +1809,9 @@ export class SqliteStorageAdapter {
       status: row.status,
       notes: row.notes,
       source: row.source ?? "seed",
+      decisionReason: row.decision_reason ?? "",
+      reviewedBy: row.reviewed_by ?? "",
+      reviewedAt: row.reviewed_at ?? null,
       createdAt: row.created_at,
     }));
     const appState = {
@@ -2455,9 +2489,12 @@ export class SqliteStorageAdapter {
       id: item.id ?? `content-review-${randomUUID()}`,
       itemType: item.itemType ?? "lesson",
       itemId: item.itemId ?? "unknown",
-      status: item.status ?? "pending",
+      status: normalizeReviewStatus(item.status ?? "pending"),
       notes: item.notes ?? "Queued for review",
       source: item.source ?? "manual",
+      decisionReason: item.decisionReason ?? "",
+      reviewedBy: item.reviewedBy ?? "",
+      reviewedAt: item.reviewedAt ?? null,
       createdAt: item.createdAt ?? nowIso(),
     };
     this.enqueueContentReviewRow(payload);
@@ -2465,14 +2502,19 @@ export class SqliteStorageAdapter {
     return this.getContentReviewQueue();
   }
 
-  reviewContentItem(itemId, patch = {}) {
+  reviewContentItem(itemId, patch = {}, reviewer = null) {
     const current = this.db.prepare("SELECT * FROM content_review_queue WHERE id = ?").get(itemId);
     if (!current) return null;
-    const nextStatus = patch.status ?? current.status;
+    const nextStatus = normalizeReviewStatus(patch.status ?? current.status);
     const nextNotes = patch.notes ?? current.notes;
-    this.db.prepare("UPDATE content_review_queue SET status = ?, notes = ? WHERE id = ?")
-      .run(nextStatus, nextNotes, itemId);
-    this.appendAudit(`Content review ${itemId}: ${nextStatus}`);
+    const nextReason = patch.decisionReason ?? patch.reason ?? current.decision_reason ?? "";
+    const nextReviewedBy = patch.reviewedBy ?? reviewer ?? current.reviewed_by ?? "";
+    const nextReviewedAt = patch.reviewedAt ?? nowIso();
+    this.db.prepare(
+      "UPDATE content_review_queue SET status = ?, notes = ?, decision_reason = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?"
+    )
+      .run(nextStatus, nextNotes, nextReason, nextReviewedBy, nextReviewedAt, itemId);
+    this.appendAudit(`Content review ${itemId}: ${nextStatus}${nextReviewedBy ? ` by ${nextReviewedBy}` : ""}`);
     return this.getContentReviewQueue();
   }
 
@@ -3058,23 +3100,31 @@ export class SqliteStorageAdapter {
   enqueueContentReviewRow(item) {
     this.db.prepare(
       `
-        INSERT INTO content_review_queue (id, item_type, item_id, status, notes, source, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO content_review_queue (
+          id, item_type, item_id, status, notes, source, decision_reason, reviewed_by, reviewed_at, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           item_type = excluded.item_type,
           item_id = excluded.item_id,
           status = excluded.status,
           notes = excluded.notes,
           source = excluded.source,
+          decision_reason = excluded.decision_reason,
+          reviewed_by = excluded.reviewed_by,
+          reviewed_at = excluded.reviewed_at,
           created_at = excluded.created_at
       `
     ).run(
       item.id,
       item.itemType,
       item.itemId,
-      item.status,
+      normalizeReviewStatus(item.status),
       item.notes,
       item.source ?? "seed",
+      item.decisionReason ?? "",
+      item.reviewedBy ?? "",
+      item.reviewedAt ?? null,
       item.createdAt ?? nowIso()
     );
   }

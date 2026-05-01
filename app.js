@@ -1314,10 +1314,16 @@ function renderAdmin() {
               .map(
                 (item) => `
                   <div class="list-item">
-                    <strong>${escapeHtml(item.itemType)}</strong>
-                    <span class="muted">${escapeHtml(item.status)} · ${escapeHtml(item.source ?? "seed")} · ${escapeHtml(item.notes)}</span>
+                    <div>
+                      <strong>${escapeHtml(item.itemType)}</strong>
+                      <span class="muted">${escapeHtml(item.status)} · ${escapeHtml(item.source ?? "seed")} · ${escapeHtml(item.notes)}</span>
+                      <span class="muted">Reason: ${escapeHtml(item.decisionReason || "n/a")} · Reviewer: ${escapeHtml(item.reviewedBy || "n/a")} · Reviewed: ${escapeHtml(item.reviewedAt || "n/a")}</span>
+                    </div>
                     <div class="button-row">
-                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="approved">Approve</button>
+                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="draft">Draft</button>
+                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="pending">Pending</button>
+                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="published">Publish</button>
+                      <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="archived">Archive</button>
                       <button class="secondary" data-action="review-content" data-review-id="${escapeHtml(item.id)}" data-status="rejected">Reject</button>
                     </div>
                   </div>
@@ -2231,7 +2237,11 @@ function wireActions() {
         if (reviewId && status) {
           await apiJson(`/api/admin/content-review/${encodeURIComponent(reviewId)}`, {
             method: "PATCH",
-            body: { status, notes: `${status} via admin panel` },
+            body: {
+              status,
+              notes: `${status} via admin panel`,
+              decisionReason: `${status} via admin panel`,
+            },
           });
           await apiJson("/api/audit-log", {
             method: "POST",

@@ -324,6 +324,7 @@ async function handleApi(req, res, url) {
       notes: body.notes ?? "Queued for review",
       source: body.source ?? "manual",
       status: body.status ?? "pending",
+      decisionReason: body.decisionReason ?? "",
     }));
     return;
   }
@@ -335,7 +336,7 @@ async function handleApi(req, res, url) {
     }
     const itemId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
     const body = await readJson(req);
-    const updated = store.reviewContentItem(itemId, body);
+    const updated = store.reviewContentItem(itemId, body, session?.sessionUser ?? null);
     respondJson(res, updated ? 200 : 404, updated ?? { error: "Not found" });
     return;
   }

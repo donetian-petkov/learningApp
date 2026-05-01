@@ -28,7 +28,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 8);
+    assert.equal(temp.store.getSchemaVersion(), 9);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
@@ -225,10 +225,13 @@ test("admin content review queue and permissions persist", () => {
     const queue = temp.store.getContentReviewQueue();
     assert.ok(queue.length >= 1);
     assert.equal(typeof queue[0].source, "string");
-    const reviewed = temp.store.reviewContentItem(queue[0].id, { status: "approved", notes: "Looks good" });
-    assert.equal(reviewed[0].status, "approved");
+    const reviewed = temp.store.reviewContentItem(queue[0].id, { status: "published", notes: "Looks good", decisionReason: "Ready to ship" }, "admin");
+    assert.equal(reviewed[0].status, "published");
     assert.equal(reviewed[0].notes, "Looks good");
     assert.equal(reviewed[0].source, queue[0].source);
+    assert.equal(reviewed[0].decisionReason, "Ready to ship");
+    assert.equal(reviewed[0].reviewedBy, "admin");
+    assert.equal(typeof reviewed[0].reviewedAt, "string");
 
     const enqueued = temp.store.enqueueContentReview({
       itemType: "lesson",
@@ -491,7 +494,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 8);
+    assert.equal(temp.store.getSchemaVersion(), 9);
   } finally {
     cleanupTempStore(temp);
   }
