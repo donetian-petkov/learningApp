@@ -26,6 +26,18 @@ npm run dev
 
 Then open `http://127.0.0.1:4173`.
 
+## Install
+
+```bash
+bash ./install.sh
+```
+
+Or:
+
+```bash
+npm run setup
+```
+
 ## Test
 
 ```bash
