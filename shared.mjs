@@ -200,6 +200,59 @@ export function evaluateWritingSubmission(sentence) {
   };
 }
 
+function normalizeExerciseAnswer(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[。、！？・,.!?]/g, "");
+}
+
+export function evaluateLessonExercise(exercise = {}, submission = {}) {
+  const type = String(exercise.type ?? "multiple-choice").trim().toLowerCase();
+  const answer = String(exercise.answer ?? "").trim();
+  const selected = String(submission.selected ?? submission.answer ?? submission.input ?? "").trim();
+  const prompt = String(exercise.prompt ?? "").trim();
+  const explanation = String(exercise.explanation ?? "").trim();
+  const choices = Array.isArray(exercise.choices) ? exercise.choices : [];
+
+  if (!answer) {
+    return {
+      correct: false,
+      score: 0,
+      feedback: prompt ? `Exercise unavailable: ${prompt}` : "Exercise unavailable.",
+      explanation,
+      selected,
+      answer,
+      choices,
+    };
+  }
+
+  const normalizedAnswer = normalizeExerciseAnswer(answer);
+  const normalizedSelected = normalizeExerciseAnswer(selected);
+  const isMultipleChoice = type.includes("multiple") || type.includes("choice");
+  const correct = isMultipleChoice
+    ? selected === answer || normalizedSelected === normalizedAnswer
+    : normalizedSelected === normalizedAnswer || selected === answer;
+
+  const score = correct ? 100 : 50;
+  const feedback = correct
+    ? explanation ? `Correct. ${explanation}` : "Correct."
+    : explanation
+      ? `Not quite. ${explanation}`
+      : `Not quite. The expected answer is ${answer}.`;
+
+  return {
+    correct,
+    score,
+    feedback,
+    explanation,
+    prompt,
+    selected,
+    answer,
+    choices,
+  };
+}
+
 export function buildLessonDraft(title, theme) {
   const normalizedTheme = String(theme ?? "custom").trim().toLowerCase() || "custom";
   const normalizedTitle = String(title ?? "New Lesson").trim() || "New Lesson";

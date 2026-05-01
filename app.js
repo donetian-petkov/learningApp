@@ -21,6 +21,7 @@ const defaultState = {
     reviewedWords: 118,
     speakingSessions: 7,
     listeningExercises: 22,
+    completedExercises: ["anime-intro-exercise-1"],
   },
   lessons: [
     {
@@ -240,6 +241,9 @@ let kanjiStudyIndex = 0;
 let kanjiStudyExampleIndex = 0;
 let kanjiReviewIndex = 0;
 let kanjiReviewFeedback = "";
+let lessonExerciseIndex = 0;
+let lessonExerciseFeedback = "";
+let lessonExerciseDraftAnswer = "";
 let permissionDraft = null;
 
 const listeningScenarios = [
@@ -393,6 +397,7 @@ function syncHeader() {
 function renderLearn() {
   const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
   const kanjiDeck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+  const completedExercises = new Set(Array.isArray(state.progress.completedExercises) ? state.progress.completedExercises : []);
   const selectedKanjiEntry = kanjiSelection
     ?? kanjiDeck.find((entry) => activeLesson.kanji.includes(entry.character))
     ?? kanjiDeck[kanjiStudyIndex % Math.max(kanjiDeck.length, 1)]
@@ -408,6 +413,9 @@ function renderLearn() {
   const exercises = Array.isArray(activeLesson.exercises) && activeLesson.exercises.length
     ? activeLesson.exercises
     : [{ type: "multiple-choice", prompt: `Which meaning best fits: ${activeLesson.japanese}`, choices: [activeLesson.translation, activeLesson.grammar, activeLesson.theme].filter(Boolean), answer: activeLesson.translation, explanation: activeLesson.grammar }];
+  const activeExercise = exercises.length ? exercises[lessonExerciseIndex % exercises.length] : null;
+  const activeExerciseKey = activeExercise?.id || `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`;
+  const activeExerciseComplete = completedExercises.has(activeExerciseKey);
   const moduleCards = state.lessons.map(
     (lesson) => `
       <article class="grid-card">
@@ -484,21 +492,44 @@ function renderLearn() {
         <p class="muted" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
         <div class="grid-card spaced">
           <h3>Lesson exercises</h3>
-          <div class="list">
-            ${exercises
-              .map(
-                (exercise) => `
-                  <article class="list-item">
-                    <div>
-                      <strong>${escapeHtml(exercise.type || "exercise")}</strong>
-                      <span>${escapeHtml(exercise.prompt || "")}</span>
-                      ${Array.isArray(exercise.choices) && exercise.choices.length ? `<span class="muted">Choices: ${escapeHtml(exercise.choices.join(" · "))}</span>` : ""}
-                      <span class="muted">Answer: ${escapeHtml(exercise.answer || "")}</span>
-                    </div>
-                  </article>
+          <p class="muted">${completedExercises.size}/${exercises.length} completed</p>
+          <div class="detail-card">
+            ${
+              activeExercise
+                ? `
+                  <p class="eyebrow">Exercise ${lessonExerciseIndex + 1} of ${exercises.length}</p>
+                  <strong>${escapeHtml(activeExercise.type || "exercise")}</strong>
+                  <p>${escapeHtml(activeExercise.prompt || "")}</p>
+                  ${
+                    Array.isArray(activeExercise.choices) && activeExercise.choices.length
+                      ? `
+                        <div class="tag-row">
+                          ${activeExercise.choices
+                            .map((choice) => `
+                              <button class="chip" data-action="lesson-exercise-answer" data-choice="${escapeHtml(choice)}" data-exercise-key="${escapeHtml(activeExerciseKey)}" data-lesson-id="${escapeHtml(activeLesson.id)}">${escapeHtml(choice)}</button>
+                            `)
+                            .join("")}
+                        </div>
+                      `
+                      : `
+                        <label class="field">
+                          <span>Your answer</span>
+                          <textarea rows="3" data-field="lesson-exercise-input">${escapeHtml(lessonExerciseDraftAnswer)}</textarea>
+                        </label>
+                        <div class="button-row">
+                          <button class="primary" data-action="lesson-exercise-submit" data-exercise-key="${escapeHtml(activeExerciseKey)}" data-lesson-id="${escapeHtml(activeLesson.id)}">Check exercise</button>
+                        </div>
+                      `
+                  }
+                  <p class="muted">${activeExerciseComplete ? "Completed and saved." : "Answer the exercise to earn study rewards."}</p>
+                  <div class="button-row">
+                    <button class="secondary" data-action="lesson-exercise-prev">Previous exercise</button>
+                    <button class="secondary" data-action="lesson-exercise-next">Next exercise</button>
+                  </div>
+                  <p class="muted" data-output="lesson-exercise-feedback">${escapeHtml(lessonExerciseFeedback || state.tutor.answer)}</p>
                 `
-              )
-              .join("")}
+                : "<p class='muted'>No exercises available for this lesson yet.</p>"
+            }
           </div>
         </div>
         <div class="grid-card spaced">
@@ -1508,6 +1539,9 @@ function wireActions() {
       const action = button.dataset.action;
       if (action === "select-lesson") {
         state.activeLessonId = button.dataset.id;
+        lessonExerciseIndex = 0;
+        lessonExerciseFeedback = "";
+        lessonExerciseDraftAnswer = "";
         persist();
         render();
       }
@@ -1544,6 +1578,70 @@ function wireActions() {
           });
           output.textContent = result.response ?? lesson.grammar;
         }
+      }
+
+      if (action === "lesson-exercise-prev" || action === "lesson-exercise-next") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const exerciseCount = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises.length : 0;
+        if (exerciseCount > 0) {
+          if (action === "lesson-exercise-prev") {
+            lessonExerciseIndex = (lessonExerciseIndex - 1 + exerciseCount) % exerciseCount;
+          } else {
+            lessonExerciseIndex = (lessonExerciseIndex + 1) % exerciseCount;
+          }
+        }
+        lessonExerciseFeedback = "";
+        lessonExerciseDraftAnswer = "";
+        render();
+      }
+
+      if (action === "lesson-exercise-answer") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const exercises = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises : [];
+        const exercise = exercises[lessonExerciseIndex % Math.max(exercises.length, 1)];
+        if (!exercise) return;
+        lessonExerciseDraftAnswer = button.dataset.choice ?? "";
+        const result = await apiJson("/api/practice", {
+          method: "POST",
+          body: {
+            kind: "lesson-exercise",
+            lessonId: activeLesson.id,
+            exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+            exercise,
+            selected: lessonExerciseDraftAnswer,
+          },
+        });
+        lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
+        if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
+          lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
+        }
+        await refreshState();
+      }
+
+      if (action === "lesson-exercise-submit") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const exercises = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises : [];
+        const exercise = exercises[lessonExerciseIndex % Math.max(exercises.length, 1)];
+        if (!exercise) return;
+        const input = app.querySelector('[data-field="lesson-exercise-input"]');
+        const answer = input?.value ?? lessonExerciseDraftAnswer ?? "";
+        lessonExerciseDraftAnswer = answer;
+        const result = await apiJson("/api/practice", {
+          method: "POST",
+          body: {
+            kind: "lesson-exercise",
+            lessonId: activeLesson.id,
+            exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+            exercise,
+            input: answer,
+          },
+        });
+        lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
+        if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
+          lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
+          lessonExerciseDraftAnswer = "";
+        }
+        await refreshState();
       }
 
       if (action === "transcribe-speaking") {

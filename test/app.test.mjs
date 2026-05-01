@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -55,7 +55,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 10);
+    assert.equal(temp.store.getSchemaVersion(), 11);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
@@ -592,7 +592,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 3);
-    assert.equal(temp.store.getSchemaVersion(), 10);
+    assert.equal(temp.store.getSchemaVersion(), 11);
   } finally {
     cleanupTempStore(temp);
   }
@@ -649,6 +649,34 @@ test("writing submission evaluation returns score and guidance", () => {
   assert.ok(evaluation.issues.some((issue) => issue.includes("period")));
 });
 
+test("lesson exercise evaluation handles multiple choice and translation", () => {
+  const choice = evaluateLessonExercise(
+    {
+      type: "multiple-choice",
+      prompt: "Which meaning best fits?",
+      choices: ["welcome", "thank you"],
+      answer: "welcome",
+      explanation: "It is a greeting.",
+    },
+    { selected: "welcome" }
+  );
+  assert.equal(choice.correct, true);
+  assert.equal(choice.score, 100);
+  assert.ok(choice.feedback.includes("Correct"));
+
+  const translation = evaluateLessonExercise(
+    {
+      type: "translation",
+      prompt: "Translate the line",
+      answer: "Where is the ticket counter?",
+      explanation: "Use a polite question.",
+    },
+    { input: "Where is the ticket counter" }
+  );
+  assert.equal(translation.correct, true);
+  assert.ok(translation.feedback.includes("Correct"));
+});
+
 test("lesson draft generation returns theme-based content", () => {
   const draft = buildLessonDraft("Train Station", "travel");
   assert.equal(draft.title, "Train Station");
@@ -666,6 +694,27 @@ test("lesson pack generation returns multiple imported lessons", () => {
   assert.ok(pack.every((lesson) => lesson.title.startsWith("Travel Pack")));
   assert.ok(pack.some((lesson) => lesson.japanese.includes("切符売り場")));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.grammarPoints) && lesson.grammarPoints.length >= 2));
+});
+
+test("lesson exercise completion persists and awards study progress", () => {
+  const temp = createTempStore();
+  try {
+    const before = temp.store.getSnapshot();
+    assert.equal(Array.isArray(before.progress.completedExercises), true);
+    const lesson = before.lessons.find((entry) => entry.id === "anime-intro");
+    const exercise = lesson.exercises[0];
+    const result = temp.store.recordPracticeSession("lesson-exercise", {
+      lessonId: lesson.id,
+      exerciseKey: exercise.id,
+      exercise,
+      selected: exercise.answer,
+    });
+    assert.equal(result.progress.completedExercises.includes(exercise.id), true);
+    assert.equal(result.progress.xp > before.progress.xp, true);
+    assert.equal(result.tutor.answer.includes("Correct"), true);
+  } finally {
+    cleanupTempStore(temp);
+  }
 });
 
 test("lesson draft generation covers broader themes", () => {

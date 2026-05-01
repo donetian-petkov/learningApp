@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildLessonStudyMaterials, buildRoleplayTranscript, calculateLevel, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildLessonStudyMaterials, buildRoleplayTranscript, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -338,6 +338,7 @@ function normalizeState(snapshot) {
   state.toggles ??= clone(INITIAL_APP_STATE.toggles);
   state.progress ??= clone(INITIAL_APP_STATE.progress);
   state.progress.completedLessons ??= [];
+  state.progress.completedExercises ??= [];
   state.lessons = Array.isArray(state.lessons) ? state.lessons.map(normalizeLesson) : [];
   state.reviews = Array.isArray(state.reviews) ? state.reviews.map(normalizeReviewItem) : [];
   state.achievements = Array.isArray(state.achievements) ? state.achievements.map(normalizeAchievement) : [];
@@ -521,6 +522,7 @@ export class SqliteStorageAdapter {
         speaking_minutes INTEGER NOT NULL,
         listening_minutes INTEGER NOT NULL,
         completed_lessons_json TEXT NOT NULL,
+        completed_exercises_json TEXT NOT NULL,
         reviewed_words INTEGER NOT NULL,
         speaking_sessions INTEGER NOT NULL,
         listening_exercises INTEGER NOT NULL
@@ -659,6 +661,7 @@ export class SqliteStorageAdapter {
         speaking_sessions INTEGER NOT NULL,
         listening_exercises INTEGER NOT NULL,
         completed_lessons_json TEXT NOT NULL,
+        completed_exercises_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
 
@@ -1015,6 +1018,15 @@ export class SqliteStorageAdapter {
     }
     if (getSchemaVersion(this.db) < 10) {
       setSchemaVersion(this.db, 10);
+    }
+    if (getSchemaVersion(this.db) < 11) {
+      try {
+        this.db.exec("ALTER TABLE progress_state ADD COLUMN completed_exercises_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE progress_snapshots ADD COLUMN completed_exercises_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      setSchemaVersion(this.db, 11);
     }
   }
 
@@ -1617,6 +1629,22 @@ export class SqliteStorageAdapter {
       updated.progress.xp += Math.max(15, evaluation.score / 4);
       updated.progress.credits += evaluation.score >= 85 ? 10 : 6;
       audit = `Writing practice reviewed: ${evaluation.score}`;
+    } else if (kind === "lesson-exercise") {
+      const exercise = payload.exercise ?? {};
+      const evaluation = evaluateLessonExercise(exercise, payload);
+      updated.tutor.answer = evaluation.feedback;
+      const exerciseKey = String(payload.exerciseKey ?? exercise.id ?? `${payload.lessonId ?? "lesson"}-${exercise.type ?? "exercise"}`).trim();
+      const completedExercises = new Set(Array.isArray(updated.progress.completedExercises) ? updated.progress.completedExercises : []);
+      if (evaluation.correct) {
+        completedExercises.add(exerciseKey);
+        updated.progress.xp += 18;
+        updated.progress.credits += 5;
+        updated.progress.reviewedWords += 1;
+      } else {
+        updated.progress.xp += 5;
+      }
+      updated.progress.completedExercises = Array.from(completedExercises);
+      audit = `Lesson exercise ${evaluation.correct ? "passed" : "missed"}: ${exerciseKey}`;
     } else if (kind === "tutor") {
       const question = String(payload.question ?? current.tutor.question);
       updated.tutor.question = question;
@@ -1879,6 +1907,7 @@ export class SqliteStorageAdapter {
           speakingMinutes: progressRow.speaking_minutes,
           listeningMinutes: progressRow.listening_minutes,
           completedLessons: parseJson(progressRow.completed_lessons_json, []),
+          completedExercises: parseJson(progressRow.completed_exercises_json, []),
           reviewedWords: progressRow.reviewed_words,
           speakingSessions: progressRow.speaking_sessions,
           listeningExercises: progressRow.listening_exercises,
@@ -2049,7 +2078,7 @@ export class SqliteStorageAdapter {
         );
       }
       this.db.prepare(
-        "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, completed_exercises_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         next.progress.xp,
         next.progress.level,
@@ -2063,6 +2092,7 @@ export class SqliteStorageAdapter {
         next.progress.speakingSessions,
         next.progress.listeningExercises,
         toJson(next.progress.completedLessons),
+        toJson(next.progress.completedExercises),
         now
       );
       this.db.prepare(
@@ -2119,7 +2149,7 @@ export class SqliteStorageAdapter {
     );
 
     this.db.prepare(
-      "INSERT INTO progress_state (id, xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, completed_lessons_json, reviewed_words, speaking_sessions, listening_exercises) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO progress_state (id, xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, completed_lessons_json, completed_exercises_json, reviewed_words, speaking_sessions, listening_exercises) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       snapshot.progress.xp,
       calculateLevel(snapshot.progress.xp),
@@ -2130,6 +2160,7 @@ export class SqliteStorageAdapter {
       snapshot.progress.speakingMinutes,
       snapshot.progress.listeningMinutes,
       toJson(snapshot.progress.completedLessons),
+      toJson(snapshot.progress.completedExercises),
       snapshot.progress.reviewedWords,
       snapshot.progress.speakingSessions,
       snapshot.progress.listeningExercises

@@ -19,6 +19,7 @@ export const INITIAL_APP_STATE = {
     reviewedWords: 118,
     speakingSessions: 7,
     listeningExercises: 22,
+    completedExercises: ["anime-intro-exercise-1"],
   },
   lessons: [
     {
