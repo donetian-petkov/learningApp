@@ -68,6 +68,52 @@ test("lesson CRUD works through the SQLite adapter", () => {
   }
 });
 
+test("lesson imports batch upsert through the SQLite adapter", () => {
+  const temp = createTempStore();
+  try {
+    const imported = temp.store.importLessons([
+      {
+        id: "imported-convenience-store",
+        title: "Anime: Convenience Store",
+        theme: "anime",
+        difficulty: "N5",
+        japanese: "いらっしゃいませ。",
+        romaji: "Irasshaimase.",
+        translation: "Welcome.",
+        grammar: "Greeting used by shop staff.",
+      },
+      {
+        id: "imported-travel-ticket",
+        title: "Travel: Ticket Counter",
+        theme: "travel",
+        difficulty: "N5",
+        japanese: "切符をください。",
+        romaji: "Kippu o kudasai.",
+        translation: "A ticket, please.",
+        grammar: "Polite request with をください.",
+      },
+    ]);
+    assert.equal(imported.length, 2);
+    assert.equal(temp.store.getLessons().some((lesson) => lesson.id === "imported-convenience-store"), true);
+    assert.equal(temp.store.getLessons().some((lesson) => lesson.id === "imported-travel-ticket"), true);
+
+    const updated = temp.store.importLessons({
+      id: "imported-convenience-store",
+      title: "Anime: Store Greeting",
+      theme: "anime",
+      difficulty: "N5",
+      japanese: "いらっしゃいませ。",
+      romaji: "Irasshaimase.",
+      translation: "Welcome.",
+      grammar: "Greeting used by shop staff.",
+    });
+    assert.equal(updated.length, 1);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.title, "Anime: Store Greeting");
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("review grading applies SM-2 updates and records history", () => {
   const temp = createTempStore();
   try {

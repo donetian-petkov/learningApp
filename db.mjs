@@ -842,6 +842,28 @@ export class SqliteStorageAdapter {
     return normalized;
   }
 
+  importLessons(lessons) {
+    const snapshot = this.getSnapshot();
+    const next = clone(snapshot);
+    const entries = Array.isArray(lessons) ? lessons : [lessons];
+    const imported = [];
+
+    entries.forEach((lesson, index) => {
+      if (!lesson) return;
+      const normalized = normalizeLesson(lesson, next.lessons.length + index);
+      const existingIndex = next.lessons.findIndex((item) => item.id === normalized.id);
+      if (existingIndex >= 0) next.lessons[existingIndex] = normalized;
+      else next.lessons.push(normalized);
+      imported.push(normalized);
+    });
+
+    if (imported.length) {
+      this.saveAppState(next);
+    }
+
+    return imported;
+  }
+
   loadReviews() {
     return this.getSnapshot().reviews;
   }

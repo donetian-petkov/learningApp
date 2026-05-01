@@ -923,6 +923,15 @@ function renderAdmin() {
             <span>Grammar</span>
             <input type="text" data-field="lesson-grammar" value="${escapeHtml(lessonDraft.grammar)}" placeholder="Custom lesson created from the admin panel." />
           </label>
+          <label class="field">
+            <span>Import lesson JSON</span>
+            <textarea
+              data-field="lesson-import-json"
+              rows="5"
+              placeholder='[{"title":"Anime: Convenience Store","theme":"anime","difficulty":"N5","japanese":"いらっしゃいませ。","romaji":"Irasshaimase.","translation":"Welcome.","grammar":"Greeting used by shop staff."}]'
+            ></textarea>
+          </label>
+          <p class="muted">Paste one lesson object or an array of lesson objects, then import them into SQLite.</p>
           <h4 class="spaced">Content review queue</h4>
           <div class="list">
             ${(state.admin.contentReviewQueue ?? [])
@@ -943,6 +952,7 @@ function renderAdmin() {
           <div class="button-row spaced">
             <button class="primary" data-action="save-lesson">${adminLessonEditor ? "Save changes" : "Add lesson"}</button>
             <button class="secondary" data-action="generate-lesson-draft">Generate draft</button>
+            <button class="secondary" data-action="import-lessons">Import JSON</button>
             ${adminLessonEditor ? '<button class="secondary" data-action="cancel-lesson-edit">Cancel edit</button>' : ""}
           </div>
         </div>
@@ -1437,6 +1447,33 @@ function wireActions() {
         const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
         adminLessonEditor = buildLessonDraft(title, theme);
         render();
+      }
+
+      if (action === "import-lessons") {
+        const importInput = app.querySelector('[data-field="lesson-import-json"]');
+        const raw = importInput?.value?.trim();
+        if (!raw) {
+          return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          window.alert("Lesson import JSON is not valid.");
+          return;
+        }
+        const result = await apiJson("/api/lessons/import", {
+          method: "POST",
+          body: Array.isArray(parsed) ? { lessons: parsed } : parsed,
+        });
+        if (importInput) {
+          importInput.value = "";
+        }
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `Imported lessons: ${result.imported}` },
+        });
+        await refreshState();
       }
 
       if (action === "delete-lesson") {

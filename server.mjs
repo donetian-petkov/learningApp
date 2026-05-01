@@ -67,6 +67,13 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/lessons/import") {
+    const body = await readJson(req);
+    const imported = store.importLessons(body.lessons ?? body.lesson ?? body);
+    respondJson(res, 200, { imported: imported.length, lessons: imported });
+    return;
+  }
+
   if (req.method === "PATCH" && url.pathname.startsWith("/api/lessons/")) {
     const lessonId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
     const body = await readJson(req);
