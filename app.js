@@ -250,6 +250,9 @@ let lessonDialogueIndex = 0;
 let roleplayDraft = "";
 let reviewDeckIndex = 0;
 let reviewReveal = false;
+let savedStudyIndex = 0;
+let savedStudyReveal = false;
+let savedStudyMode = "all";
 let lessonCatalogQuery = "";
 let lessonCatalogTheme = "";
 let lessonCatalogDifficulty = "";
@@ -990,6 +993,14 @@ function renderReview() {
   const kanjiChoices = kanjiReview ? buildKanjiQuizChoices(kanjiReview, kanjiQueue, state.kanjiEntries ?? []) : [];
   const reviewQueue = Array.isArray(state.reviews) ? state.reviews : [];
   const activeReview = reviewQueue.length ? reviewQueue[reviewDeckIndex % reviewQueue.length] : null;
+  const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word", display: item.term, detail: `${item.reading || "—"} · ${item.meaning || ""}`.trim() }));
+  const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji", display: item.character, detail: `${item.onYomi || "—"} / ${item.kunYomi || "—"} · ${item.meaning || ""}`.trim() }));
+  const savedStudyDeck = savedStudyMode === "words"
+    ? savedWordQueue
+    : savedStudyMode === "kanji"
+      ? savedKanjiQueue
+      : [...savedWordQueue, ...savedKanjiQueue];
+  const activeSavedStudy = savedStudyDeck.length ? savedStudyDeck[savedStudyIndex % savedStudyDeck.length] : null;
   const items = state.reviews
     .map(
       (item) => `
@@ -1073,6 +1084,45 @@ function renderReview() {
           <h3>Weekly leaderboard</h3>
           ${renderLeaderboard()}
         </div>
+      </div>
+      <div class="grid-card spaced">
+        <h3>Saved study deck</h3>
+        <p class="muted">Revisit bookmarked words and kanji without leaving Review.</p>
+        <div class="button-row">
+          <button class="secondary" data-action="saved-study-mode" data-mode="all">All</button>
+          <button class="secondary" data-action="saved-study-mode" data-mode="words">Words</button>
+          <button class="secondary" data-action="saved-study-mode" data-mode="kanji">Kanji</button>
+        </div>
+        ${
+          activeSavedStudy
+            ? `
+              <p class="muted">Card ${savedStudyIndex + 1} of ${savedStudyDeck.length} · ${escapeHtml(activeSavedStudy.kind)}</p>
+              <div class="kanji-focus">
+                <strong>${escapeHtml(activeSavedStudy.display)}</strong>
+                <span class="tag">${escapeHtml(activeSavedStudy.kind)}</span>
+              </div>
+              <p class="muted">${escapeHtml(activeSavedStudy.detail || "—")}</p>
+              ${
+                savedStudyReveal
+                  ? `
+                    <div class="detail-card spaced">
+                      <p><strong>Source:</strong> ${escapeHtml(activeSavedStudy.sourceLessonTitle || activeSavedStudy.source || "manual")}</p>
+                      <p class="muted">Bookmarked at ${escapeHtml(activeSavedStudy.bookmarkedAt || "unknown time")}</p>
+                      <p class="muted">${escapeHtml(activeSavedStudy.example || (Array.isArray(activeSavedStudy.examples) ? activeSavedStudy.examples.join(" · ") : ""))}</p>
+                    </div>
+                  `
+                  : `
+                    <p class="muted">Reveal the card to see the saved context and source lesson.</p>
+                  `
+              }
+              <div class="button-row">
+                <button class="secondary" data-action="saved-study-prev">Previous card</button>
+                <button class="primary" data-action="saved-study-reveal">${savedStudyReveal ? "Hide details" : "Reveal details"}</button>
+                <button class="secondary" data-action="saved-study-next">Next card</button>
+              </div>
+            `
+            : "<p class='muted'>Save a word or kanji to build a personal review deck here.</p>"
+        }
       </div>
       <div class="grid-card spaced">
         <h3>Kanji drill</h3>
@@ -2041,6 +2091,35 @@ function wireActions() {
             : (reviewDeckIndex - 1 + count) % count;
         }
         reviewReveal = false;
+        render();
+      }
+
+      if (action === "saved-study-mode") {
+        savedStudyMode = button.dataset.mode ?? "all";
+        savedStudyIndex = 0;
+        savedStudyReveal = false;
+        render();
+      }
+
+      if (action === "saved-study-prev" || action === "saved-study-next") {
+        const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word" }));
+        const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji" }));
+        const deck = savedStudyMode === "words"
+          ? savedWordQueue
+          : savedStudyMode === "kanji"
+            ? savedKanjiQueue
+            : [...savedWordQueue, ...savedKanjiQueue];
+        if (deck.length) {
+          savedStudyIndex = action === "saved-study-next"
+            ? (savedStudyIndex + 1) % deck.length
+            : (savedStudyIndex - 1 + deck.length) % deck.length;
+        }
+        savedStudyReveal = false;
+        render();
+      }
+
+      if (action === "saved-study-reveal") {
+        savedStudyReveal = !savedStudyReveal;
         render();
       }
 
