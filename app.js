@@ -1,4 +1,4 @@
-import { answerTutor, buildRoleplayTranscript, escapeHtml, normalizeSentence } from "./shared.mjs";
+import { escapeHtml } from "./shared.mjs";
 
 const defaultState = {
   view: "learn",
@@ -478,7 +478,7 @@ function renderProgress() {
           <p class="eyebrow">Progress</p>
           <h2>Study streak, XP, and mastery</h2>
         </div>
-        <p>LocalStorage persistence now, SQLite-ready later.</p>
+        <p>SQLite-backed progress, streaks, achievements, and cosmetic ownership.</p>
       </div>
       <div class="stats-grid">
         ${renderStat("Kanji learned", state.progress.kanji)}
@@ -661,13 +661,12 @@ function wireActions() {
       }
 
       if (action === "complete-lesson") {
-        const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
-        if (lesson) {
-          await apiJson("/api/gamification/award", {
+        const lessonId = button.dataset.id;
+        if (lessonId) {
+          await apiJson("/api/progress/lesson-complete", {
             method: "POST",
-            body: { source: "lesson-complete", delta: { xp: 80, credits: 20, streak: 0 } },
+            body: { lessonId },
           });
-          completeLesson(lesson.id);
           await refreshState();
         }
       }
@@ -703,8 +702,6 @@ function wireActions() {
             method: "POST",
             body: { source: "review-pass", delta: { xp: 20, credits: 5, streak: 0 } },
           });
-          state.progress.reviewedWords += 1;
-          persist();
           await refreshState();
         }
       }
@@ -712,16 +709,12 @@ function wireActions() {
       if (action === "check-speaking") {
         const input = app.querySelector('[data-field="speaking-input"]');
         const output = app.querySelector('[data-output="speaking-feedback"]');
-        const normalized = (input?.value ?? "").trim();
-        const correction = normalizeSentence(normalized);
-        state.progress.speakingMinutes += 4;
-        state.progress.speakingSessions += 1;
-        state.progress.xp += 30;
-        state.progress.credits += 10;
-        state.tutor.answer = `Natural correction: ${correction}`;
-        if (output) output.textContent = state.tutor.answer;
-        recalculateAchievements();
-        persist();
+        const next = await apiJson("/api/practice", {
+          method: "POST",
+          body: { kind: "speaking", input: input?.value ?? "" },
+        });
+        if (output) output.textContent = next.tutor?.answer ?? state.tutor.answer;
+        await refreshState();
       }
 
       if (action === "play-sample") {
@@ -731,49 +724,46 @@ function wireActions() {
       if (action === "listening-answer") {
         const output = app.querySelector('[data-output="listening-feedback"]');
         const correct = button.dataset.answer === "soup";
+        await apiJson("/api/practice", {
+          method: "POST",
+          body: { kind: "listening", answer: button.dataset.answer ?? "" },
+        });
         if (output) {
           output.textContent = correct ? "Correct. The server asked about the broth." : "Not quite. Listen for a question about the broth.";
         }
-        if (correct) {
-          state.progress.listeningMinutes += 3;
-          state.progress.listeningExercises += 1;
-          state.progress.xp += 20;
-          state.progress.credits += 5;
-          recalculateAchievements();
-          persist();
-        }
+        await refreshState();
       }
 
       if (action === "check-writing") {
         const input = app.querySelector('[data-field="writing-input"]');
         const output = app.querySelector('[data-output="writing-feedback"]');
-        const result = reviewWriting(input?.value ?? "");
-        if (output) output.textContent = result;
-        state.progress.xp += 25;
-        state.progress.credits += 8;
-        persist();
+        const result = await apiJson("/api/practice", {
+          method: "POST",
+          body: { kind: "writing", input: input?.value ?? "" },
+        });
+        if (output) output.textContent = result.tutor?.answer ?? state.tutor.answer;
+        await refreshState();
       }
 
       if (action === "ask-tutor") {
         const input = app.querySelector('[data-field="tutor-input"]');
         const output = app.querySelector('[data-output="tutor-feedback"]');
-        const answer = answerTutor(input?.value ?? state.tutor.question);
-        state.tutor.question = input?.value ?? state.tutor.question;
-        state.tutor.answer = answer;
-        if (output) output.textContent = answer;
-        state.progress.xp += 15;
-        persist();
+        const next = await apiJson("/api/practice", {
+          method: "POST",
+          body: { kind: "tutor", question: input?.value ?? state.tutor.question },
+        });
+        if (output) output.textContent = next.tutor?.answer ?? state.tutor.answer;
+        await refreshState();
       }
 
       if (action === "send-roleplay") {
         const select = app.querySelector('[data-field="roleplay-scenario"]');
         const scenario = select?.value ?? "restaurant";
-        state.roleplay.scenario = scenario;
-        state.roleplay.transcript = buildRoleplayTranscript(scenario);
-        state.progress.xp += 20;
-        state.progress.credits += 5;
-        persist();
-        render();
+        await apiJson("/api/practice", {
+          method: "POST",
+          body: { kind: "roleplay", scenario },
+        });
+        await refreshState();
       }
 
       if (action === "open-chest") {
@@ -785,27 +775,22 @@ function wireActions() {
       if (action === "complete-task") {
         const task = state.dailyTasks.find((entry) => entry.name === button.dataset.task);
         if (task && !task.complete) {
-          task.complete = true;
-          state.progress.xp += 40;
-          state.progress.credits += 12;
-          state.progress.streak += 1;
-          recalculateAchievements();
-          persist();
-          render();
+          await apiJson("/api/progress/task-complete", {
+            method: "POST",
+            body: { taskId: task.id ?? task.name },
+          });
+          await refreshState();
         }
       }
 
       if (action === "buy-cosmetic") {
         const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
         if (cosmetic && !cosmetic.owned && state.progress.credits >= cosmetic.cost) {
-          cosmetic.owned = true;
-          state.progress.credits -= cosmetic.cost;
-          await apiJson("/api/audit-log", {
+          await apiJson("/api/cosmetics/buy", {
             method: "POST",
-            body: { entry: `Purchased cosmetic: ${cosmetic.name}` },
+            body: { cosmeticId: cosmetic.id ?? cosmetic.name },
           });
-          persist();
-          render();
+          await refreshState();
         }
       }
 
@@ -895,40 +880,6 @@ function activeLessonPreview() {
       ? `${item.word} (${item.kana}) - ${item.meaning}`
       : `${item.word} - ${item.meaning}`
   );
-}
-
-function completeLesson(id) {
-  if (!state.progress.completedLessons.includes(id)) {
-    state.progress.completedLessons.push(id);
-    state.progress.reviewedWords += 3;
-    state.progress.kanji += 2;
-    recalculateAchievements();
-    persist();
-    render();
-  }
-}
-
-function reviewWriting(sentence) {
-  const trimmed = sentence.trim();
-  if (!trimmed) return "Write a short sentence before asking for feedback.";
-  if (trimmed.includes("は") || trimmed.includes("を")) {
-    return "Good structure. The particle placement looks natural for an MVP check.";
-  }
-  return "Add a particle such as は, を, or が to make the sentence clearer.";
-}
-
-function recalculateAchievements() {
-  const unlock = (name, condition) => {
-    const achievement = state.achievements.find((item) => item.name === name);
-    if (achievement && condition) achievement.unlocked = true;
-  };
-
-  unlock("First Lesson Completed", state.progress.completedLessons.length > 0);
-  unlock("7-Day Streak", state.progress.streak >= 7);
-  unlock("50 Kanji Learned", state.progress.kanji >= 50);
-  unlock("100 Words Reviewed", state.progress.reviewedWords >= 100);
-  unlock("First Spoken Conversation", state.progress.speakingSessions >= 1);
-  unlock("Anime Dialogue Master", state.progress.completedLessons.includes("anime-intro"));
 }
 
 function renderLeaderboard() {

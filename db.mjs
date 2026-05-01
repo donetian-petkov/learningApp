@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { calculateLevel, sm2Next } from "./shared.mjs";
+import { answerTutor, buildRoleplayTranscript, calculateLevel, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -66,6 +66,10 @@ function normalizeReviewItem(item, index = 0) {
     meaning: item.meaning ?? "",
     due: item.due ?? "Now",
     ease: Number(item.ease ?? 2.5),
+    interval_days: Number(item.interval_days ?? 1),
+    repetitions: Number(item.repetitions ?? 0),
+    mistakes: Number(item.mistakes ?? 0),
+    source_lesson_id: item.source_lesson_id ?? null,
   };
 }
 
@@ -78,6 +82,7 @@ function normalizeAchievement(item) {
 
 function normalizeTask(item) {
   return {
+    id: item.id ?? (item.name ? `task-${String(item.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}` : "task-unknown"),
     name: item.name,
     reward: item.reward,
     complete: Boolean(item.complete),
@@ -86,6 +91,7 @@ function normalizeTask(item) {
 
 function normalizeCosmetic(item) {
   return {
+    id: item.id ?? (item.name ? `cosmetic-${String(item.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}` : "cosmetic-unknown"),
     name: item.name,
     cost: Number(item.cost ?? 0),
     owned: Boolean(item.owned),
@@ -116,6 +122,24 @@ function normalizeState(snapshot) {
   state.roleplay ??= clone(INITIAL_APP_STATE.roleplay);
   state.tutor ??= clone(INITIAL_APP_STATE.tutor);
   state.chest ??= clone(INITIAL_APP_STATE.chest);
+  return state;
+}
+
+function applyAchievementRules(state) {
+  const unlock = (name, condition) => {
+    const achievement = state.achievements.find((item) => item.name === name);
+    if (achievement && condition) {
+      achievement.unlocked = true;
+    }
+  };
+
+  unlock("First Lesson Completed", state.progress.completedLessons.length > 0);
+  unlock("7-Day Streak", state.progress.streak >= 7);
+  unlock("50 Kanji Learned", state.progress.kanji >= 50);
+  unlock("100 Words Reviewed", state.progress.reviewedWords >= 100);
+  unlock("First Spoken Conversation", state.progress.speakingSessions >= 1);
+  unlock("Anime Dialogue Master", state.progress.completedLessons.includes("anime-intro"));
+
   return state;
 }
 
@@ -574,6 +598,15 @@ export class SqliteStorageAdapter {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    const current = this.getSnapshot();
+    const updated = {
+      ...current,
+      progress: {
+        ...current.progress,
+        reviewedWords: current.progress.reviewedWords + 1,
+      },
+    };
+    this.saveAppState(updated, current.admin.sessionUser ?? null);
     return { ...review, ...next };
   }
 
@@ -608,6 +641,148 @@ export class SqliteStorageAdapter {
     this.saveAppState(next, current.admin.sessionUser ?? null);
     this.appendAudit(`${source}: progress delta`);
     return this.getSnapshot();
+  }
+
+  completeLesson(lessonId, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    if (current.progress.completedLessons.includes(lessonId)) {
+      return current;
+    }
+    const updated = {
+      ...current,
+      progress: {
+        ...current.progress,
+        xp: current.progress.xp + 80,
+        credits: current.progress.credits + 20,
+        reviewedWords: current.progress.reviewedWords + 3,
+        kanji: current.progress.kanji + 2,
+        completedLessons: [...current.progress.completedLessons, lessonId],
+      },
+    };
+    this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.appendAudit(`Completed lesson: ${lessonId}`);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+  }
+
+  completeTask(taskId, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const task = this.db.prepare("SELECT * FROM daily_tasks WHERE id = ?").get(taskId);
+    if (!task) return null;
+    const existing = this.db
+      .prepare("SELECT 1 FROM task_completions WHERE task_id = ? AND date_key = ?")
+      .get(taskId, currentDateKey());
+    if (existing) {
+      return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("INSERT INTO task_completions (task_id, completed_at, date_key) VALUES (?, ?, ?)")
+        .run(taskId, nowIso(), currentDateKey());
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    const updated = {
+      ...current,
+      progress: {
+        ...current.progress,
+        xp: current.progress.xp + task.reward_xp,
+        credits: current.progress.credits + task.reward_credits,
+        streak: current.progress.streak + 1,
+      },
+    };
+    this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.appendAudit(`Completed task: ${task.name}`);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+  }
+
+  buyCosmetic(cosmeticId, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const cosmetic = this.db.prepare("SELECT * FROM cosmetics WHERE id = ?").get(cosmeticId);
+    if (!cosmetic) return null;
+    if (this.db.prepare("SELECT 1 FROM user_cosmetics WHERE cosmetic_id = ?").get(cosmeticId)) {
+      return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    }
+    if (current.progress.credits < cosmetic.cost) {
+      throw new Error("Not enough credits");
+    }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("INSERT INTO user_cosmetics (cosmetic_id, owned_at, equipped) VALUES (?, ?, ?)")
+        .run(cosmeticId, nowIso(), 0);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    const updated = {
+      ...current,
+      progress: {
+        ...current.progress,
+        credits: current.progress.credits - cosmetic.cost,
+      },
+    };
+    this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.appendAudit(`Purchased cosmetic: ${cosmetic.name}`);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+  }
+
+  recordPracticeSession(kind, payload = {}, sessionUser = null) {
+    const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    const updated = clone(current);
+    let audit = "";
+
+    if (kind === "speaking") {
+      const correction = normalizeSentence(String(payload.input ?? ""));
+      updated.tutor.answer = `Natural correction: ${correction}`;
+      updated.progress.speakingMinutes += 4;
+      updated.progress.speakingSessions += 1;
+      updated.progress.xp += 30;
+      updated.progress.credits += 10;
+      audit = `Speaking practice: ${correction}`;
+    } else if (kind === "listening") {
+      const correct = payload.answer === "soup";
+      if (correct) {
+        updated.progress.listeningMinutes += 3;
+        updated.progress.listeningExercises += 1;
+        updated.progress.xp += 20;
+        updated.progress.credits += 5;
+      }
+      audit = `Listening practice: ${correct ? "correct" : "incorrect"}`;
+    } else if (kind === "writing") {
+      const sentence = String(payload.input ?? "");
+      const trimmed = sentence.trim();
+      let feedback = "Write a short sentence before asking for feedback.";
+      if (trimmed) {
+        feedback = trimmed.includes("は") || trimmed.includes("を")
+          ? "Good structure. The particle placement looks natural for an MVP check."
+          : "Add a particle such as は, を, or が to make the sentence clearer.";
+      }
+      updated.tutor.answer = feedback;
+      updated.progress.xp += 25;
+      updated.progress.credits += 8;
+      audit = `Writing practice reviewed`;
+    } else if (kind === "tutor") {
+      const question = String(payload.question ?? current.tutor.question);
+      updated.tutor.question = question;
+      updated.tutor.answer = answerTutor(question);
+      updated.progress.xp += 15;
+      audit = `Tutor question answered`;
+    } else if (kind === "roleplay") {
+      const scenario = String(payload.scenario ?? current.roleplay.scenario);
+      updated.roleplay.scenario = scenario;
+      updated.roleplay.transcript = buildRoleplayTranscript(scenario);
+      updated.progress.xp += 20;
+      updated.progress.credits += 5;
+      audit = `Roleplay scenario updated: ${scenario}`;
+    } else {
+      throw new Error(`Unsupported practice kind: ${kind}`);
+    }
+
+    this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
+    this.appendAudit(audit);
+    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
 
   loadAdminState(sessionUser = null) {
@@ -694,6 +869,10 @@ export class SqliteStorageAdapter {
       meaning: row.meaning,
       due: row.due,
       ease: row.ease,
+      interval_days: row.interval_days,
+      repetitions: row.repetitions,
+      mistakes: row.mistakes,
+      source_lesson_id: row.source_lesson_id,
     }));
     const achievements = this.db.prepare("SELECT * FROM achievements ORDER BY sort_order, name").all().map((row) => ({
       name: row.name,
@@ -702,6 +881,7 @@ export class SqliteStorageAdapter {
       ),
     }));
     const dailyTasks = this.db.prepare("SELECT * FROM daily_tasks ORDER BY sort_order, name").all().map((row) => ({
+      id: row.id,
       name: row.name,
       reward: row.reward,
       complete: Boolean(
@@ -711,6 +891,7 @@ export class SqliteStorageAdapter {
       ),
     }));
     const cosmetics = this.db.prepare("SELECT * FROM cosmetics ORDER BY sort_order, name").all().map((row) => ({
+      id: row.id,
       name: row.name,
       cost: row.cost,
       owned: Boolean(this.db.prepare("SELECT 1 FROM user_cosmetics WHERE cosmetic_id = ?").get(row.id)),
@@ -797,7 +978,7 @@ export class SqliteStorageAdapter {
   }
 
   saveAppState(nextSnapshot, sessionUser = null) {
-    const next = normalizeState(nextSnapshot);
+    const next = applyAchievementRules(normalizeState(nextSnapshot));
     next.progress.level = calculateLevel(next.progress.xp);
     const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
     const xpDelta = next.progress.xp - current.progress.xp;
@@ -870,7 +1051,6 @@ export class SqliteStorageAdapter {
       DELETE FROM lesson_grammar;
       DELETE FROM lesson_dialogue_lines;
       DELETE FROM exercise_items;
-      DELETE FROM review_items;
       DELETE FROM achievements;
       DELETE FROM user_achievements;
       DELETE FROM daily_tasks;
@@ -940,9 +1120,25 @@ export class SqliteStorageAdapter {
       );
     });
 
+    const existingReviewIds = new Set(
+      this.db.prepare("SELECT id FROM review_items").all().map((row) => row.id)
+    );
     snapshot.reviews.forEach((item) => {
       this.db.prepare(
-        "INSERT INTO review_items (id, prompt, answer, meaning, due, ease, interval_days, repetitions, mistakes, source_lesson_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        `
+          INSERT INTO review_items (id, prompt, answer, meaning, due, ease, interval_days, repetitions, mistakes, source_lesson_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            prompt = excluded.prompt,
+            answer = excluded.answer,
+            meaning = excluded.meaning,
+            due = excluded.due,
+            ease = excluded.ease,
+            interval_days = excluded.interval_days,
+            repetitions = excluded.repetitions,
+            mistakes = excluded.mistakes,
+            source_lesson_id = excluded.source_lesson_id
+        `
       ).run(
         item.id,
         item.prompt,
@@ -950,11 +1146,15 @@ export class SqliteStorageAdapter {
         item.meaning,
         item.due,
         item.ease,
-        1,
-        0,
-        0,
-        snapshot.lessons.find((lesson) => lesson.id === snapshot.activeLessonId)?.id ?? null
+        item.interval_days ?? 1,
+        item.repetitions ?? 0,
+        item.mistakes ?? 0,
+        item.source_lesson_id ?? snapshot.lessons.find((lesson) => lesson.id === snapshot.activeLessonId)?.id ?? null
       );
+      existingReviewIds.delete(item.id);
+    });
+    existingReviewIds.forEach((reviewId) => {
+      this.db.prepare("DELETE FROM review_items WHERE id = ?").run(reviewId);
     });
 
     snapshot.achievements.forEach((achievement, index) => {
@@ -968,7 +1168,7 @@ export class SqliteStorageAdapter {
     });
 
     snapshot.dailyTasks.forEach((task, index) => {
-      const id = `task-${index + 1}`;
+      const id = task.id ?? `task-${index + 1}`;
       const rewardXp = Number((task.reward.match(/\+(\d+)\s*XP/i) || [0, 0])[1]);
       const rewardCredits = Number((task.reward.match(/\+(\d+)\s*credits?/i) || [0, 0])[1]);
       this.db.prepare(
@@ -981,7 +1181,7 @@ export class SqliteStorageAdapter {
     });
 
     snapshot.cosmetics.forEach((cosmetic, index) => {
-      const id = `cosmetic-${index + 1}`;
+      const id = cosmetic.id ?? `cosmetic-${index + 1}`;
       this.db.prepare("INSERT INTO cosmetics (id, name, cost, sort_order) VALUES (?, ?, ?, ?)")
         .run(id, cosmetic.name, cosmetic.cost, index);
       if (cosmetic.owned) {

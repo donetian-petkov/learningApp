@@ -95,6 +95,31 @@ test("gamification helpers persist reward claims and settings", () => {
   }
 });
 
+test("progress, task, cosmetic, and practice mutations persist in SQLite", () => {
+  const temp = createTempStore();
+  try {
+    const lessonResult = temp.store.completeLesson("food-ramen");
+    assert.equal(lessonResult.progress.completedLessons.includes("food-ramen"), true);
+    assert.ok(lessonResult.progress.xp > 1280);
+
+    const task = temp.store.getSnapshot().dailyTasks.find((entry) => !entry.complete);
+    assert.ok(task);
+    const taskResult = temp.store.completeTask(task.id);
+    assert.equal(taskResult.progress.streak > 12, true);
+
+    const cosmetic = temp.store.getSnapshot().cosmetics.find((entry) => !entry.owned);
+    assert.ok(cosmetic);
+    const cosmeticResult = temp.store.buyCosmetic(cosmetic.id);
+    assert.equal(cosmeticResult.progress.credits < 245, true);
+
+    const speaking = temp.store.recordPracticeSession("speaking", { input: "ラーメンをください" });
+    assert.equal(speaking.tutor.answer.startsWith("Natural correction:"), true);
+    assert.equal(speaking.progress.speakingSessions >= 8, true);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("admin credentials and audit logging work", () => {
   const temp = createTempStore();
   try {
@@ -121,4 +146,3 @@ test("shared helpers are deterministic and safe", () => {
   assert.equal(sm2Easy.repetitions, 1);
   assert.equal(sm2Easy.ease > sm2Hard.ease, true);
 });
-

@@ -102,6 +102,39 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/progress/lesson-complete") {
+    const body = await readJson(req);
+    respondJson(res, 200, store.completeLesson(body.lessonId ?? "", session?.sessionUser ?? null));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/progress/task-complete") {
+    const body = await readJson(req);
+    const result = store.completeTask(body.taskId ?? "", session?.sessionUser ?? null);
+    respondJson(res, result ? 200 : 404, result ?? { error: "Not found" });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/cosmetics/buy") {
+    const body = await readJson(req);
+    try {
+      respondJson(res, 200, store.buyCosmetic(body.cosmeticId ?? "", session?.sessionUser ?? null));
+    } catch (error) {
+      respondJson(res, 400, { error: error instanceof Error ? error.message : "Unable to purchase cosmetic" });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/practice") {
+    const body = await readJson(req);
+    try {
+      respondJson(res, 200, store.recordPracticeSession(body.kind ?? "", body, session?.sessionUser ?? null));
+    } catch (error) {
+      respondJson(res, 400, { error: error instanceof Error ? error.message : "Unsupported practice submission" });
+    }
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/gamification") {
     respondJson(res, 200, store.getGamification());
     return;
