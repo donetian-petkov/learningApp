@@ -293,6 +293,33 @@ function buildKanjiBookmark(item, lesson = null) {
   };
 }
 
+function buildReviewWordBookmark(review) {
+  return {
+    word: String(review?.prompt ?? "").trim(),
+    term: String(review?.prompt ?? "").trim(),
+    kana: String(review?.answer ?? "").trim(),
+    reading: String(review?.answer ?? "").trim(),
+    meaning: String(review?.meaning ?? "").trim(),
+    example: String(review?.prompt ?? "").trim(),
+    source: "review",
+    sourceLessonId: String(review?.source_lesson_id ?? review?.sourceLessonId ?? "").trim(),
+    sourceLessonTitle: String(review?.sourceLessonTitle ?? "").trim(),
+  };
+}
+
+function buildReviewKanjiBookmark(review) {
+  return {
+    character: String(review?.character ?? "").trim(),
+    meaning: String(review?.meaning ?? review?.answer ?? "").trim(),
+    onYomi: String(review?.onYomi ?? "").trim(),
+    kunYomi: String(review?.kunYomi ?? "").trim(),
+    examples: Array.isArray(review?.examples) ? review.examples.filter(Boolean) : [],
+    source: "review",
+    sourceLessonId: String(review?.source_entry_id ?? "").trim(),
+    sourceLessonTitle: "",
+  };
+}
+
 const listeningScenarios = [
   {
     id: "ramen-broth",
@@ -1057,6 +1084,9 @@ function renderReview() {
                   `
               }
               <div class="button-row">
+                <button class="secondary" data-action="toggle-word-bookmark" data-word="${escapeHtml(activeReview.prompt)}" data-reading="${escapeHtml(activeReview.answer)}" data-meaning="${escapeHtml(activeReview.meaning)}" data-example="${escapeHtml(activeReview.prompt)}" data-source="review" data-source-lesson-id="${escapeHtml(activeReview.source_lesson_id ?? "")}" data-source-lesson-title="${escapeHtml(activeReview.sourceLessonTitle ?? "")}">${savedWordQueue.some((item) => item.term === activeReview.prompt && item.reading === activeReview.answer) ? "Remove from saved" : "Save to review deck"}</button>
+              </div>
+              <div class="button-row">
                 <button class="secondary" data-action="review-prev-card">Previous card</button>
                 <button class="primary" data-action="review-reveal-card">${reviewReveal ? "Hide answer" : "Reveal answer"}</button>
                 <button class="secondary" data-action="review-next-card">Next card</button>
@@ -1172,6 +1202,7 @@ function renderReview() {
               <div class="button-row">
                 <button class="secondary" data-action="kanji-next-review">Next kanji</button>
                 <button class="secondary" data-action="kanji-show-readings" data-character="${escapeHtml(kanjiReview.character)}">Show readings</button>
+                <button class="secondary" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(kanjiReview.character)}" data-meaning="${escapeHtml(kanjiReview.meaning ?? "")}" data-on-yomi="${escapeHtml(kanjiReview.onYomi ?? "")}" data-kun-yomi="${escapeHtml(kanjiReview.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(kanjiReview.examples ?? []))}" data-source="review">${savedKanjiQueue.some((item) => item.character === kanjiReview.character) ? "Remove from saved" : "Save to review deck"}</button>
               </div>
               ${
                 kanjiSelection && kanjiSelection.character === kanjiReview.character
