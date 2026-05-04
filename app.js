@@ -27,6 +27,7 @@ let kanjiReviewFeedback = "";
 let lessonExerciseIndex = 0;
 let lessonExerciseFeedback = "";
 let lessonExerciseDraftAnswer = "";
+let lessonExerciseResult = null;
 let lessonDialogueIndex = 0;
 let roleplayDraft = "";
 let reviewDeckIndex = 0;
@@ -325,6 +326,7 @@ function renderLearn() {
   const activeExercise = exercises.length ? exercises[lessonExerciseIndex % exercises.length] : null;
   const activeExerciseKey = activeExercise?.id || `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`;
   const activeExerciseComplete = completedExercises.has(activeExerciseKey);
+  const activeExerciseResult = lessonExerciseResult?.exerciseKey === activeExerciseKey ? lessonExerciseResult : null;
   const lessonChecklist = buildLessonProgressChecklist(activeLesson, state.progress, state.kanjiReviews ?? [], state.progress.savedWords ?? [], state.progress.savedKanji ?? []);
   const lessonChecklistCompleteCount = lessonChecklist.filter((item) => item.complete).length;
   const lessonNotes = state.progress.lessonNotes ?? {};
@@ -503,9 +505,12 @@ function renderLearn() {
                       ? `
                         <div class="tag-row">
                           ${activeExercise.choices
-                            .map((choice) => `
-                              <button class="chip" data-action="lesson-exercise-answer" data-choice="${escapeHtml(choice)}" data-exercise-key="${escapeHtml(activeExerciseKey)}" data-lesson-id="${escapeHtml(activeLesson.id)}">${escapeHtml(choice)}</button>
-                            `)
+                            .map((choice) => {
+                              const isCorrectChoice = activeExerciseResult?.correct && choice === activeExerciseResult.answer;
+                              const isWrongChoice = activeExerciseResult && !activeExerciseResult.correct && choice === activeExerciseResult.selected;
+                              const choiceClass = isCorrectChoice ? "exercise-choice exercise-correct" : isWrongChoice ? "exercise-choice exercise-wrong" : "exercise-choice";
+                              return `<button class="chip ${choiceClass}" data-action="lesson-exercise-answer" data-choice="${escapeHtml(choice)}" data-exercise-key="${escapeHtml(activeExerciseKey)}" data-lesson-id="${escapeHtml(activeLesson.id)}">${escapeHtml(choice)}</button>`;
+                            })
                             .join("")}
                         </div>
                       `
@@ -576,7 +581,7 @@ function renderLearn() {
                 <div class="list-item">
                   <button class="list-item compact" data-action="lookup-kanji" data-term="${escapeHtml(item)}">
                     <strong>${escapeHtml(item)}</strong>
-                    <span class="muted">${escapeHtml(entry?.kunYomi || entry?.onYomi || "—")}</span>
+                    <span class="muted">${escapeHtml(entry?.onYomi || "—")} / ${escapeHtml(entry?.kunYomi || "—")}</span>
                     <span>${escapeHtml(entry?.meaning ?? "Kanji from this lesson")}</span>
                   </button>
                   <div class="button-row">
@@ -2028,6 +2033,7 @@ function wireActions() {
         lessonExerciseIndex = 0;
         lessonExerciseFeedback = "";
         lessonExerciseDraftAnswer = "";
+        lessonExerciseResult = null;
         lessonDialogueIndex = 0;
         persist();
         render();
@@ -2117,6 +2123,7 @@ function wireActions() {
         }
         lessonExerciseFeedback = "";
         lessonExerciseDraftAnswer = "";
+        lessonExerciseResult = null;
         render();
       }
 
@@ -2137,8 +2144,15 @@ function wireActions() {
           },
         });
         lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
+        lessonExerciseResult = {
+          exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+          selected: lessonExerciseDraftAnswer,
+          answer: result.exercise?.answer ?? exercise.answer ?? "",
+          correct: Boolean(result.exercise?.correct ?? result.correct ?? false),
+        };
         if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
           lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
+          lessonExerciseResult = null;
         }
         await refreshState();
       }
@@ -2162,9 +2176,16 @@ function wireActions() {
           },
         });
         lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
+        lessonExerciseResult = {
+          exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+          selected: answer,
+          answer: result.exercise?.answer ?? exercise.answer ?? "",
+          correct: Boolean(result.exercise?.correct ?? result.correct ?? false),
+        };
         if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
           lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
           lessonExerciseDraftAnswer = "";
+          lessonExerciseResult = null;
         }
         await refreshState();
       }
@@ -2227,6 +2248,7 @@ function wireActions() {
           lessonExerciseIndex = 0;
           lessonExerciseFeedback = "";
           lessonExerciseDraftAnswer = "";
+          lessonExerciseResult = null;
           lessonDialogueIndex = 0;
           persist();
           render();
