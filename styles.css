@@ -424,6 +424,10 @@ h1 {
   .stats-grid,
   .module-grid,
   .lesson-layout,
+  .practice-grid,
+  .review-grid,
+  .progress-grid,
+  .admin-grid,
   .chest-row {
     grid-template-columns: 1fr 1fr;
   }
@@ -444,7 +448,52 @@ h1 {
   .stats-grid,
   .module-grid,
   .lesson-layout,
+  .practice-grid,
+  .review-grid,
+  .progress-grid,
+  .admin-grid,
   .chest-row {
     grid-template-columns: 1fr;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .grid-card {
+    padding: 14px;
+  }
+
+  .section-title {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .button-row,
+  .tag-row {
+    width: 100%;
+  }
+
+  .button-row > button,
+  .tag-row > .chip {
+    flex: 1 1 100%;
+  }
+
+  .chat-line,
+  .leaderboard-row {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .chat-speaker {
+    min-width: 0;
+  }
+
+  .list-item {
+    padding: 12px 14px;
+  }
+
+  .exercise-choice {
+    width: 100%;
   }
 }
