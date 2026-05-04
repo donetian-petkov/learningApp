@@ -771,6 +771,12 @@ test("kanji entries can be imported and looked up", () => {
         onYomi: "エキ",
         kunYomi: "",
         examples: ["駅はどこですか。"],
+        radicals: ["馬", "尺"],
+        strokeCount: 14,
+        strokeOrderSource: "lesson-derived",
+        groupName: "transit",
+        difficulty: "N5",
+        relatedKanji: ["電", "通"],
       },
       {
         character: "願",
@@ -782,6 +788,9 @@ test("kanji entries can be imported and looked up", () => {
     ]);
     assert.equal(imported.length, 2);
     assert.equal(temp.store.lookupKanji("駅")?.meaning, "station");
+    assert.equal(temp.store.lookupKanji("駅")?.groupName, "transit");
+    assert.equal(temp.store.lookupKanji("駅")?.strokeCount, 14);
+    assert.equal(temp.store.lookupKanji("駅")?.relatedKanji.includes("通"), true);
     assert.equal(temp.store.lookupKanji("願")?.onYomi, "ガン");
     assert.equal(temp.store.getKanjiEntries("駅").length >= 1, true);
     const review = temp.store.getKanjiReviews().find((entry) => entry.character === "駅");

@@ -1924,7 +1924,7 @@ function renderAdmin() {
             <textarea
               data-field="kanji-import-json"
               rows="5"
-              placeholder='[{"character":"駅","meaning":"station","onYomi":"エキ","kunYomi":"","examples":["駅はどこですか。"]}]'
+              placeholder='[{"character":"駅","meaning":"station","onYomi":"エキ","kunYomi":"","examples":["駅はどこですか。"],"radicals":["馬","尺"],"strokeCount":14,"strokeOrderSource":"lesson-derived","groupName":"transit","difficulty":"N5","relatedKanji":["電","通"]}]'
             ></textarea>
           </label>
           <div class="button-row">
