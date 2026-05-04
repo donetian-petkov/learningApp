@@ -30,6 +30,15 @@ export function chooseJapaneseVoice(voices = []) {
   );
 }
 
+export function describeRuntimeMode(provider = "", ready = false) {
+  const normalized = String(provider ?? "").trim().toLowerCase();
+  if (!ready) return "Local helper";
+  if (normalized === "ollama") return "Ollama";
+  if (normalized === "openai-compatible" || normalized === "openai") return "OpenAI-compatible";
+  if (!normalized || normalized === "fallback") return "Local helper";
+  return normalized.replace(/-/g, " ");
+}
+
 function normalizeLessonTopic(theme) {
   const raw = String(theme ?? "custom").trim().toLowerCase() || "custom";
   if (raw.includes("anime")) return "anime";
@@ -650,7 +659,7 @@ export function answerTutor(question) {
   if (normalized.includes("nuance")) {
     return "Nuance is usually about politeness, softness, or social distance. Keep the sentence short and compare it to the context.";
   }
-  return "Keep the question short. A local LLM fallback would answer this with a focused explanation and one example sentence.";
+  return "Keep the question short. A local helper would answer this with a focused explanation and one example sentence.";
 }
 
 export function answerAiFeature(feature, prompt, context = {}) {
@@ -698,7 +707,7 @@ export function answerAiFeature(feature, prompt, context = {}) {
     return "Nuance is about politeness, tone, and social distance. Keep the answer short and contextual.";
   }
 
-  return "Local AI fallback: short, contextual, and deterministic.";
+  return "Local helper: short, contextual, and deterministic.";
 }
 
 export function buildLessonStudyMaterials(japanese, translation, grammar, title, theme) {

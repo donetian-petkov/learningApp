@@ -1,11 +1,12 @@
 import { INITIAL_APP_STATE } from "./seed-data.mjs";
-import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, describeLessonExerciseType, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, describeLessonExerciseType, describeRuntimeMode, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
 
 const defaultState = structuredClone(INITIAL_APP_STATE);
 
 let state = structuredClone(defaultState);
 let dictionaryLookup = [];
 let adminLessonEditor = null;
+let adminKanjiEditor = null;
 let adminUserEditor = null;
 let adminUserDirectory = null;
 let adminUserFilters = {
@@ -128,6 +129,33 @@ function buildReviewKanjiBookmark(review) {
     sourceLessonId: String(review?.source_entry_id ?? "").trim(),
     sourceLessonTitle: "",
   };
+}
+
+function buildKanjiEditorDraft(entry = {}) {
+  return {
+    id: String(entry?.id ?? "").trim(),
+    character: String(entry?.character ?? "").trim(),
+    meaning: String(entry?.meaning ?? "").trim(),
+    onYomi: String(entry?.onYomi ?? "").trim(),
+    kunYomi: String(entry?.kunYomi ?? "").trim(),
+    examples: Array.isArray(entry?.examples) ? entry.examples : [],
+    radicals: Array.isArray(entry?.radicals) ? entry.radicals : [],
+    strokeCount: Number(entry?.strokeCount ?? 0) || 0,
+    strokeOrderSource: String(entry?.strokeOrderSource ?? "").trim(),
+    groupName: String(entry?.groupName ?? entry?.group ?? "").trim(),
+    difficulty: String(entry?.difficulty ?? "N5").trim() || "N5",
+    relatedKanji: Array.isArray(entry?.relatedKanji) ? entry.relatedKanji : [],
+    source: String(entry?.source ?? "manual").trim() || "manual",
+  };
+}
+
+function parseLineList(value, fallback = []) {
+  const text = String(value ?? "").trim();
+  if (!text) return Array.isArray(fallback) ? fallback : [];
+  return text
+    .split(/[\n,、\/]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 const listeningScenarios = [
@@ -1055,7 +1083,7 @@ function renderPractice() {
         )}
         ${practiceCard(
           "AI Tutor",
-          "Ask about grammar, meaning, or nuance. The local fallback keeps responses brief and cheap.",
+          "Ask about grammar, meaning, or nuance. The local helper keeps responses brief and cheap.",
           ["Short prompts", "No long history", "Local-first"],
           `
             <label class="field">
@@ -1548,7 +1576,7 @@ function renderSettings() {
             <li>Text-to-speech: ${ttsStatus.ready ? `Ready · ${escapeHtml(ttsStatus.provider ?? "local")}` : "Fallback mode"}</li>
             <li>AI tutor: ${aiRuntime.ready ? `Ready · ${escapeHtml(aiRuntime.provider ?? "local")}` : "Fallback mode"}</li>
           </ul>
-          <p class="muted">If one of these says fallback, the app still works. It just uses the browser or a deterministic helper.</p>
+          <p class="muted">If one of these is not ready, the app still works. It uses the browser or a deterministic local helper.</p>
         </div>
         <div class="grid-card">
           <h3>Admin access</h3>
@@ -1606,6 +1634,8 @@ function renderAdmin() {
   }
 
   const lessonDraft = adminLessonEditor ?? buildLessonDraft("New Lesson", "custom");
+  const kanjiDraft = adminKanjiEditor ?? buildKanjiEditorDraft();
+  const kanjiEntries = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
   const users = adminUserDirectory ?? state.admin.users ?? [];
   const userDraft = adminUserEditor ?? {
     id: "",
@@ -1668,7 +1698,7 @@ function renderAdmin() {
         </div>
         <div class="grid-card">
           <h3>AI usage</h3>
-          <p>Provider: ${escapeHtml(state.admin.aiUsage.provider ?? "fallback")}${state.admin.aiUsage.ready ? ` · ${escapeHtml(state.admin.aiUsage.model ?? "llama3")} at ${escapeHtml(state.admin.aiUsage.host ?? "http://127.0.0.1:11434")}` : ""}</p>
+          <p>Provider: ${escapeHtml(describeRuntimeMode(state.admin.aiUsage.provider, state.admin.aiUsage.ready))}${state.admin.aiUsage.ready ? ` · ${escapeHtml(state.admin.aiUsage.model ?? "llama3")} at ${escapeHtml(state.admin.aiUsage.host ?? "http://127.0.0.1:11434")}` : ""}</p>
           <p>Daily requests: ${state.admin.aiUsage.dailyRequests}</p>
           <p>Monthly requests: ${state.admin.aiUsage.monthlyRequests}</p>
           <p>Cached responses: ${state.admin.aiUsage.cachedResponses}</p>
@@ -1708,7 +1738,7 @@ function renderAdmin() {
           ${adminAiPlayground ? `
             <div class="grid-card nested">
               <strong>${escapeHtml(adminAiPlayground.feature)}</strong>
-              <p class="muted">Provider: ${escapeHtml(adminAiPlayground.provider ?? "fallback")} ${adminAiPlayground.model ? `· ${escapeHtml(adminAiPlayground.model)}` : ""}</p>
+              <p class="muted">Provider: ${escapeHtml(describeRuntimeMode(adminAiPlayground.provider, true))} ${adminAiPlayground.model ? `· ${escapeHtml(adminAiPlayground.model)}` : ""}</p>
               <pre class="code-block">${escapeHtml(adminAiPlayground.response ?? "")}</pre>
             </div>
           ` : ""}
@@ -1721,7 +1751,7 @@ function renderAdmin() {
           <p>Lessons: ${systemStatus?.database?.lessons ?? state.lessons.length} · Reviews: ${systemStatus?.database?.reviews ?? state.reviews.length}</p>
           <p>Kanji: ${systemStatus?.database?.kanjiEntries ?? state.kanjiEntries.length} · Kanji reviews: ${systemStatus?.database?.kanjiReviews ?? state.kanjiReviews.length}</p>
           <p>Users: ${systemStatus?.database?.users ?? state.admin.users.length}</p>
-          <p>AI: ${escapeHtml(systemStatus?.aiRuntime?.provider ?? state.admin.aiUsage.provider ?? "fallback")} ${systemStatus?.aiRuntime?.ready ? `· ${escapeHtml(systemStatus.aiRuntime.model ?? "")}` : "· fallback"}</p>
+          <p>AI: ${escapeHtml(describeRuntimeMode(systemStatus?.aiRuntime?.provider ?? state.admin.aiUsage.provider, Boolean(systemStatus?.aiRuntime?.ready ?? state.admin.aiUsage.ready)))} ${systemStatus?.aiRuntime?.ready ? `· ${escapeHtml(systemStatus.aiRuntime.model ?? "")}` : "· local helper"}</p>
           <p>Speech: ${systemStatus?.speech?.available ? `available (${escapeHtml(systemStatus.speech.provider ?? "whisper")})` : "unavailable"}</p>
           <p>TTS: ${systemStatus?.tts?.available ? `available (${escapeHtml(systemStatus.tts.provider ?? "browser")})` : "unavailable"}</p>
           <p>Maintenance: ${systemStatus?.maintenanceMode ? "On" : "Off"}</p>
@@ -1885,6 +1915,81 @@ function renderAdmin() {
             <span>Reference tags JSON</span>
             <textarea data-field="lesson-reference-tags" rows="3" placeholder='["travel","station","N5"]'>${escapeHtml(JSON.stringify(lessonDraft.referenceTags ?? [], null, 2))}</textarea>
           </label>
+          <div class="grid-card nested spaced">
+            <h4>Kanji editor</h4>
+            <p class="muted">Edit a single kanji entry with structured fields, then save it back through the same upsert path used by imports.</p>
+            <div class="field-row">
+              <label class="field">
+                <span>Character</span>
+                <input type="text" data-field="kanji-character" value="${escapeHtml(kanjiDraft.character)}" placeholder="駅" />
+              </label>
+              <label class="field">
+                <span>Meaning</span>
+                <input type="text" data-field="kanji-meaning" value="${escapeHtml(kanjiDraft.meaning)}" placeholder="station" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>On-yomi</span>
+                <input type="text" data-field="kanji-on-yomi" value="${escapeHtml(kanjiDraft.onYomi)}" placeholder="エキ" />
+              </label>
+              <label class="field">
+                <span>Kun-yomi</span>
+                <input type="text" data-field="kanji-kun-yomi" value="${escapeHtml(kanjiDraft.kunYomi)}" placeholder="うまや" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Group name</span>
+                <input type="text" data-field="kanji-group-name" value="${escapeHtml(kanjiDraft.groupName)}" placeholder="transit" />
+              </label>
+              <label class="field">
+                <span>Difficulty</span>
+                <input type="text" data-field="kanji-difficulty" value="${escapeHtml(kanjiDraft.difficulty)}" placeholder="N5" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Stroke count</span>
+                <input type="number" min="0" data-field="kanji-stroke-count" value="${escapeHtml(String(kanjiDraft.strokeCount ?? 0))}" />
+              </label>
+              <label class="field">
+                <span>Stroke order source</span>
+                <input type="text" data-field="kanji-stroke-order-source" value="${escapeHtml(kanjiDraft.strokeOrderSource)}" placeholder="lesson-derived" />
+              </label>
+            </div>
+            <label class="field">
+              <span>Examples</span>
+              <textarea data-field="kanji-examples" rows="3" placeholder="駅はどこですか。&#10;電車が来ます。">${escapeHtml((kanjiDraft.examples ?? []).join("\n"))}</textarea>
+            </label>
+            <label class="field">
+              <span>Radicals</span>
+              <textarea data-field="kanji-radicals" rows="2" placeholder="馬&#10;尺">${escapeHtml((kanjiDraft.radicals ?? []).join("\n"))}</textarea>
+            </label>
+            <label class="field">
+              <span>Related kanji</span>
+              <textarea data-field="kanji-related" rows="2" placeholder="電&#10;通">${escapeHtml((kanjiDraft.relatedKanji ?? []).join("\n"))}</textarea>
+            </label>
+            <div class="button-row">
+              <button class="primary" data-action="save-kanji">${adminKanjiEditor ? "Save kanji" : "Add kanji"}</button>
+              <button class="secondary" data-action="new-kanji">New kanji</button>
+              ${adminKanjiEditor ? '<button class="secondary" data-action="cancel-kanji-edit">Cancel edit</button>' : ""}
+            </div>
+            <div class="list">
+              ${kanjiEntries.slice(0, 8).map((entry) => `
+                <div class="list-item">
+                  <div>
+                    <strong>${escapeHtml(entry.character)}</strong>
+                    <span class="muted">${escapeHtml(entry.meaning)} · ${escapeHtml(entry.groupName || entry.group || "—")} · ${escapeHtml(entry.difficulty || "—")}</span>
+                    <span class="muted">${escapeHtml(entry.onYomi || "—")} / ${escapeHtml(entry.kunYomi || "—")} · ${escapeHtml(String(entry.strokeCount ?? 0))} strokes</span>
+                  </div>
+                  <div class="button-row">
+                    <button class="secondary" data-action="edit-kanji" data-kanji-character="${escapeHtml(entry.character)}">Edit</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>
           <div class="field-row">
             <label class="field">
               <span>Pack title</span>
@@ -2462,7 +2567,7 @@ function wireActions() {
             const result = await recordSpeechFallback(speakingInput?.value ?? "", transcriptOutput);
             if (speakingInput && result.transcript) speakingInput.value = result.transcript;
             if (transcriptOutput && reason) {
-              transcriptOutput.textContent = transcriptOutput.textContent.includes("Transcript") ? transcriptOutput.textContent : `${reason}. Using local fallback.`;
+              transcriptOutput.textContent = transcriptOutput.textContent.includes("Transcript") ? transcriptOutput.textContent : `${reason}. Using the reference sentence.`;
             }
           };
           if (transcriptOutput) transcriptOutput.textContent = "Listening for speech...";
@@ -3059,6 +3164,25 @@ function wireActions() {
         render();
       }
 
+      if (action === "edit-kanji") {
+        const character = button.dataset.kanjiCharacter;
+        const kanji = state.kanjiEntries.find((entry) => entry.character === character);
+        if (kanji) {
+          adminKanjiEditor = buildKanjiEditorDraft(kanji);
+          render();
+        }
+      }
+
+      if (action === "new-kanji") {
+        adminKanjiEditor = buildKanjiEditorDraft();
+        render();
+      }
+
+      if (action === "cancel-kanji-edit") {
+        adminKanjiEditor = null;
+        render();
+      }
+
       if (action === "save-lesson") {
         const titleInput = app.querySelector('[data-field="lesson-title"]');
         const themeInput = app.querySelector('[data-field="lesson-theme"]');
@@ -3135,6 +3259,51 @@ function wireActions() {
           });
         }
         adminLessonEditor = null;
+        await refreshState();
+      }
+
+      if (action === "save-kanji") {
+        const wasEditing = Boolean(adminKanjiEditor?.id);
+        const characterInput = app.querySelector('[data-field="kanji-character"]');
+        const meaningInput = app.querySelector('[data-field="kanji-meaning"]');
+        const onYomiInput = app.querySelector('[data-field="kanji-on-yomi"]');
+        const kunYomiInput = app.querySelector('[data-field="kanji-kun-yomi"]');
+        const groupNameInput = app.querySelector('[data-field="kanji-group-name"]');
+        const difficultyInput = app.querySelector('[data-field="kanji-difficulty"]');
+        const strokeCountInput = app.querySelector('[data-field="kanji-stroke-count"]');
+        const strokeOrderSourceInput = app.querySelector('[data-field="kanji-stroke-order-source"]');
+        const examplesInput = app.querySelector('[data-field="kanji-examples"]');
+        const radicalsInput = app.querySelector('[data-field="kanji-radicals"]');
+        const relatedInput = app.querySelector('[data-field="kanji-related"]');
+        const character = characterInput?.value?.trim();
+        if (!character) {
+          window.alert("Enter a kanji character before saving.");
+          return;
+        }
+        const payload = {
+          id: adminKanjiEditor?.id ?? `kanji-${character}`,
+          character,
+          meaning: meaningInput?.value?.trim() || character,
+          onYomi: onYomiInput?.value?.trim() || "",
+          kunYomi: kunYomiInput?.value?.trim() || "",
+          examples: parseLineList(examplesInput?.value, adminKanjiEditor?.examples ?? []),
+          radicals: parseLineList(radicalsInput?.value, adminKanjiEditor?.radicals ?? []),
+          strokeCount: Number(strokeCountInput?.value ?? adminKanjiEditor?.strokeCount ?? 0) || 0,
+          strokeOrderSource: strokeOrderSourceInput?.value?.trim() || adminKanjiEditor?.strokeOrderSource || "",
+          groupName: groupNameInput?.value?.trim() || adminKanjiEditor?.groupName || "",
+          difficulty: difficultyInput?.value?.trim() || adminKanjiEditor?.difficulty || "N5",
+          relatedKanji: parseLineList(relatedInput?.value, adminKanjiEditor?.relatedKanji ?? []),
+          source: adminKanjiEditor?.source ?? "manual",
+        };
+        await apiJson("/api/kanji/import", {
+          method: "POST",
+          body: { entries: [payload] },
+        });
+        adminKanjiEditor = null;
+        await apiJson("/api/audit-log", {
+          method: "POST",
+          body: { entry: `${wasEditing ? "Updated" : "Added"} kanji entry: ${payload.character}` },
+        });
         await refreshState();
       }
 
@@ -3787,9 +3956,9 @@ async function refreshState() {
 
 async function recordSpeechFallback(fallbackText, transcriptOutput) {
   const fallback = String(fallbackText ?? "").trim() || "ラーメンをください。";
-  if (transcriptOutput) transcriptOutput.textContent = "Recording locally...";
+  if (transcriptOutput) transcriptOutput.textContent = "Recording with the local voice path...";
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+    if (transcriptOutput) transcriptOutput.textContent = `Speech input unavailable. Using the reference sentence: ${fallback}`;
     return { transcript: fallback, source: "typed" };
   }
 
@@ -3799,7 +3968,7 @@ async function recordSpeechFallback(fallbackText, transcriptOutput) {
     const recorder = createAudioRecorder(stream);
     if (!recorder) {
       stream.getTracks().forEach((track) => track.stop());
-      if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+      if (transcriptOutput) transcriptOutput.textContent = `Speech recording unavailable. Using the reference sentence: ${fallback}`;
       return { transcript: fallback, source: "fallback" };
     }
     const transcription = new Promise((resolve, reject) => {
@@ -3817,7 +3986,7 @@ async function recordSpeechFallback(fallbackText, transcriptOutput) {
             resolve({ transcript: fallback, source: "empty" });
             return;
           }
-          if (transcriptOutput) transcriptOutput.textContent = "Transcribing locally with Whisper...";
+          if (transcriptOutput) transcriptOutput.textContent = "Transcribing with the local speech model...";
           const response = await fetch("/api/speech/transcribe", {
             method: "POST",
             headers: { "content-type": blob.type || "audio/webm" },
@@ -3832,7 +4001,7 @@ async function recordSpeechFallback(fallbackText, transcriptOutput) {
           if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript}`;
           resolve({ transcript, source: payload.source ?? "whisper" });
         } catch (error) {
-          if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+          if (transcriptOutput) transcriptOutput.textContent = `Speech transcription unavailable. Using the reference sentence: ${fallback}`;
           resolve({ transcript: fallback, source: "fallback", error });
         }
       };
@@ -3844,7 +4013,7 @@ async function recordSpeechFallback(fallbackText, transcriptOutput) {
     }
     return await transcription;
   } catch {
-    if (transcriptOutput) transcriptOutput.textContent = `Transcript fallback: ${fallback}`;
+    if (transcriptOutput) transcriptOutput.textContent = `Speech input unavailable. Using the reference sentence: ${fallback}`;
     return { transcript: fallback, source: "fallback" };
   }
 }
