@@ -2342,12 +2342,12 @@ export class SqliteStorageAdapter {
       romaji: lesson.romaji,
       translation: lesson.translation,
       grammar: lesson.grammar,
-      scenes: parseJson(lesson.scenes_json, []),
-      popCultureNotes: parseJson(lesson.pop_culture_notes_json, []),
-      media: parseJson(lesson.media_json, []),
-      kanjiBreakdowns: parseJson(lesson.kanji_breakdowns_json, []),
-      lessonGoals: parseJson(lesson.lesson_goals_json, []),
-      referenceTags: parseJson(lesson.reference_tags_json, []),
+      scenes: parseJson(lesson.scenes_json, []).map(normalizeScene),
+      popCultureNotes: parseJson(lesson.pop_culture_notes_json, []).map(normalizePopCultureNote),
+      media: parseJson(lesson.media_json, []).map(normalizeMediaSlot),
+      kanjiBreakdowns: parseJson(lesson.kanji_breakdowns_json, []).map(normalizeKanjiBreakdown),
+      lessonGoals: parseJson(lesson.lesson_goals_json, []).map((entry) => String(entry).trim()).filter(Boolean),
+      referenceTags: parseJson(lesson.reference_tags_json, []).map((entry) => String(entry).trim()).filter(Boolean),
       vocab: this.db
         .prepare("SELECT word, kana, meaning FROM lesson_vocab WHERE lesson_id = ? ORDER BY order_index, id")
         .all(lesson.id),
