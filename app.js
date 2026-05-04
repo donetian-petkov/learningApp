@@ -29,6 +29,7 @@ let lessonExerciseFeedback = "";
 let lessonExerciseDraftAnswer = "";
 let lessonExerciseResult = null;
 let lessonDialogueIndex = 0;
+let lessonSceneIndex = 0;
 let roleplayDraft = "";
 let reviewDeckIndex = 0;
 let reviewReveal = false;
@@ -312,13 +313,17 @@ function renderLearn() {
   const grammarPoints = Array.isArray(activeLesson.grammarPoints) && activeLesson.grammarPoints.length
     ? activeLesson.grammarPoints
     : [{ title: "Grammar note", explanation: activeLesson.grammar, example: activeLesson.japanese }];
-  const dialogueLines = Array.isArray(activeLesson.dialogueLines) && activeLesson.dialogueLines.length
-    ? activeLesson.dialogueLines
-    : [
-        { speaker: "Narration", text: `${activeLesson.title} (${activeLesson.theme})` },
-        { speaker: "Speaker A", text: activeLesson.japanese },
-        { speaker: "Speaker B", text: activeLesson.translation },
-      ].filter((line) => line.text);
+  const lessonScenes = Array.isArray(activeLesson.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+  const activeScene = lessonScenes.length ? lessonScenes[lessonSceneIndex % lessonScenes.length] : null;
+  const dialogueLines = activeScene?.lines?.length
+    ? activeScene.lines
+    : Array.isArray(activeLesson.dialogueLines) && activeLesson.dialogueLines.length
+      ? activeLesson.dialogueLines
+      : [
+          { speaker: "Narration", text: `${activeLesson.title} (${activeLesson.theme})` },
+          { speaker: "Speaker A", text: activeLesson.japanese },
+          { speaker: "Speaker B", text: activeLesson.translation },
+        ].filter((line) => line.text);
   const activeDialogueLine = dialogueLines.length ? dialogueLines[lessonDialogueIndex % dialogueLines.length] : null;
   const exercises = Array.isArray(activeLesson.exercises) && activeLesson.exercises.length
     ? activeLesson.exercises
@@ -334,16 +339,24 @@ function renderLearn() {
   const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
   const filteredModerationActions = filterModerationActions(state.admin.moderationActions ?? [], moderationFilters);
   const nextLessonId = findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
+  const popCultureNotes = Array.isArray(activeLesson.popCultureNotes) && activeLesson.popCultureNotes.length
+    ? activeLesson.popCultureNotes
+    : [{ title: "Context note", context: activeLesson.grammar, reference: activeLesson.translation }];
+  const lessonKanjiBreakdowns = Array.isArray(activeLesson.kanjiBreakdowns) && activeLesson.kanjiBreakdowns.length
+    ? activeLesson.kanjiBreakdowns
+    : [];
   const moduleCards = filteredLessons.map(
     (lesson) => `
       <article class="grid-card">
         <p class="tag">${escapeHtml(lesson.theme)}</p>
         <h3>${escapeHtml(lesson.title)}</h3>
         <p class="muted">${escapeHtml(lesson.difficulty)} · ${state.progress.completedLessons.includes(lesson.id) ? "Completed" : "In progress"}</p>
+        <p class="muted">${Array.isArray(lesson.scenes) ? lesson.scenes.length : 0} scenes · ${Array.isArray(lesson.exercises) ? lesson.exercises.length : 0} exercises</p>
         <div class="kana">${escapeHtml(state.toggles.furigana ? lesson.japanese : lesson.translation)}</div>
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(lesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(lesson.translation)}</p>` : ""}
         <p>${escapeHtml(lesson.grammar)}</p>
+        ${Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length ? `<p class="muted">${escapeHtml(lesson.popCultureNotes[0].title)} · ${escapeHtml(lesson.popCultureNotes[0].context)}</p>` : ""}
         <div class="tag-row">
           ${lesson.vocab
             .map((item) => `<span class="tag">${escapeHtml(item.word)} · ${escapeHtml(item.meaning)}</span>`)
@@ -398,6 +411,35 @@ function renderLearn() {
           </div>
         </div>
         <div class="grid-card spaced">
+          <h3>Scenario pack</h3>
+          <p class="muted">Each lesson can move through multiple scenes instead of staying on one line.</p>
+          <div class="tag-row">
+            ${lessonScenes
+              .map(
+                (scene, index) => `
+                  <button class="tag ${index === lessonSceneIndex % Math.max(lessonScenes.length, 1) ? "active" : ""}" data-action="select-lesson-scene" data-index="${index}">
+                    ${escapeHtml(scene.title || `Scene ${index + 1}`)}
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+          ${
+            activeScene
+              ? `
+                <div class="detail-card spaced">
+                  <strong>${escapeHtml(activeScene.title || "Scene")}</strong>
+                  <p class="muted">${escapeHtml(activeScene.setting || "Scene setting")}</p>
+                  <p>${escapeHtml(activeScene.summary || "")}</p>
+                  <div class="tag-row">
+                    ${(activeScene.references ?? []).slice(0, 4).map((reference) => `<span class="tag">${escapeHtml(reference)}</span>`).join("")}
+                  </div>
+                </div>
+              `
+              : "<p class='muted'>The current lesson has one scene. Add more scenes in Admin to make it a full pack.</p>"
+          }
+        </div>
+        <div class="grid-card spaced">
           <h3>Lesson mastery</h3>
           <p class="muted">${lessonChecklistCompleteCount}/${lessonChecklist.length} goals complete</p>
           <div class="meter"><span style="width: ${Math.round((lessonChecklistCompleteCount / Math.max(lessonChecklist.length, 1)) * 100)}%"></span></div>
@@ -436,6 +478,25 @@ function renderLearn() {
           </div>
         </div>
         <div class="grid-card spaced">
+          <h3>Pop culture context</h3>
+          <p class="muted">This is the scene-specific context that connects the line to anime, manga, food, travel, school, or office life.</p>
+          <div class="list">
+            ${popCultureNotes
+              .map(
+                (note) => `
+                  <article class="list-item">
+                    <div>
+                      <strong>${escapeHtml(note.title || "Context note")}</strong>
+                      <span>${escapeHtml(note.context || "")}</span>
+                      ${note.reference ? `<span class="muted">${escapeHtml(note.reference)}</span>` : ""}
+                    </div>
+                  </article>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+        <div class="grid-card spaced">
           <h3>Lesson notes</h3>
           <p class="muted">Capture a reminder, grammar note, or translation trick for this lesson.</p>
           <label class="field">
@@ -455,7 +516,7 @@ function renderLearn() {
         </div>
         <div class="grid-card spaced">
           <h3>Dialogue scene</h3>
-          <p class="muted">Step through the lesson like a scene instead of reading it as a single block.</p>
+          <p class="muted">Step through the current scene instead of reading it as a single block.</p>
           <div class="chat">
             ${dialogueLines
               .map(
@@ -480,6 +541,10 @@ function renderLearn() {
                   <button class="secondary" data-action="dialogue-next">Next line</button>
                   <button class="primary" data-action="speak-dialogue-line">Play line</button>
                 </div>
+                <div class="button-row">
+                  <button class="secondary" data-action="scene-prev">Previous scene</button>
+                  <button class="secondary" data-action="scene-next">Next scene</button>
+                </div>
               `
               : ""
           }
@@ -499,6 +564,7 @@ function renderLearn() {
                 ? `
                   <p class="eyebrow">Exercise ${lessonExerciseIndex + 1} of ${exercises.length}</p>
                   <strong>${escapeHtml(activeExercise.type || "exercise")}</strong>
+                  ${activeExercise.hint ? `<p class="muted">${escapeHtml(activeExercise.hint)}</p>` : ""}
                   <p>${escapeHtml(activeExercise.prompt || "")}</p>
                   ${
                     Array.isArray(activeExercise.choices) && activeExercise.choices.length
@@ -593,6 +659,30 @@ function renderLearn() {
             .join("")}
         </div>
         <div class="grid-card nested spaced">
+          <p class="eyebrow">Lesson kanji breakdowns</p>
+          <div class="list">
+            ${lessonKanjiBreakdowns.length
+              ? lessonKanjiBreakdowns
+                  .map(
+                    (entry) => `
+                      <div class="list-item">
+                        <div>
+                          <strong>${escapeHtml(entry.character)}</strong>
+                          <span class="muted">${escapeHtml(entry.onYomi || "—")} / ${escapeHtml(entry.kunYomi || "—")}</span>
+                          <span>${escapeHtml(entry.meaning || "")}</span>
+                          ${entry.components ? `<span class="muted">Components: ${escapeHtml(entry.components)}</span>` : ""}
+                          ${entry.mnemonic ? `<span class="muted">Mnemonic: ${escapeHtml(entry.mnemonic)}</span>` : ""}
+                          ${entry.lessonContext ? `<span class="muted">Context: ${escapeHtml(entry.lessonContext)}</span>` : ""}
+                          ${Array.isArray(entry.lessonExamples) && entry.lessonExamples.length ? `<span class="muted">Lesson words: ${escapeHtml(entry.lessonExamples.join(" · "))}</span>` : ""}
+                        </div>
+                      </div>
+                    `
+                  )
+                  .join("")
+              : "<p class='muted'>Add kanji breakdowns to show components and mnemonics here.</p>"}
+          </div>
+        </div>
+        <div class="grid-card nested spaced">
           <p class="eyebrow">Kanji library</p>
           <div class="list">
             ${kanjiDeck
@@ -633,6 +723,19 @@ function renderLearn() {
                 <p class="muted">${escapeHtml(selectedStudyEntry.onYomi || "No on-yomi stored")} / ${escapeHtml(selectedStudyEntry.kunYomi || "No kun-yomi stored")}</p>
                 <p>${escapeHtml(selectedStudyEntry.meaning)}</p>
                 <p class="muted">${escapeHtml(selectedStudyExample || (studyExamples.length ? studyExamples[0] : "No examples available."))}</p>
+                ${
+                  lessonKanjiBreakdowns.find((entry) => entry.character === selectedStudyEntry.character)
+                    ? (() => {
+                        const lessonBreakdown = lessonKanjiBreakdowns.find((entry) => entry.character === selectedStudyEntry.character);
+                        return `
+                          <p class="muted">Components: ${escapeHtml(lessonBreakdown.components || "—")}</p>
+                          <p class="muted">Mnemonic: ${escapeHtml(lessonBreakdown.mnemonic || "—")}</p>
+                          <p class="muted">Context: ${escapeHtml(lessonBreakdown.lessonContext || "—")}</p>
+                          ${Array.isArray(lessonBreakdown.lessonExamples) && lessonBreakdown.lessonExamples.length ? `<p class="muted">Lesson words: ${escapeHtml(lessonBreakdown.lessonExamples.join(" · "))}</p>` : ""}
+                        `;
+                      })()
+                    : ""
+                }
                 <div class="button-row">
                   <button class="secondary" data-action="kanji-study-prev">Previous kanji</button>
                   <button class="secondary" data-action="kanji-study-next">Next kanji</button>
@@ -691,11 +794,13 @@ function renderLearn() {
 }
 
 function renderPractice() {
+  const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
   const listeningScenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
   const speakingPrompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length];
   const selectedDictionaryEntry = readingSelection ?? dictionaryLookup[0] ?? null;
   const savedWords = new Map((state.progress.savedWords ?? []).map((item) => [savedWordKey(item.term, item.reading), item]));
   const savedKanji = new Map((state.progress.savedKanji ?? []).map((item) => [savedKanjiKey(item.character), item]));
+  const lessonKanjiBreakdowns = Array.isArray(activeLesson?.kanjiBreakdowns) ? activeLesson.kanjiBreakdowns : [];
   return `
     <section class="panel">
       <div class="section-title">
@@ -819,15 +924,28 @@ function renderPractice() {
               <div class="detail-card">
                 ${
                   kanjiSelection
-                    ? `
-                      <strong>${escapeHtml(kanjiSelection.character)}</strong>
-                      <p class="muted">${escapeHtml(kanjiSelection.onYomi || "No on-yomi stored")} / ${escapeHtml(kanjiSelection.kunYomi || "No kun-yomi stored")}</p>
-                      <p>${escapeHtml(kanjiSelection.meaning)}</p>
-                      <p class="muted">${escapeHtml((kanjiSelection.examples ?? []).slice(0, 2).join(" · ") || "No examples available.")}</p>
-                      <div class="button-row">
-                        <button class="secondary" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(kanjiSelection.character)}" data-meaning="${escapeHtml(kanjiSelection.meaning ?? "")}" data-on-yomi="${escapeHtml(kanjiSelection.onYomi ?? "")}" data-kun-yomi="${escapeHtml(kanjiSelection.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(kanjiSelection.examples ?? []))}" data-source="${escapeHtml(kanjiSelection.source ?? "kanji")}">${savedKanji.has(savedKanjiKey(kanjiSelection.character)) ? "Remove bookmark" : "Save kanji"}</button>
-                      </div>
-                    `
+                    ? (() => {
+                        const lessonBreakdown = lessonKanjiBreakdowns.find((entry) => entry.character === kanjiSelection.character);
+                        return `
+                          <strong>${escapeHtml(kanjiSelection.character)}</strong>
+                          <p class="muted">${escapeHtml(kanjiSelection.onYomi || "No on-yomi stored")} / ${escapeHtml(kanjiSelection.kunYomi || "No kun-yomi stored")}</p>
+                          <p>${escapeHtml(kanjiSelection.meaning)}</p>
+                          <p class="muted">${escapeHtml((kanjiSelection.examples ?? []).slice(0, 2).join(" · ") || "No examples available.")}</p>
+                          ${
+                            lessonBreakdown
+                              ? `
+                                <p class="muted">Components: ${escapeHtml(lessonBreakdown.components || "—")}</p>
+                                <p class="muted">Mnemonic: ${escapeHtml(lessonBreakdown.mnemonic || "—")}</p>
+                                <p class="muted">Context: ${escapeHtml(lessonBreakdown.lessonContext || "—")}</p>
+                                ${Array.isArray(lessonBreakdown.lessonExamples) && lessonBreakdown.lessonExamples.length ? `<p class="muted">Lesson words: ${escapeHtml(lessonBreakdown.lessonExamples.join(" · "))}</p>` : ""}
+                              `
+                              : ""
+                          }
+                          <div class="button-row">
+                            <button class="secondary" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(kanjiSelection.character)}" data-meaning="${escapeHtml(kanjiSelection.meaning ?? "")}" data-on-yomi="${escapeHtml(kanjiSelection.onYomi ?? "")}" data-kun-yomi="${escapeHtml(kanjiSelection.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(kanjiSelection.examples ?? []))}" data-source="${escapeHtml(kanjiSelection.source ?? "kanji")}">${savedKanji.has(savedKanjiKey(kanjiSelection.character)) ? "Remove bookmark" : "Save kanji"}</button>
+                          </div>
+                        `;
+                      })()
                     : "<p class='muted'>Select a kanji to inspect it here.</p>"
                 }
               </div>
@@ -1662,6 +1780,18 @@ function renderAdmin() {
             <span>Exercises JSON</span>
             <textarea data-field="lesson-exercises" rows="5" placeholder='[{"type":"multiple-choice","prompt":"Which meaning best fits?","choices":["A","B"],"answer":"A","explanation":"Why A is correct."}]'>${escapeHtml(JSON.stringify(lessonDraft.exercises ?? [], null, 2))}</textarea>
           </label>
+          <label class="field">
+            <span>Scenes JSON</span>
+            <textarea data-field="lesson-scenes" rows="6" placeholder='[{"title":"Opening","setting":"Anime opening","summary":"Set the scene.","lines":[{"speaker":"Narration","text":"..."},{"speaker":"Hero","text":"..."}],"references":["..."]}]'>${escapeHtml(JSON.stringify(lessonDraft.scenes ?? [], null, 2))}</textarea>
+          </label>
+          <label class="field">
+            <span>Pop culture notes JSON</span>
+            <textarea data-field="lesson-pop-culture-notes" rows="4" placeholder='[{"title":"Episode framing","context":"Why this line feels like anime.","reference":"..."}]'>${escapeHtml(JSON.stringify(lessonDraft.popCultureNotes ?? [], null, 2))}</textarea>
+          </label>
+          <label class="field">
+            <span>Kanji breakdowns JSON</span>
+            <textarea data-field="lesson-kanji-breakdowns" rows="6" placeholder='[{"character":"駅","meaning":"station","onYomi":"エキ","kunYomi":"","components":"馬 + 尺","mnemonic":"...","examples":["駅はどこですか。"],"lessonContext":"Travel"}]'>${escapeHtml(JSON.stringify(lessonDraft.kanjiBreakdowns ?? [], null, 2))}</textarea>
+          </label>
           <div class="field-row">
             <label class="field">
               <span>Pack title</span>
@@ -2035,6 +2165,7 @@ function wireActions() {
         lessonExerciseDraftAnswer = "";
         lessonExerciseResult = null;
         lessonDialogueIndex = 0;
+        lessonSceneIndex = 0;
         persist();
         render();
       }
@@ -2057,11 +2188,25 @@ function wireActions() {
         }
       }
 
+      if (action === "select-lesson-scene") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const scenes = Array.isArray(activeLesson?.scenes) ? activeLesson.scenes : [];
+        if (scenes.length) {
+          lessonSceneIndex = Number(button.dataset.index ?? 0) % scenes.length;
+          lessonDialogueIndex = 0;
+        }
+        render();
+      }
+
       if (action === "dialogue-prev" || action === "dialogue-next") {
         const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const lines = Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
-          ? activeLesson.dialogueLines
-          : [];
+        const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+        const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
+        const lines = sceneLines.length
+          ? sceneLines
+          : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+            ? activeLesson.dialogueLines
+            : [];
         if (lines.length) {
           if (action === "dialogue-prev") {
             lessonDialogueIndex = (lessonDialogueIndex - 1 + lines.length) % lines.length;
@@ -2072,12 +2217,30 @@ function wireActions() {
         render();
       }
 
+      if (action === "scene-prev" || action === "scene-next") {
+        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+        const scenes = Array.isArray(activeLesson?.scenes) ? activeLesson.scenes : [];
+        if (scenes.length) {
+          if (action === "scene-prev") {
+            lessonSceneIndex = (lessonSceneIndex - 1 + scenes.length) % scenes.length;
+          } else {
+            lessonSceneIndex = (lessonSceneIndex + 1) % scenes.length;
+          }
+          lessonDialogueIndex = 0;
+        }
+        render();
+      }
+
       if (action === "select-dialogue-line") {
         const index = Number(button.dataset.index ?? 0);
         const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const lines = Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
-          ? activeLesson.dialogueLines
-          : [];
+        const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+        const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
+        const lines = sceneLines.length
+          ? sceneLines
+          : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+            ? activeLesson.dialogueLines
+            : [];
         if (lines.length) {
           lessonDialogueIndex = index % lines.length;
         }
@@ -2086,9 +2249,13 @@ function wireActions() {
 
       if (action === "speak-dialogue-line") {
         const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const lines = Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
-          ? activeLesson.dialogueLines
-          : [];
+        const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+        const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
+        const lines = sceneLines.length
+          ? sceneLines
+          : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+            ? activeLesson.dialogueLines
+            : [];
         const line = lines.length ? lines[lessonDialogueIndex % lines.length] : null;
         if (line?.text) {
           void speakText(line.text);
@@ -2250,6 +2417,7 @@ function wireActions() {
           lessonExerciseDraftAnswer = "";
           lessonExerciseResult = null;
           lessonDialogueIndex = 0;
+          lessonSceneIndex = 0;
           persist();
           render();
         }
@@ -2809,6 +2977,9 @@ function wireActions() {
         const grammarPointsInput = app.querySelector('[data-field="lesson-grammar-points"]');
         const dialogueLinesInput = app.querySelector('[data-field="lesson-dialogue-lines"]');
         const exercisesInput = app.querySelector('[data-field="lesson-exercises"]');
+        const scenesInput = app.querySelector('[data-field="lesson-scenes"]');
+        const popCultureNotesInput = app.querySelector('[data-field="lesson-pop-culture-notes"]');
+        const kanjiBreakdownsInput = app.querySelector('[data-field="lesson-kanji-breakdowns"]');
         const title = titleInput?.value?.trim();
         if (!title && !adminLessonEditor) {
           return;
@@ -2837,6 +3008,9 @@ function wireActions() {
           grammarPoints: parseCollection(grammarPointsInput?.value, adminLessonEditor?.grammarPoints ?? baseLesson.grammarPoints),
           dialogueLines: parseCollection(dialogueLinesInput?.value, adminLessonEditor?.dialogueLines ?? baseLesson.dialogueLines),
           exercises: parseCollection(exercisesInput?.value, adminLessonEditor?.exercises ?? baseLesson.exercises),
+          scenes: parseCollection(scenesInput?.value, adminLessonEditor?.scenes ?? baseLesson.scenes),
+          popCultureNotes: parseCollection(popCultureNotesInput?.value, adminLessonEditor?.popCultureNotes ?? baseLesson.popCultureNotes),
+          kanjiBreakdowns: parseCollection(kanjiBreakdownsInput?.value, adminLessonEditor?.kanjiBreakdowns ?? baseLesson.kanjiBreakdowns),
         };
         if (adminLessonEditor?.id) {
           await apiJson(`/api/lessons/${encodeURIComponent(adminLessonEditor.id)}`, {

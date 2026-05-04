@@ -56,12 +56,19 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 17);
+    assert.equal(temp.store.getSchemaVersion(), 18);
     assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 6, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
     assert.equal(snapshot.kanjiReviews.length >= 6, true);
+    assert.equal(Array.isArray(snapshot.lessons[0].scenes), true);
+    assert.equal(snapshot.lessons[0].scenes.length >= 3, true);
+    assert.equal(Array.isArray(snapshot.lessons[0].popCultureNotes), true);
+    assert.equal(Array.isArray(snapshot.lessons[0].kanjiBreakdowns), true);
+    assert.equal(Array.isArray(snapshot.lessons[0].exercises), true);
+    assert.equal(snapshot.lessons[0].exercises.length >= 4, true);
+    assert.equal(snapshot.lessons[0].exercises.some((exercise) => exercise.type === "cloze"), true);
     assert.equal(snapshot.admin.users.length, 0);
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
@@ -142,7 +149,7 @@ test("api handler can be imported without starting the server", async () => {
         return { roles: [], permissions: [] };
       },
       getSchemaVersion() {
-        return 17;
+        return 18;
       },
       getMigrationHistory() {
         return [{ version: 17, applied_at: new Date().toISOString() }];
@@ -193,7 +200,7 @@ test("api handler can be imported without starting the server", async () => {
     );
     assert.equal(statusRes.statusCode, 200);
     const status = JSON.parse(statusRes.body);
-    assert.equal(status.database.schemaVersion, 17);
+    assert.equal(status.database.schemaVersion, 18);
     assert.equal(status.database.imports, 0);
     assert.equal(Array.isArray(status.database.migrations), true);
   } finally {
@@ -233,7 +240,8 @@ test("lesson CRUD works through the SQLite adapter", () => {
     assert.equal(created.id, "travel-station");
     assert.equal(temp.store.getLessons().some((lesson) => lesson.id === "travel-station"), true);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.grammarPoints.length, 2);
-    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.length, 2);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.length >= 4, true);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.some((exercise) => exercise.type === "cloze"), true);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.dialogueLines.length, 3);
 
     const updated = temp.store.updateLesson("travel-station", {
@@ -296,6 +304,7 @@ test("lesson imports batch upsert through the SQLite adapter", () => {
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.title, "Anime: Store Greeting");
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.grammarPoints[0]?.title, "Greeting");
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.dialogueLines.length, 2);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "imported-convenience-store")?.exercises.length >= 4, true);
   } finally {
     cleanupTempStore(temp);
   }
@@ -827,7 +836,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 6);
-    assert.equal(temp.store.getSchemaVersion(), 17);
+    assert.equal(temp.store.getSchemaVersion(), 18);
   } finally {
     cleanupTempStore(temp);
   }
@@ -952,6 +961,18 @@ test("lesson exercise evaluation handles multiple choice and translation", () =>
   );
   assert.equal(translation.correct, true);
   assert.ok(translation.feedback.includes("Correct"));
+
+  const cloze = evaluateLessonExercise(
+    {
+      type: "cloze",
+      prompt: "Fill the blank",
+      answer: "light broth",
+      explanation: "Use the scene context.",
+    },
+    { input: "light broth" }
+  );
+  assert.equal(cloze.correct, true);
+  assert.ok(cloze.feedback.includes("Correct"));
 });
 
 test("lesson draft generation returns theme-based content", () => {
@@ -963,6 +984,9 @@ test("lesson draft generation returns theme-based content", () => {
   assert.ok(Array.isArray(draft.grammarPoints));
   assert.ok(Array.isArray(draft.dialogueLines));
   assert.ok(Array.isArray(draft.exercises));
+  assert.ok(Array.isArray(draft.scenes) && draft.scenes.length >= 3);
+  assert.ok(Array.isArray(draft.popCultureNotes) && draft.popCultureNotes.length >= 2);
+  assert.ok(Array.isArray(draft.kanjiBreakdowns));
 });
 
 test("lesson pack generation returns multiple imported lessons", () => {
@@ -973,6 +997,8 @@ test("lesson pack generation returns multiple imported lessons", () => {
   assert.ok(pack.some((lesson) => lesson.japanese.includes("切符売り場")));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.grammarPoints) && lesson.grammarPoints.length >= 2));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length >= 3));
+  assert.ok(pack.every((lesson) => Array.isArray(lesson.scenes) && lesson.scenes.length >= 3));
+  assert.ok(pack.every((lesson) => Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length >= 2));
 });
 
 test("lesson catalog filters by query, theme, and difficulty", () => {

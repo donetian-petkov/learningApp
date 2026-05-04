@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildLessonStudyMaterials, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonStudyMaterials, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -81,6 +81,11 @@ function normalizeLesson(lesson, index = 0) {
     exercises: Array.isArray(lesson.exercises)
       ? lesson.exercises.map(normalizeExerciseItem)
       : [],
+    scenes: Array.isArray(lesson.scenes) ? lesson.scenes.map(normalizeScene) : [],
+    popCultureNotes: Array.isArray(lesson.popCultureNotes) ? lesson.popCultureNotes.map(normalizePopCultureNote) : [],
+    kanjiBreakdowns: Array.isArray(lesson.kanjiBreakdowns)
+      ? lesson.kanjiBreakdowns.map(normalizeKanjiBreakdown)
+      : [],
     dialogueLines: Array.isArray(lesson.dialogueLines)
       ? lesson.dialogueLines.map((line, lineIndex) => ({
         speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
@@ -107,6 +112,79 @@ function normalizeExerciseItem(item = {}, index = 0) {
     choices,
     answer: String(item.answer ?? "").trim(),
     explanation: String(item.explanation ?? "").trim(),
+  };
+}
+
+function mergeLessonExercises(primaryExercises = [], fallbackExercises = []) {
+  const merged = [];
+  const seen = new Set();
+  const push = (exercise) => {
+    const normalized = normalizeExerciseItem(exercise, merged.length);
+    const signature = [
+      normalized.id,
+      normalized.type,
+      normalized.prompt,
+      normalized.answer,
+      JSON.stringify(normalized.choices ?? []),
+    ].join("|");
+    if (seen.has(signature)) return;
+    seen.add(signature);
+    merged.push(normalized);
+  };
+  (Array.isArray(primaryExercises) ? primaryExercises : []).forEach(push);
+  (Array.isArray(fallbackExercises) ? fallbackExercises : []).forEach(push);
+  return merged;
+}
+
+function ensureLessonExerciseCount(primaryExercises = [], fallbackExercises = [], minCount = 4) {
+  const merged = mergeLessonExercises(primaryExercises, fallbackExercises);
+  if (merged.length >= minCount) return merged;
+  const rescue = mergeLessonExercises(merged, fallbackExercises);
+  return rescue.length >= minCount ? rescue : merged;
+}
+
+function lessonExerciseRows(lessonId, primaryExercises = [], fallbackExercises = []) {
+  return ensureLessonExerciseCount(primaryExercises, fallbackExercises).map((exercise, index) => ({
+    ...exercise,
+    id: `${lessonId}-exercise-${index + 1}`,
+  }));
+}
+
+function normalizeScene(item = {}, index = 0) {
+  return {
+    title: String(item.title ?? `Scene ${index + 1}`).trim() || `Scene ${index + 1}`,
+    setting: String(item.setting ?? "").trim(),
+    summary: String(item.summary ?? "").trim(),
+    lines: Array.isArray(item.lines)
+      ? item.lines.map((line, lineIndex) => ({
+          speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
+          text: String(line?.text ?? "").trim(),
+        }))
+      : [],
+    references: Array.isArray(item.references) ? item.references.map((entry) => String(entry).trim()).filter(Boolean) : [],
+  };
+}
+
+function normalizePopCultureNote(item = {}, index = 0) {
+  return {
+    title: String(item.title ?? `Context note ${index + 1}`).trim() || `Context note ${index + 1}`,
+    context: String(item.context ?? "").trim(),
+    reference: String(item.reference ?? "").trim(),
+  };
+}
+
+function normalizeKanjiBreakdown(item = {}, index = 0) {
+  return {
+    character: String(item.character ?? "").trim(),
+    meaning: String(item.meaning ?? "").trim(),
+    onYomi: String(item.onYomi ?? item.on_yomi ?? "").trim(),
+    kunYomi: String(item.kunYomi ?? item.kun_yomi ?? "").trim(),
+    components: String(item.components ?? "").trim(),
+    mnemonic: String(item.mnemonic ?? "").trim(),
+    examples: Array.isArray(item.examples) ? item.examples.map((entry) => String(entry).trim()).filter(Boolean) : [],
+    lessonContext: String(item.lessonContext ?? item.lesson_context ?? "").trim(),
+    lessonExamples: Array.isArray(item.lessonExamples) ? item.lessonExamples.map((entry) => String(entry).trim()).filter(Boolean) : [],
+    id: item.id ?? `kanji-breakdown-${index + 1}`,
   };
 }
 
@@ -661,6 +739,9 @@ export class SqliteStorageAdapter {
         romaji TEXT NOT NULL,
         translation TEXT NOT NULL,
         grammar TEXT NOT NULL,
+        scenes_json TEXT NOT NULL DEFAULT '[]',
+        pop_culture_notes_json TEXT NOT NULL DEFAULT '[]',
+        kanji_breakdowns_json TEXT NOT NULL DEFAULT '[]',
         order_index INTEGER NOT NULL DEFAULT 0
       );
 
@@ -1217,6 +1298,19 @@ export class SqliteStorageAdapter {
     if (getSchemaVersion(this.db) < 17) {
       setSchemaVersion(this.db, 17);
     }
+    if (getSchemaVersion(this.db) < 18) {
+      try {
+        this.db.exec("ALTER TABLE lessons ADD COLUMN scenes_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE lessons ADD COLUMN pop_culture_notes_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE lessons ADD COLUMN kanji_breakdowns_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      setSchemaVersion(this.db, 18);
+      this.backfillRichLessonContent();
+    }
   }
 
   seedIfNeeded() {
@@ -1242,6 +1336,7 @@ export class SqliteStorageAdapter {
       if (kanjiReviewCount === 0) {
         this.seedKanjiReviewsFromEntries();
       }
+      this.backfillRichLessonContent();
       return;
     }
     const snapshot = normalizeState(INITIAL_APP_STATE);
@@ -1457,12 +1552,15 @@ export class SqliteStorageAdapter {
       grammar: patch.grammar ?? current.grammar,
       vocab: Array.isArray(patch.vocab) ? patch.vocab : this.loadLessonVocab(lessonId),
       kanji: Array.isArray(patch.kanji) ? patch.kanji : this.loadLessonKanji(lessonId),
+      scenes: Array.isArray(patch.scenes) ? patch.scenes : this.loadLessonScenes(lessonId),
+      popCultureNotes: Array.isArray(patch.popCultureNotes) ? patch.popCultureNotes : this.loadLessonPopCultureNotes(lessonId),
+      kanjiBreakdowns: Array.isArray(patch.kanjiBreakdowns) ? patch.kanjiBreakdowns : this.loadLessonKanjiBreakdowns(lessonId),
     });
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare(
-        "UPDATE lessons SET title = ?, theme = ?, difficulty = ?, japanese = ?, romaji = ?, translation = ?, grammar = ? WHERE id = ?"
-      ).run(lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, lessonId);
+        "UPDATE lessons SET title = ?, theme = ?, difficulty = ?, japanese = ?, romaji = ?, translation = ?, grammar = ?, scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?"
+      ).run(lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, toJson(lesson.scenes), toJson(lesson.popCultureNotes), toJson(lesson.kanjiBreakdowns), lessonId);
       this.replaceLessonChildren(lessonId, lesson);
       this.enqueueContentReviewRow({
         id: `content-review-${lessonId}`,
@@ -2152,6 +2250,9 @@ export class SqliteStorageAdapter {
       romaji: lesson.romaji,
       translation: lesson.translation,
       grammar: lesson.grammar,
+      scenes: parseJson(lesson.scenes_json, []),
+      popCultureNotes: parseJson(lesson.pop_culture_notes_json, []),
+      kanjiBreakdowns: parseJson(lesson.kanji_breakdowns_json, []),
       vocab: this.db
         .prepare("SELECT word, kana, meaning FROM lesson_vocab WHERE lesson_id = ? ORDER BY order_index, id")
         .all(lesson.id),
@@ -2604,8 +2705,21 @@ export class SqliteStorageAdapter {
 
     snapshot.lessons.forEach((lesson, orderIndex) => {
       this.db.prepare(
-        "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(lesson.id, lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, orderIndex);
+        "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        lesson.id,
+        lesson.title,
+        lesson.theme,
+        lesson.difficulty,
+        lesson.japanese,
+        lesson.romaji,
+        lesson.translation,
+        lesson.grammar,
+        toJson(lesson.scenes ?? []),
+        toJson(lesson.popCultureNotes ?? []),
+        toJson(lesson.kanjiBreakdowns ?? []),
+        orderIndex
+      );
       lesson.vocab.forEach((item, vocabIndex) => {
         this.db.prepare("INSERT INTO lesson_vocab (lesson_id, word, kana, meaning, order_index) VALUES (?, ?, ?, ?, ?)")
           .run(lesson.id, item.word, item.kana, item.meaning, vocabIndex);
@@ -2616,13 +2730,16 @@ export class SqliteStorageAdapter {
       });
       const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
       const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
-      const exercises = lesson.exercises?.length ? lesson.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+      const exercises = lessonExerciseRows(lesson.id, lesson.exercises, fallbackMaterials.exercises);
       const dialogueLines = Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length
         ? lesson.dialogueLines.map((line, lineIndex) => ({
           speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
           text: String(line?.text ?? "").trim(),
         }))
         : buildLessonDialogueLines(lesson);
+      const scenes = Array.isArray(lesson.scenes) && lesson.scenes.length ? lesson.scenes.map(normalizeScene) : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
+      const popCultureNotes = Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length ? lesson.popCultureNotes.map(normalizePopCultureNote) : buildPopCultureNotes(lesson.title, lesson.theme);
+      const kanjiBreakdowns = Array.isArray(lesson.kanjiBreakdowns) && lesson.kanjiBreakdowns.length ? lesson.kanjiBreakdowns.map(normalizeKanjiBreakdown) : buildKanjiBreakdowns(lesson.kanji, lesson.title, lesson.theme, lesson.vocab);
       grammarPoints.forEach((point, grammarIndex) => {
         this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
           .run(lesson.id, point.title, point.explanation, point.example, grammarIndex);
@@ -2645,6 +2762,8 @@ export class SqliteStorageAdapter {
           exerciseIndex
         );
       });
+      this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?")
+        .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), lesson.id);
     });
 
     const kanjiSet = new Map();
@@ -3011,7 +3130,7 @@ export class SqliteStorageAdapter {
         const normalized = normalizeLesson(lesson, orderIndex + index);
         if (existingIds.has(normalized.id)) return;
         this.db.prepare(
-          "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
           normalized.id,
           normalized.title,
@@ -3021,6 +3140,9 @@ export class SqliteStorageAdapter {
           normalized.romaji,
           normalized.translation,
           normalized.grammar,
+          toJson(normalized.scenes ?? buildSceneBlueprint(normalized.theme, normalized.title, normalized.japanese, normalized.translation, normalized.grammar)),
+          toJson(normalized.popCultureNotes ?? buildPopCultureNotes(normalized.title, normalized.theme)),
+          toJson(normalized.kanjiBreakdowns ?? buildKanjiBreakdowns(normalized.kanji, normalized.title, normalized.theme, normalized.vocab)),
           orderIndex + index
         );
         normalized.vocab.forEach((item, vocabIndex) => {
@@ -3033,13 +3155,16 @@ export class SqliteStorageAdapter {
         });
         const fallbackMaterials = buildLessonStudyMaterials(normalized.japanese, normalized.translation, normalized.grammar, normalized.title, normalized.theme);
         const grammarPoints = normalized.grammarPoints?.length ? normalized.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
-        const exercises = normalized.exercises?.length ? normalized.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+        const exercises = lessonExerciseRows(normalized.id, normalized.exercises, fallbackMaterials.exercises);
         const dialogueLines = Array.isArray(normalized.dialogueLines) && normalized.dialogueLines.length
           ? normalized.dialogueLines.map((line, lineIndex) => ({
             speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
             text: String(line?.text ?? "").trim(),
           }))
           : buildLessonDialogueLines(normalized);
+        const scenes = Array.isArray(normalized.scenes) && normalized.scenes.length ? normalized.scenes.map(normalizeScene) : buildSceneBlueprint(normalized.theme, normalized.title, normalized.japanese, normalized.translation, normalized.grammar);
+        const popCultureNotes = Array.isArray(normalized.popCultureNotes) && normalized.popCultureNotes.length ? normalized.popCultureNotes.map(normalizePopCultureNote) : buildPopCultureNotes(normalized.title, normalized.theme);
+        const kanjiBreakdowns = Array.isArray(normalized.kanjiBreakdowns) && normalized.kanjiBreakdowns.length ? normalized.kanjiBreakdowns.map(normalizeKanjiBreakdown) : buildKanjiBreakdowns(normalized.kanji, normalized.title, normalized.theme, normalized.vocab);
         grammarPoints.forEach((point, grammarIndex) => {
           this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
             .run(normalized.id, point.title, point.explanation, point.example, grammarIndex);
@@ -3062,6 +3187,8 @@ export class SqliteStorageAdapter {
             exerciseIndex
           );
         });
+        this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?")
+          .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), normalized.id);
       });
       this.db.exec("COMMIT");
     } catch (error) {
@@ -3070,6 +3197,50 @@ export class SqliteStorageAdapter {
     }
     this.seedReviewItemsFromLessons(rows, false);
     this.seedKanjiReviewsFromEntries();
+  }
+
+  backfillRichLessonContent() {
+    const lessons = this.db.prepare("SELECT id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json FROM lessons ORDER BY order_index, id").all();
+    if (!lessons.length) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      lessons.forEach((lesson) => {
+        const vocab = this.loadLessonVocab(lesson.id);
+        const kanji = this.loadLessonKanji(lesson.id);
+        const exercises = this.loadLessonExercises(lesson.id);
+        const scenes = parseJson(lesson.scenes_json, []);
+        const notes = parseJson(lesson.pop_culture_notes_json, []);
+        const breakdowns = parseJson(lesson.kanji_breakdowns_json, []);
+        const nextScenes = scenes.length ? scenes : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
+        const nextNotes = notes.length ? notes : buildPopCultureNotes(lesson.title, lesson.theme);
+        const nextBreakdowns = breakdowns.length ? breakdowns : buildKanjiBreakdowns(kanji, lesson.title, lesson.theme, vocab);
+        const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
+        const nextExercises = lessonExerciseRows(lesson.id, exercises, fallbackMaterials.exercises);
+        if (nextExercises.length !== exercises.length) {
+          this.db.prepare("DELETE FROM exercise_items WHERE lesson_id = ?").run(lesson.id);
+          nextExercises.forEach((exercise, exerciseIndex) => {
+            this.db.prepare(
+              "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            ).run(
+              exercise.id || `${lesson.id}-exercise-${exerciseIndex + 1}`,
+              lesson.id,
+              exercise.type,
+              exercise.prompt,
+              toJson(exercise.choices ?? []),
+              exercise.answer,
+              exercise.explanation,
+              exerciseIndex
+            );
+          });
+        }
+        this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?")
+          .run(toJson(nextScenes), toJson(nextNotes), toJson(nextBreakdowns), lesson.id);
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   seedReviewItemsFromLessons(lessons = null, pruneMissing = true) {
@@ -3997,6 +4168,21 @@ export class SqliteStorageAdapter {
     }));
   }
 
+  loadLessonScenes(lessonId) {
+    const row = this.db.prepare("SELECT scenes_json FROM lessons WHERE id = ?").get(lessonId);
+    return parseJson(row?.scenes_json, []);
+  }
+
+  loadLessonPopCultureNotes(lessonId) {
+    const row = this.db.prepare("SELECT pop_culture_notes_json FROM lessons WHERE id = ?").get(lessonId);
+    return parseJson(row?.pop_culture_notes_json, []);
+  }
+
+  loadLessonKanjiBreakdowns(lessonId) {
+    const row = this.db.prepare("SELECT kanji_breakdowns_json FROM lessons WHERE id = ?").get(lessonId);
+    return parseJson(row?.kanji_breakdowns_json, []);
+  }
+
   loadLessonExercises(lessonId) {
     return this.db.prepare("SELECT * FROM exercise_items WHERE lesson_id = ? ORDER BY order_index, id").all(lessonId).map((row) => ({
       id: row.id,
@@ -4020,13 +4206,16 @@ export class SqliteStorageAdapter {
   replaceLessonChildren(lessonId, lesson) {
     const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
     const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
-    const exercises = lesson.exercises?.length ? lesson.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+    const exercises = lessonExerciseRows(lessonId, lesson.exercises, fallbackMaterials.exercises);
     const dialogueLines = Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length
       ? lesson.dialogueLines.map((line, index) => ({
         speaker: String(line?.speaker ?? `Speaker ${index + 1}`).trim() || `Speaker ${index + 1}`,
         text: String(line?.text ?? "").trim(),
       }))
       : buildLessonDialogueLines(lesson);
+    const scenes = Array.isArray(lesson.scenes) && lesson.scenes.length ? lesson.scenes.map(normalizeScene) : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
+    const popCultureNotes = Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length ? lesson.popCultureNotes.map(normalizePopCultureNote) : buildPopCultureNotes(lesson.title, lesson.theme);
+    const kanjiBreakdowns = Array.isArray(lesson.kanjiBreakdowns) && lesson.kanjiBreakdowns.length ? lesson.kanjiBreakdowns.map(normalizeKanjiBreakdown) : buildKanjiBreakdowns(lesson.kanji, lesson.title, lesson.theme, lesson.vocab);
     this.db.prepare("DELETE FROM lesson_vocab WHERE lesson_id = ?").run(lessonId);
     this.db.prepare("DELETE FROM lesson_kanji WHERE lesson_id = ?").run(lessonId);
     this.db.prepare("DELETE FROM lesson_grammar WHERE lesson_id = ?").run(lessonId);
@@ -4062,12 +4251,28 @@ export class SqliteStorageAdapter {
         index
       );
     });
+    this.db.prepare(
+      "UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?"
+    ).run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), lessonId);
   }
 
   insertLessonRow(lesson, orderIndex = 0) {
     this.db.prepare(
-      "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(lesson.id, lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, orderIndex);
+      "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      lesson.id,
+      lesson.title,
+      lesson.theme,
+      lesson.difficulty,
+      lesson.japanese,
+      lesson.romaji,
+      lesson.translation,
+      lesson.grammar,
+      toJson(lesson.scenes ?? []),
+      toJson(lesson.popCultureNotes ?? []),
+      toJson(lesson.kanjiBreakdowns ?? []),
+      orderIndex
+    );
     this.replaceLessonChildren(lesson.id, lesson);
   }
 

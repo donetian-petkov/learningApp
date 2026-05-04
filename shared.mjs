@@ -30,6 +30,500 @@ export function chooseJapaneseVoice(voices = []) {
   );
 }
 
+function normalizeLessonTopic(theme) {
+  const raw = String(theme ?? "custom").trim().toLowerCase() || "custom";
+  if (raw.includes("anime")) return "anime";
+  if (raw.includes("manga")) return "manga";
+  if (raw.includes("food")) return "food";
+  if (raw.includes("travel")) return "travel";
+  if (raw.includes("daily")) return "daily";
+  if (raw.includes("school")) return "school";
+  if (raw.includes("work")) return "workplace";
+  if (raw.includes("etiquette") || raw.includes("polite")) return "etiquette";
+  if (raw.includes("history") || raw.includes("samurai")) return "history";
+  return raw;
+}
+
+function makeScene(title, setting, summary, lines, references = []) {
+  return {
+    title,
+    setting,
+    summary,
+    lines: Array.isArray(lines) ? lines : [],
+    references: Array.isArray(references) ? references : [],
+  };
+}
+
+export function buildSceneBlueprint(theme, title, japanese, translation, grammar) {
+  const safeTitle = String(title ?? "Lesson").trim() || "Lesson";
+  const safeJapanese = String(japanese ?? "").trim();
+  const safeTranslation = String(translation ?? "").trim();
+  const safeGrammar = String(grammar ?? "").trim();
+  const topic = normalizeLessonTopic(theme);
+
+  const fallbackScenes = [
+    makeScene(
+      `${safeTitle}: Opening`,
+      "Opening beat",
+      "A short scene that introduces the core line in a memorable situation.",
+      [
+        { speaker: "Narration", text: `${safeTitle} opens in a ${topic} context.` },
+        { speaker: "Speaker A", text: safeJapanese || safeTranslation || `${safeTitle} begins.` },
+        { speaker: "Speaker B", text: safeTranslation || safeGrammar || `Use this line to practice the ${topic} scene.` },
+      ],
+      [safeGrammar, safeTranslation].filter(Boolean)
+    ),
+    makeScene(
+      `${safeTitle}: Reaction`,
+      "Reaction beat",
+      "A second beat adds a response, contrast, or clarification.",
+      [
+        { speaker: "Narration", text: "The scene shifts to the other speaker's response." },
+        { speaker: "Speaker A", text: safeTranslation || `${safeTitle} response.` },
+        { speaker: "Speaker B", text: safeJapanese || `${safeTitle} reply.` },
+      ],
+      [safeJapanese, safeGrammar].filter(Boolean)
+    ),
+    makeScene(
+      `${safeTitle}: Recall`,
+      "Recall beat",
+      "A final beat turns the line into a reusable memory hook.",
+      [
+        { speaker: "Narration", text: `Recall the ${topic} context and say the sentence yourself.` },
+        { speaker: "Speaker A", text: safeJapanese || safeTitle },
+        { speaker: "Speaker B", text: safeTranslation || safeGrammar || "Repeat the line with the same tone." },
+      ],
+      [safeTranslation, safeGrammar].filter(Boolean)
+    ),
+  ];
+
+  const themedScenes = {
+    anime: [
+      makeScene(
+        `${safeTitle}: First Episode Hook`,
+        "Anime opening",
+        "A first-episode introduction with a warm, expressive line.",
+        [
+          { speaker: "Narration", text: "The camera settles on the club room and the new arrival." },
+          { speaker: "Hero", text: safeJapanese || "はじめまして。よろしくお願いします。" },
+          { speaker: "Friend", text: safeTranslation || "Nice to meet you. Let's get along." },
+        ],
+        ["Common first-meeting lines", "Polite anime introductions"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Energy Shift`,
+        "Anime reaction",
+        "A quick reaction beat with the usual expressive tone shift.",
+        [
+          { speaker: "Narration", text: "A surprise reveals the next challenge." },
+          { speaker: "Hero", text: safeGrammar || "That feeling of surprise is common in anime dialogue." },
+          { speaker: "Friend", text: safeTranslation || "The line lands like a cliffhanger." },
+        ],
+        ["Surprise reactions", "Cliffhanger pacing"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: End Card`,
+        "Episode closer",
+        "A closing beat that turns the expression into a study cue.",
+        [
+          { speaker: "Narration", text: "Use the line again as a study card or roleplay reply." },
+          { speaker: "Hero", text: safeJapanese || safeTitle },
+          { speaker: "Tutor", text: safeGrammar || "Keep the phrase short and expressive." },
+        ],
+        ["Rehearsed line reuse", "Roleplay cue"].filter(Boolean)
+      ),
+    ],
+    manga: [
+      makeScene(
+        `${safeTitle}: Panel 1`,
+        "Manga first panel",
+        "A setup panel that frames the speech bubble and the reaction.",
+        [
+          { speaker: "Narration", text: "A panel holds the expression still for a beat." },
+          { speaker: "Friend", text: safeJapanese || "えっ、本当に？" },
+          { speaker: "Narration", text: safeTranslation || "A shocked line lands before the next frame." },
+        ],
+        ["Speech bubble timing", "Reaction shot pacing"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Turn Page`,
+        "Turn-page reveal",
+        "A reveal beat that mirrors the dramatic page turn in manga.",
+        [
+          { speaker: "Narration", text: "The next panel reveals the hidden detail." },
+          { speaker: "Friend", text: safeGrammar || "Such a reveal often uses compact, punchy wording." },
+          { speaker: "Narration", text: safeTranslation || "The surprise is kept short and sharp." },
+        ],
+        ["Reveal timing", "Compact dialogue"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Closing Gasp`,
+        "Reaction close-up",
+        "A closing reaction card that keeps the line memorable.",
+        [
+          { speaker: "Narration", text: "Hold on the expression and repeat the line aloud." },
+          { speaker: "Friend", text: safeJapanese || safeTitle },
+          { speaker: "Tutor", text: safeTranslation || safeGrammar || "Short dialogue makes the punchline stick." },
+        ],
+        ["Reaction close-up", "Scene memory"].filter(Boolean)
+      ),
+    ],
+    food: [
+      makeScene(
+        `${safeTitle}: Counter Order`,
+        "Restaurant counter",
+        "A practical ordering scene with polite request language.",
+        [
+          { speaker: "Customer", text: safeJapanese || "おすすめのラーメンをください。" },
+          { speaker: "Staff", text: safeTranslation || "Sure, one recommended ramen coming up." },
+          { speaker: "Narration", text: "The exchange stays compact and polite." },
+        ],
+        ["Counter speech", "Polite requests"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Customization`,
+        "Ordering choices",
+        "A follow-up beat that introduces choice words and counters.",
+        [
+          { speaker: "Staff", text: "あっさりとこってり、どちらにしますか。" },
+          { speaker: "Customer", text: safeGrammar || "Use a short preference sentence." },
+          { speaker: "Narration", text: safeTranslation || "Light broth, please." },
+        ],
+        ["Menu choices", "Request framing"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Table Note`,
+        "Meal recap",
+        "A review beat that turns the order into a reusable memory card.",
+        [
+          { speaker: "Narration", text: "Repeat the order as a study sentence." },
+          { speaker: "Customer", text: safeJapanese || safeTitle },
+          { speaker: "Tutor", text: safeGrammar || "Polite food requests are short and direct." },
+        ],
+        ["Food vocabulary", "Service tone"].filter(Boolean)
+      ),
+    ],
+    travel: [
+      makeScene(
+        `${safeTitle}: Station Entry`,
+        "Train station",
+        "A wayfinding scene anchored around polite location questions.",
+        [
+          { speaker: "Traveler", text: safeJapanese || "切符売り場はどこですか。" },
+          { speaker: "Staff", text: safeTranslation || "The ticket counter is over there." },
+          { speaker: "Narration", text: "Simple directions keep the scene grounded." },
+        ],
+        ["Station wayfinding", "Polite questions"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Platform Check`,
+        "Platform announcement",
+        "A second beat that uses train vocabulary in context.",
+        [
+          { speaker: "Announcer", text: "この電車は何番線ですか。" },
+          { speaker: "Traveler", text: safeGrammar || "Check the platform and the departure time." },
+          { speaker: "Staff", text: safeTranslation || "Go straight and turn left." },
+        ],
+        ["Railway timing", "Location vocabulary"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Exit Route`,
+        "Exit route",
+        "A closing beat that recasts the line as a reusable travel prompt.",
+        [
+          { speaker: "Narration", text: "Use the sentence again when asking for directions." },
+          { speaker: "Traveler", text: safeJapanese || safeTitle },
+          { speaker: "Tutor", text: safeGrammar || "Keep location questions short." },
+        ],
+        ["Directional language", "Station flow"].filter(Boolean)
+      ),
+    ],
+    daily: [
+      makeScene(
+        `${safeTitle}: Morning Routine`,
+        "Morning commute",
+        "A routine scene with time words and habitual action.",
+        [
+          { speaker: "Narration", text: "The day starts with a short commute." },
+          { speaker: "Commuter", text: safeJapanese || "朝ごはんのあとで駅まで歩きます。" },
+          { speaker: "Friend", text: safeTranslation || "After breakfast, I walk to the station." },
+        ],
+        ["Routine language", "Time markers"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Evening Errand`,
+        "After-work errand",
+        "A practical daily-life beat that uses simple sequencing.",
+        [
+          { speaker: "Narration", text: "The scene shifts to an everyday errand." },
+          { speaker: "Commuter", text: "スーパーで買い物をします。" },
+          { speaker: "Tutor", text: safeGrammar || "Use に for time and で for place." },
+        ],
+        ["Daily routine", "Location markers"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Recap`,
+        "Daily recap",
+        "A recall scene that reuses the routine sentence naturally.",
+        [
+          { speaker: "Narration", text: "Repeat the sentence as a habit reminder." },
+          { speaker: "Commuter", text: safeJapanese || safeTitle },
+          { speaker: "Tutor", text: safeTranslation || "A routine sentence you can reuse every day." },
+        ],
+        ["Habit phrases", "Routine recall"].filter(Boolean)
+      ),
+    ],
+    school: [
+      makeScene(
+        `${safeTitle}: Before Class`,
+        "Classroom doorway",
+        "A lesson-opening scene with homework and class timing.",
+        [
+          { speaker: "Student", text: safeJapanese || "授業の前に宿題を確認します。" },
+          { speaker: "Teacher", text: safeTranslation || "Before class, I check the homework." },
+          { speaker: "Narration", text: "The classroom scene starts with a practical routine." },
+        ],
+        ["Classroom timing", "Homework language"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Club Check-in`,
+        "After-school club",
+        "A second beat for school life with people and places.",
+        [
+          { speaker: "Student", text: "放課後に図書室で勉強します。" },
+          { speaker: "Friend", text: safeGrammar || "Use に and で to place actions in time and space." },
+          { speaker: "Tutor", text: safeTranslation || "After school, I study in the library." },
+        ],
+        ["School club language", "Study spaces"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Teacher Question`,
+        "Teacher help",
+        "A closing beat that turns a polite question into a reusable model.",
+        [
+          { speaker: "Student", text: "先生にもう一度聞いてもいいですか。" },
+          { speaker: "Teacher", text: safeTranslation || "May I ask one more time?" },
+          { speaker: "Narration", text: safeGrammar || "Permission phrases are useful in school contexts." },
+        ],
+        ["Permission phrases", "Classroom politeness"].filter(Boolean)
+      ),
+    ],
+    workplace: [
+      makeScene(
+        `${safeTitle}: Mail Draft`,
+        "Inbox draft",
+        "A workplace message that is brief, respectful, and clear.",
+        [
+          { speaker: "Sender", text: safeJapanese || "ご確認ありがとうございます。" },
+          { speaker: "Receiver", text: safeTranslation || "Thank you for checking." },
+          { speaker: "Narration", text: "The business tone stays measured and polite." },
+        ],
+        ["Email tone", "Business gratitude"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Attachment Follow-up`,
+        "Attachment note",
+        "A follow-up beat that practices reason clauses and polite asks.",
+        [
+          { speaker: "Sender", text: "資料を添付しましたので、ご覧ください。" },
+          { speaker: "Receiver", text: safeGrammar || "Use ので for a polite reason." },
+          { speaker: "Narration", text: safeTranslation || "Please take a look at the attached materials." },
+        ],
+        ["Attachments", "Reason clauses"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Reply`,
+        "Return reply",
+        "A closing beat that gives the learner a short reply model.",
+        [
+          { speaker: "Receiver", text: "承知しました。確認します。" },
+          { speaker: "Tutor", text: safeGrammar || "The reply is short and efficient, like a real inbox response." },
+          { speaker: "Narration", text: safeTranslation || "Understood. I will check it." },
+        ],
+        ["Short replies", "Office etiquette"].filter(Boolean)
+      ),
+    ],
+    etiquette: [
+      makeScene(
+        `${safeTitle}: Polite Request`,
+        "Courtesy opening",
+        "A softened request with built-in politeness markers.",
+        [
+          { speaker: "Speaker A", text: safeJapanese || "お手数ですが、もう一度お願いします。" },
+          { speaker: "Speaker B", text: safeTranslation || "Sorry for the trouble, but please once more." },
+          { speaker: "Narration", text: "The polite opening prepares the listener for a request." },
+        ],
+        ["Polite framing", "Softened requests"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Apology`,
+        "Apology beat",
+        "A second beat for careful, low-pressure language.",
+        [
+          { speaker: "Speaker A", text: "申し訳ありませんが、少し待ってください。" },
+          { speaker: "Speaker B", text: safeGrammar || "Use a polite apology before a request or delay." },
+          { speaker: "Narration", text: safeTranslation || "I’m sorry, but please wait a moment." },
+        ],
+        ["Apology forms", "Request softeners"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Appreciation`,
+        "Gratitude beat",
+        "A closing beat that reinforces a warm, polite tone.",
+        [
+          { speaker: "Speaker A", text: "いつもありがとうございます。" },
+          { speaker: "Speaker B", text: safeTranslation || "Thank you as always." },
+          { speaker: "Tutor", text: safeGrammar || "Use this to keep the tone warm and consistent." },
+        ],
+        ["Gratitude phrases", "Relationship tone"].filter(Boolean)
+      ),
+    ],
+    history: [
+      makeScene(
+        `${safeTitle}: Resolve`,
+        "Training hall",
+        "A historical scene that compares words and actions.",
+        [
+          { speaker: "Teacher", text: safeJapanese || "武士は言葉より行動で示します。" },
+          { speaker: "Student", text: safeTranslation || "Samurai show through actions rather than words." },
+          { speaker: "Narration", text: "The line feels like a code of conduct." },
+        ],
+        ["Samurai etiquette", "Comparative phrasing"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Festival Memory`,
+        "Town festival",
+        "A broader cultural beat that keeps the history lesson grounded.",
+        [
+          { speaker: "Narration", text: "Old towns often used festivals to bring people together." },
+          { speaker: "Teacher", text: "昔の町では祭りが人々をつなぎました。" },
+          { speaker: "Tutor", text: safeGrammar || "Historic narration often uses short descriptive clauses." },
+        ],
+        ["Cultural memory", "Historic narration"].filter(Boolean)
+      ),
+      makeScene(
+        `${safeTitle}: Castle View`,
+        "Castle overlook",
+        "A closing beat that shows perspective and distance.",
+        [
+          { speaker: "Narration", text: "The view from the castle is wide and calm." },
+          { speaker: "Teacher", text: "城から町全体が見えます。" },
+          { speaker: "Student", text: safeTranslation || "The whole town can be seen from the castle." },
+        ],
+        ["Perspective phrases", "Historic scenery"].filter(Boolean)
+      ),
+    ],
+  };
+
+  return themedScenes[topic] ?? fallbackScenes;
+}
+
+const KANJI_BREAKDOWN_LIBRARY = {
+  今: { meaning: "now", onYomi: "コン", kunYomi: "いま", components: "亼 + ハ", mnemonic: "The present moment gathers into now.", examples: ["今日", "今朝"], lessonContext: "Useful in greetings and time expressions." },
+  名: { meaning: "name", onYomi: "メイ", kunYomi: "な", components: "夕 + 口", mnemonic: "A name is spoken in the mouth at dusk or a quiet moment.", examples: ["名前", "名刺"], lessonContext: "Appears in first introductions." },
+  願: { meaning: "request / wish", onYomi: "ガン", kunYomi: "ねが", components: "原 + 頁", mnemonic: "A wish or request is something you lean toward deeply.", examples: ["お願いします", "願い"], lessonContext: "Common in polite requests." },
+  一: { meaning: "one", onYomi: "イチ", kunYomi: "ひと", components: "single stroke", mnemonic: "One stroke makes the count easy to remember.", examples: ["一つ", "一番"], lessonContext: "Used for counters and rankings." },
+  店: { meaning: "shop", onYomi: "テン", kunYomi: "みせ", components: "广 + 占", mnemonic: "A shop is a covered place where goods are placed.", examples: ["店員", "店舗"], lessonContext: "Fits restaurant and store scenes." },
+  汁: { meaning: "soup / juice", onYomi: "ジュウ", kunYomi: "しる", components: "氵 + 十", mnemonic: "Liquid collects into soup or broth.", examples: ["汁物", "味噌汁"], lessonContext: "Useful in food context." },
+  武: { meaning: "warrior", onYomi: "ブ", kunYomi: "", components: "止 + 戈", mnemonic: "A warrior stands still with discipline and a weapon.", examples: ["武士", "武道"], lessonContext: "Historical and martial contexts." },
+  行: { meaning: "go / act", onYomi: "コウ / ギョウ", kunYomi: "い", components: "彳 + 亍", mnemonic: "Steps move forward, so the idea is to go or act.", examples: ["行動", "銀行"], lessonContext: "Strong in action and movement phrases." },
+  示: { meaning: "show", onYomi: "シ", kunYomi: "しめ", components: "礻", mnemonic: "A marker or offering shows what matters.", examples: ["示す", "表示"], lessonContext: "Common in lessons about showing or indicating." },
+  本: { meaning: "book / origin", onYomi: "ホン", kunYomi: "もと", components: "木 + stroke", mnemonic: "The base of a tree becomes the origin or book root.", examples: ["本当", "日本"], lessonContext: "Shows up constantly in manga and daily language." },
+  真: { meaning: "true", onYomi: "シン", kunYomi: "ま", components: "十 + 具", mnemonic: "The truth is set squarely in place.", examples: ["本当", "真面目"], lessonContext: "Useful for reaction lines." },
+  無: { meaning: "nothing / without", onYomi: "ム", kunYomi: "な", components: "火 + 灬 stylization", mnemonic: "Something burned away leaves no trace; nothing remains.", examples: ["無理", "無料"], lessonContext: "Often appears in strong denials." },
+  電: { meaning: "electric", onYomi: "デン", kunYomi: "", components: "雨 + 田 + 申", mnemonic: "Electricity flashes under the clouds.", examples: ["電車", "電話"], lessonContext: "Useful for trains and technology." },
+  車: { meaning: "car / vehicle", onYomi: "シャ", kunYomi: "くるま", components: "vehicle frame", mnemonic: "A simple frame rolls like a vehicle.", examples: ["電車", "車両"], lessonContext: "Common in transit scenes." },
+  毎: { meaning: "every", onYomi: "マイ", kunYomi: "ごと", components: "母 stylization", mnemonic: "Repeat the same habit every day.", examples: ["毎日", "毎回"], lessonContext: "Useful for routines." },
+  確: { meaning: "confirm", onYomi: "カク", kunYomi: "たし", components: "石 + 隹", mnemonic: "Stone-like certainty helps you confirm details.", examples: ["確認", "確か"], lessonContext: "Common in business email language." },
+  資: { meaning: "resources / data", onYomi: "シ", kunYomi: "", components: "次 + 貝", mnemonic: "Useful resources are what you use next.", examples: ["資料", "資源"], lessonContext: "Used for documents and information." },
+  料: { meaning: "materials", onYomi: "リョウ", kunYomi: "", components: "斗 + 米", mnemonic: "Materials are measured out for use.", examples: ["資料", "料理"], lessonContext: "Seen in workplace and study materials." },
+  授: { meaning: "teach / give", onYomi: "ジュ", kunYomi: "さず", components: "扌 + 受", mnemonic: "Teaching is giving something through the hand.", examples: ["授業", "授ける"], lessonContext: "Common in school lessons." },
+  業: { meaning: "work / class", onYomi: "ギョウ", kunYomi: "わざ", components: "木 + 工 + 丨", mnemonic: "Work is the structure you build and practice.", examples: ["授業", "業務"], lessonContext: "Strong in school and workplace contexts." },
+  宿: { meaning: "lodging / homework", onYomi: "シュク", kunYomi: "やど", components: "宀 + 人 + 百", mnemonic: "What stays under the roof becomes the place to rest or complete homework.", examples: ["宿題", "宿泊"], lessonContext: "Useful in school homework phrases." },
+  朝: { meaning: "morning", onYomi: "チョウ", kunYomi: "あさ", components: "十 + 日 + 月", mnemonic: "The sun and moon together mark morning.", examples: ["朝ごはん", "今朝"], lessonContext: "Used in routines and commute scenes." },
+  駅: { meaning: "station", onYomi: "エキ", kunYomi: "", components: "馬 + 尺", mnemonic: "A station is where movement and scale meet.", examples: ["駅前", "電車"], lessonContext: "Essential for travel scenes." },
+  歩: { meaning: "walk", onYomi: "ホ", kunYomi: "ある", components: "止 + 少", mnemonic: "A small step repeated is walking.", examples: ["歩く", "散歩"], lessonContext: "Useful in daily-life and commute lessons." },
+  会: { meaning: "meet", onYomi: "カイ", kunYomi: "あ", components: "人 + 云", mnemonic: "People gather and meet.", examples: ["会議", "会う"], lessonContext: "Strong in workplace scenes." },
+  手: { meaning: "hand", onYomi: "シュ / ズ", kunYomi: "て", components: "one hand", mnemonic: "A hand is the tool for polite action.", examples: ["手数", "手紙"], lessonContext: "Useful in etiquette phrases." },
+  度: { meaning: "degree / time", onYomi: "ド", kunYomi: "たび", components: "广 + 又", mnemonic: "A degree or turn measures how often something happens.", examples: ["一度", "程度"], lessonContext: "Useful in repetition and request phrases." },
+};
+
+function buildKanjiBreakdown(character, title, theme, vocab = []) {
+  const safeCharacter = String(character ?? "").trim();
+  if (!safeCharacter) return null;
+  const entry = KANJI_BREAKDOWN_LIBRARY[safeCharacter] ?? null;
+  const matchingVocab = (Array.isArray(vocab) ? vocab : []).filter((item) => String(item.word ?? item.term ?? "").includes(safeCharacter)).slice(0, 3);
+  return {
+    character: safeCharacter,
+    meaning: entry?.meaning ?? `${safeCharacter} from ${title || "this lesson"}`,
+    onYomi: entry?.onYomi ?? "",
+    kunYomi: entry?.kunYomi ?? "",
+    components: entry?.components ?? "Simple lesson component breakdown.",
+    mnemonic: entry?.mnemonic ?? `Link ${safeCharacter} to the ${theme} scene.`,
+    examples: entry?.examples ?? [],
+    lessonContext: entry?.lessonContext ?? `Used in the ${theme} lesson.`,
+    lessonExamples: matchingVocab.map((item) => `${item.word}${item.kana ? ` (${item.kana})` : ""}`),
+  };
+}
+
+export function buildKanjiBreakdowns(kanji = [], title, theme, vocab = []) {
+  const unique = [];
+  const seen = new Set();
+  for (const item of Array.isArray(kanji) ? kanji : []) {
+    const character = String(item ?? "").trim();
+    if (!character || seen.has(character)) continue;
+    seen.add(character);
+    unique.push(buildKanjiBreakdown(character, title, theme, vocab));
+  }
+  return unique.filter(Boolean);
+}
+
+export function buildPopCultureNotes(title, theme) {
+  const topic = normalizeLessonTopic(theme);
+  const templates = {
+    anime: [
+      { title: "Episode framing", context: "Anime often starts with a friendly introduction before the action kicks in.", reference: "Intro scenes frequently keep the first line polite and easy to repeat." },
+      { title: "Polite contrast", context: "Phrases like こちらこそ are common when characters want to sound warm and cooperative.", reference: "The scene uses that social warmth as a memory hook." },
+    ],
+    manga: [
+      { title: "Panel rhythm", context: "Manga dialogue is short because each bubble has to fit the image rhythm.", reference: "That is why the lesson uses a compact surprise line." },
+      { title: "Reaction face", context: "The shocked expression is a classic manga beat for a reveal.", reference: "The grammar stays short so the visual can carry the drama." },
+    ],
+    food: [
+      { title: "Ordering cadence", context: "Food scenes often use polite but clipped requests so the line sounds natural at a counter.", reference: "The lesson keeps the order sentence direct and easy to reuse." },
+      { title: "Customization language", context: "Menus usually invite choices, so counters like 〜でお願いします feel very natural.", reference: "This is the kind of phrasing you will hear in ramen shops." },
+    ],
+    travel: [
+      { title: "Station shorthand", context: "Travel speech usually compresses the question into the shortest polite form possible.", reference: "The station scene emphasizes short location questions." },
+      { title: "Route memory", context: "Directions in transit spaces stay highly formulaic because travelers need them fast.", reference: "The lesson reflects that quick, usable phrasing." },
+    ],
+    daily: [
+      { title: "Routine talk", context: "Daily-life dialogue makes repetition feel natural, which is perfect for spaced review.", reference: "The commute line becomes a habit sentence." },
+      { title: "Time markers", context: "Everyday Japanese often uses clear time words like 毎日 and に to anchor routines.", reference: "This keeps the sentence easy to slot into your own schedule." },
+    ],
+    school: [
+      { title: "Classroom routine", context: "School scenes usually move from homework to class to after-school club without much filler.", reference: "The lesson mirrors that structure." },
+      { title: "Polite permission", context: "Asking a teacher for another chance is a very common anime and school-drama beat.", reference: "That is why the lesson keeps the request compact." },
+    ],
+    workplace: [
+      { title: "Email etiquette", context: "Japanese office language often sounds more formal than spoken conversation.", reference: "The lesson uses ので and ご覧ください to match that tone." },
+      { title: "Reply speed", context: "Brief confirmations are a practical staple of workplace messaging.", reference: "The scene is meant to feel like a real inbox exchange." },
+    ],
+    etiquette: [
+      { title: "Softening requests", context: "Japanese politeness often starts by reducing pressure before the actual request.", reference: "That is why the lesson uses お手数ですが." },
+      { title: "Gratitude habit", context: "Simple gratitude lines are culturally important because they keep relationships smooth.", reference: "The closing line reinforces that steady tone." },
+    ],
+    history: [
+      { title: "Code of conduct", context: "Historical or samurai scenes often frame language as discipline rather than chatter.", reference: "The line is short and formal on purpose." },
+      { title: "Setting tone", context: "Older or historical scenes tend to use measured phrasing and a strong moral tone.", reference: "That is why the lesson feels close to a code of honor." },
+    ],
+  };
+  const notes = templates[topic] ?? [
+    { title: `${title || "Lesson"} context`, context: "This scene is tuned to the lesson theme and meant to be reusable in speaking or review.", reference: "Use it as a personal memory hook." },
+  ];
+  return notes.slice(0, 3);
+}
+
 export function answerTutor(question) {
   const normalized = String(question ?? "").toLowerCase();
   if (normalized.includes("よろしく")) {
@@ -124,13 +618,30 @@ export function buildLessonStudyMaterials(japanese, translation, grammar, title,
         explanation: safeGrammar || `This line belongs to the ${safeTheme} context.`,
       },
       {
-        type: "translation",
+        type: "cloze",
+        prompt: `Fill the blank: ${safeJapanese || safeTitle} → ${(safeTranslation || safeTitle).replace(/\b([A-Za-z][A-Za-z']*)\b/, "____")}`,
+        choices: [safeTranslation || safeTitle, safeGrammar || safeTheme, safeTitle].filter(Boolean),
+        answer: safeTranslation || safeTitle,
+        explanation: safeGrammar || `Practice the ${safeTheme} expression with a recall-style prompt.`,
+      },
+      {
+        type: "matching",
+        prompt: `Which study cue matches this line: ${safeTitle}?`,
+        choices: [safeGrammar || safeTheme, safeTranslation || safeTitle, safeTitle].filter(Boolean),
+        answer: safeGrammar || safeTheme,
+        explanation: safeGrammar || `Match the phrase to the ${safeTheme} scene.`,
+      },
+      {
+        type: "short-answer",
         prompt: `Translate the scene line: ${safeJapanese || safeTitle}`,
         choices: [],
         answer: safeTranslation || safeTitle,
         explanation: safeGrammar || `Practice the ${safeTheme} expression in a short answer.`,
       },
     ],
+    scenes: buildSceneBlueprint(safeTheme, safeTitle, safeJapanese, safeTranslation, safeGrammar),
+    popCultureNotes: buildPopCultureNotes(safeTitle, safeTheme),
+    kanjiBreakdowns: buildKanjiBreakdowns([], safeTitle, safeTheme, []),
   };
 }
 
@@ -403,10 +914,13 @@ export function evaluateLessonExercise(exercise = {}, submission = {}) {
 
   const normalizedAnswer = normalizeExerciseAnswer(answer);
   const normalizedSelected = normalizeExerciseAnswer(selected);
-  const isMultipleChoice = type.includes("multiple") || type.includes("choice");
+  const isMultipleChoice = type.includes("multiple") || type.includes("choice") || type.includes("matching");
+  const isTextInput = type.includes("translation") || type.includes("short") || type.includes("cloze") || type.includes("ordering");
   const correct = isMultipleChoice
     ? selected === answer || normalizedSelected === normalizedAnswer
-    : normalizedSelected === normalizedAnswer || selected === answer;
+    : isTextInput
+      ? normalizedSelected === normalizedAnswer || selected === answer
+      : normalizedSelected === normalizedAnswer || selected === answer;
 
   const score = correct ? 100 : 50;
   const feedback = correct
@@ -563,6 +1077,9 @@ export function buildLessonDraft(title, theme) {
       : "travel";
   const template = templates[key];
   const activities = buildLessonStudyMaterials(template.japanese, template.translation, template.grammar, normalizedTitle, normalizedTheme);
+  const scenes = buildSceneBlueprint(normalizedTheme, normalizedTitle, template.japanese, template.translation, template.grammar);
+  const popCultureNotes = buildPopCultureNotes(normalizedTitle, normalizedTheme);
+  const kanjiBreakdowns = buildKanjiBreakdowns(template.kanji, normalizedTitle, normalizedTheme, template.vocab);
   return {
     id: `lesson-${String(normalizedTitle).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "new"}`,
     title: normalizedTitle,
@@ -577,6 +1094,9 @@ export function buildLessonDraft(title, theme) {
     dialogueLines: buildLessonDialogueLines(normalizedTitle, template.japanese, template.translation, normalizedTheme),
     grammarPoints: activities.grammarPoints,
     exercises: activities.exercises,
+    scenes,
+    popCultureNotes,
+    kanjiBreakdowns,
   };
 }
 
@@ -665,6 +1185,9 @@ export function buildLessonPack(title, theme, count = 3) {
       lessonTitle,
       normalizedTheme
     );
+    const scenes = buildSceneBlueprint(normalizedTheme, lessonTitle, variant.japanese, variant.translation, variant.grammar);
+    const popCultureNotes = buildPopCultureNotes(lessonTitle, normalizedTheme);
+    const kanjiBreakdowns = buildKanjiBreakdowns(lesson.kanji, lessonTitle, normalizedTheme, lesson.vocab);
     lessons.push({
       ...lesson,
       id: `${lesson.id}-${String(index + 1).padStart(2, "0")}`,
@@ -676,6 +1199,9 @@ export function buildLessonPack(title, theme, count = 3) {
       dialogueLines: buildLessonDialogueLines(lessonTitle, variant.japanese, variant.translation, normalizedTheme),
       grammarPoints: activities.grammarPoints,
       exercises: activities.exercises,
+      scenes,
+      popCultureNotes,
+      kanjiBreakdowns,
     });
   }
 
