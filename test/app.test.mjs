@@ -50,8 +50,8 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
   try {
     const snapshot = temp.store.getSnapshot();
     assert.equal(snapshot.lessons.length, 3);
-    assert.equal(snapshot.reviews.length, 3);
-    assert.equal(snapshot.progress.xp, 1280);
+    assert.equal(snapshot.reviews.length >= 6, true);
+    assert.equal(snapshot.progress.xp, 0);
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
@@ -62,7 +62,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.kanjiEntries.length >= 3, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
     assert.equal(snapshot.kanjiReviews.length >= 3, true);
-    assert.equal(snapshot.admin.users.length, 3);
+    assert.equal(snapshot.admin.users.length, 0);
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
     cleanupTempStore(temp);
@@ -323,9 +323,12 @@ test("review grading applies SM-2 updates and records history", () => {
 test("gamification helpers persist reward claims and settings", () => {
   const temp = createTempStore();
   try {
+    const before = temp.store.getSnapshot().progress;
     const chest = temp.store.claimRewardChest();
     assert.equal(typeof chest.reward, "string");
-    assert.ok(chest.state.progress.credits >= 245);
+    assert.ok(
+      chest.state.progress.xp > before.xp || chest.state.progress.credits > before.credits
+    );
 
     const settings = temp.store.updateSettings({ announcements: "Updated", maintenanceMode: true });
     assert.equal(settings.announcements, "Updated");
@@ -339,28 +342,31 @@ test("gamification helpers persist reward claims and settings", () => {
 test("progress, task, cosmetic, and practice mutations persist in SQLite", () => {
   const temp = createTempStore();
   try {
+    const initial = temp.store.getSnapshot();
     const lessonResult = temp.store.completeLesson("food-ramen");
     assert.equal(lessonResult.progress.completedLessons.includes("food-ramen"), true);
-    assert.ok(lessonResult.progress.xp > 1280);
+    assert.ok(lessonResult.progress.xp > initial.progress.xp);
     assert.equal(lessonResult.progress.streakFreezeCount, 0);
 
     const task = temp.store.getSnapshot().dailyTasks.find((entry) => !entry.complete);
     assert.ok(task);
     const taskResult = temp.store.completeTask(task.id);
-    assert.equal(taskResult.progress.streak, 12);
+    assert.equal(taskResult.dailyTasks.find((entry) => entry.id === task.id).complete, true);
+    assert.ok(taskResult.progress.xp > lessonResult.progress.xp);
     assert.equal(taskResult.progress.streakFreezeCount, 0);
 
+    const seededCredits = temp.store.awardProgress({ xp: 0, credits: 100, streak: 0 }, "test-seed");
     const cosmetic = temp.store.getSnapshot().cosmetics.find((entry) => !entry.owned);
     assert.ok(cosmetic);
     const cosmeticResult = temp.store.buyCosmetic(cosmetic.id);
-    assert.equal(cosmeticResult.progress.credits < 245, true);
+    assert.ok(cosmeticResult.progress.credits < seededCredits.progress.credits);
 
     const equipped = temp.store.equipCosmetic("cosmetic-sakura-theme");
     assert.equal(equipped.cosmetics.find((entry) => entry.id === "cosmetic-sakura-theme").equipped, true);
 
     const speaking = temp.store.recordPracticeSession("speaking", { input: "ラーメンをください" });
     assert.equal(speaking.tutor.answer.startsWith("Natural correction:"), true);
-    assert.equal(speaking.progress.speakingSessions >= 8, true);
+    assert.ok(speaking.progress.speakingSessions > initial.progress.speakingSessions);
     assert.equal(speaking.roleplay.transcript[1].speaker, "You");
 
     const listening = temp.store.recordPracticeSession("listening", {
@@ -380,10 +386,6 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     assert.equal(roleplay.roleplay.transcript[1].speaker, "You");
     assert.equal(roleplay.roleplay.transcript[1].text, "切符売り場はどこですか。");
     assert.equal(roleplay.roleplay.transcript.some((line) => line.speaker === "Tutor"), true);
-
-    const freeze = temp.store.buyStreakFreeze();
-    assert.equal(freeze.progress.streakFreezeCount, 1);
-    assert.equal(freeze.progress.credits, roleplay.progress.credits - 50);
 
     const bookmarkedWord = temp.store.toggleStudyBookmark("word", {
       term: "駅",
@@ -413,11 +415,16 @@ test("progress, task, cosmetic, and practice mutations persist in SQLite", () =>
     });
     assert.equal(clearedWord.savedWords.some((item) => item.term === "駅"), false);
 
+    const freezeSeed = temp.store.awardProgress({ xp: 0, credits: 60, streak: 0 }, "test-seed");
     const noteProgress = temp.store.saveLessonNote("anime-intro", "Remember よろしくお願いします for polite introductions.");
     assert.equal(noteProgress.lessonNotes["anime-intro"].includes("polite introductions"), true);
     assert.equal(temp.store.getSnapshot().progress.lessonNotes["anime-intro"].includes("よろしく"), true);
     const clearedNotes = temp.store.saveLessonNote("anime-intro", "");
     assert.equal(clearedNotes.lessonNotes["anime-intro"], undefined);
+
+    const freeze = temp.store.buyStreakFreeze();
+    assert.equal(freeze.progress.streakFreezeCount, 1);
+    assert.equal(freeze.progress.credits, freezeSeed.progress.credits - 50);
   } finally {
     cleanupTempStore(temp);
   }
@@ -788,6 +795,15 @@ test("review items can be imported in batch", () => {
 test("user management mutations and reset work", () => {
   const temp = createTempStore();
   try {
+    temp.store.upsertUser({
+      id: "user-mika",
+      username: "mika",
+      email: "mika@example.com",
+      level: 11,
+      status: "active",
+      credits: 120,
+      streak: 4,
+    });
     const filtered = temp.store.getUsers({ username: "mika", status: "active", level: 11 });
     assert.equal(filtered.length, 1);
     const user = temp.store.getUsers({ username: "mika" })[0];
@@ -1052,12 +1068,12 @@ test("leaderboard is populated and updates from study progress", () => {
   const temp = createTempStore();
   try {
     const initial = temp.store.getSnapshot().admin.leaderboard;
-    assert.ok(initial.length >= 4);
+    assert.ok(initial.length >= 1);
     assert.equal(initial[0].name, "You");
 
     temp.store.completeLesson("history-samurai");
     const updated = temp.store.getSnapshot().admin.leaderboard;
-    assert.ok(updated.length >= 4);
+    assert.ok(updated.length >= 1);
     assert.ok(updated[0].xp > initial[0].xp);
   } finally {
     cleanupTempStore(temp);
@@ -1067,6 +1083,7 @@ test("leaderboard is populated and updates from study progress", () => {
 test("streak freezes protect the streak after a missed day", () => {
   const temp = createTempStore();
   try {
+    temp.store.awardProgress({ xp: 0, credits: 60, streak: 0 }, "test-seed");
     temp.store.buyStreakFreeze();
     temp.store.db.prepare("UPDATE streak_state SET current_streak = ?, last_active_date = ?, freeze_count = ? WHERE id = 1")
       .run(12, "2000-01-01", 1);
@@ -1083,7 +1100,7 @@ test("streak freezes protect the streak after a missed day", () => {
 test("challenges persist and can be claimed", () => {
   const temp = createTempStore();
   try {
-    temp.store.bumpChallenges("lesson", 5);
+    temp.store.db.prepare("UPDATE challenge_progress SET progress_count = ? WHERE challenge_id = ?").run(3, "challenge-anime-dialogue");
     const before = temp.store.getChallenges();
     assert.equal(before.length, 3);
     const after = temp.store.claimChallenge("challenge-anime-dialogue");

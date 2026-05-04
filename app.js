@@ -61,6 +61,12 @@ function feedbackClass(message = "") {
   return tone ? `feedback feedback-${tone}` : "feedback feedback-neutral";
 }
 
+function setFeedbackNode(node, message) {
+  if (!node) return;
+  node.className = feedbackClass(message);
+  node.textContent = message;
+}
+
 function savedWordKey(term, reading = "") {
   return `${String(term ?? "").trim()}|${String(reading ?? "").trim()}`;
 }
@@ -354,7 +360,7 @@ function renderLearn() {
       <div class="hero-copy">
         <p class="eyebrow">Learn through anime, food, history, and daily life</p>
         <h2>Pop culture context first, then grammar, vocab, kanji, and review.</h2>
-        <p class="muted">Everything is local-first. Lessons are pre-generated JSON, progress lives in your browser, and the AI hooks are structured to stay optional and cheap.</p>
+        <p class="muted">Each lesson is a scene, a grammar note, vocabulary, kanji, practice exercises, and a place to save your notes.</p>
         <div class="button-row">
           <button class="primary" data-action="open-feature">Start a 5-minute study run</button>
           <button class="secondary" data-action="continue-lesson" data-id="${escapeHtml(nextLessonId)}">${state.progress.completedLessons.includes(nextLessonId) ? "Review next lesson" : "Continue lesson"}</button>
@@ -481,7 +487,7 @@ function renderLearn() {
           <button class="secondary" data-action="speak-lesson" data-id="${activeLesson.id}">Listen to line</button>
           <button class="secondary" data-action="explain-grammar" data-id="${activeLesson.id}">Explain grammar</button>
         </div>
-        <p class="muted" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
+        <p class="${feedbackClass(state.tutor.answer)}" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
         <div class="grid-card spaced">
           <h3>Lesson exercises</h3>
           <p class="muted">${completedExercises.size}/${exercises.length} completed</p>
@@ -518,7 +524,7 @@ function renderLearn() {
                     <button class="secondary" data-action="lesson-exercise-prev">Previous exercise</button>
                     <button class="secondary" data-action="lesson-exercise-next">Next exercise</button>
                   </div>
-                  <p class="muted" data-output="lesson-exercise-feedback">${escapeHtml(lessonExerciseFeedback || state.tutor.answer)}</p>
+                  <p class="${feedbackClass(lessonExerciseFeedback || state.tutor.answer)}" data-output="lesson-exercise-feedback">${escapeHtml(lessonExerciseFeedback || state.tutor.answer)}</p>
                 `
                 : "<p class='muted'>No exercises available for this lesson yet.</p>"
             }
@@ -561,14 +567,22 @@ function renderLearn() {
             .join("")}
         </div>
         <h3 class="spaced">Kanji</h3>
-        <div class="tag-row">
+        <div class="list">
           ${activeLesson.kanji
             .map((item) => {
               const entry = kanjiDeck.find((kanjiItem) => kanjiItem.character === item) ?? null;
               const bookmarked = savedKanji.has(savedKanjiKey(item));
               return `
-                <button class="tag" data-action="lookup-kanji" data-term="${escapeHtml(item)}">${escapeHtml(item)}</button>
-                <button class="tag" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(item)}" data-meaning="${escapeHtml(entry?.meaning ?? item)}" data-on-yomi="${escapeHtml(entry?.onYomi ?? "")}" data-kun-yomi="${escapeHtml(entry?.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(entry?.examples ?? []))}" data-source-lesson-id="${escapeHtml(activeLesson.id)}" data-source-lesson-title="${escapeHtml(activeLesson.title)}">${bookmarked ? "Remove bookmark" : "Save kanji"}</button>
+                <div class="list-item">
+                  <button class="list-item compact" data-action="lookup-kanji" data-term="${escapeHtml(item)}">
+                    <strong>${escapeHtml(item)}</strong>
+                    <span class="muted">${escapeHtml(entry?.kunYomi || entry?.onYomi || "—")}</span>
+                    <span>${escapeHtml(entry?.meaning ?? "Kanji from this lesson")}</span>
+                  </button>
+                  <div class="button-row">
+                    <button class="secondary" data-action="toggle-kanji-bookmark" data-character="${escapeHtml(item)}" data-meaning="${escapeHtml(entry?.meaning ?? item)}" data-on-yomi="${escapeHtml(entry?.onYomi ?? "")}" data-kun-yomi="${escapeHtml(entry?.kunYomi ?? "")}" data-examples="${escapeHtml(JSON.stringify(entry?.examples ?? []))}" data-source-lesson-id="${escapeHtml(activeLesson.id)}" data-source-lesson-title="${escapeHtml(activeLesson.title)}">${bookmarked ? "Remove bookmark" : "Save kanji"}</button>
+                  </div>
+                </div>
               `;
             })
             .join("")}
@@ -684,7 +698,7 @@ function renderPractice() {
           <p class="eyebrow">Practice</p>
           <h2>Speaking, listening, reading, and writing</h2>
         </div>
-        <p>Speaking, listening, reading, and writing now flow through the local API and seeded data model.</p>
+        <p>Each card is one drill: speak, listen, tap words, then review the correction.</p>
       </div>
       <div class="practice-grid">
         ${practiceCard(
@@ -709,8 +723,8 @@ function renderPractice() {
               <button class="secondary" data-action="next-speaking">Next prompt</button>
               <button class="secondary" data-action="play-sample">Play sample</button>
             </div>
-            <p class="muted" data-output="transcription-feedback">No transcript yet. Use browser speech recognition when available.</p>
-            <p class="muted" data-output="speaking-feedback">${escapeHtml(state.tutor.answer)}</p>
+            <p class="feedback feedback-neutral" data-output="transcription-feedback">No transcript yet. Use browser speech recognition when available.</p>
+            <p class="${feedbackClass(state.tutor.answer)}" data-output="speaking-feedback">${escapeHtml(state.tutor.answer)}</p>
           `
         )}
         ${practiceCard(
@@ -732,7 +746,7 @@ function renderPractice() {
                 )
                 .join("")}
             </div>
-            <p class="muted" data-output="listening-feedback">Choose the best answer after listening.</p>
+            <p class="feedback feedback-neutral" data-output="listening-feedback">Choose the best answer after listening.</p>
           `
         )}
         ${practiceCard(
@@ -832,7 +846,7 @@ function renderPractice() {
             <div class="button-row">
               <button class="primary" data-action="check-writing">Review writing</button>
             </div>
-            <p class="muted" data-output="writing-feedback">Use particles, polite forms, and short sentences.</p>
+            <p class="feedback feedback-neutral" data-output="writing-feedback">Use particles, polite forms, and short sentences.</p>
           `
         )}
         ${practiceCard(
@@ -847,7 +861,7 @@ function renderPractice() {
             <div class="button-row">
               <button class="primary" data-action="ask-tutor">Ask tutor</button>
             </div>
-            <p class="muted" data-output="tutor-feedback">${escapeHtml(state.tutor.answer)}</p>
+            <p class="${feedbackClass(state.tutor.answer)}" data-output="tutor-feedback">${escapeHtml(state.tutor.answer)}</p>
           `
         )}
         ${practiceCard(
@@ -1041,7 +1055,7 @@ function renderReview() {
                     <p class="muted">Reveal the card to see the saved context and source lesson.</p>
                   `
               }
-              <div class="review-result">${escapeHtml(savedStudyFeedback || (activeSavedStudy.kind === "word" ? "Choose the meaning that matches the word." : "Choose the meaning that matches the kanji."))}</div>
+              <div class="${feedbackClass(savedStudyFeedback || "Choose the meaning that matches the word or kanji.")}">${escapeHtml(savedStudyFeedback || (activeSavedStudy.kind === "word" ? "Choose the meaning that matches the word." : "Choose the meaning that matches the kanji."))}</div>
               <div class="button-row">
                 <button class="secondary" data-action="saved-study-prev">Previous card</button>
                 <button class="primary" data-action="saved-study-reveal">${savedStudyReveal ? "Hide details" : "Reveal details"}</button>
@@ -1073,7 +1087,7 @@ function renderReview() {
                   )
                   .join("")}
               </div>
-              <div class="review-result">${escapeHtml(kanjiReviewFeedback || "Pick the meaning that matches the kanji.")}</div>
+              <div class="${feedbackClass(kanjiReviewFeedback || "Pick the meaning that matches the kanji.")}">${escapeHtml(kanjiReviewFeedback || "Pick the meaning that matches the kanji.")}</div>
               <div class="button-row">
                 <button class="secondary" data-action="kanji-next-review">Next kanji</button>
                 <button class="secondary" data-action="kanji-show-readings" data-character="${escapeHtml(kanjiReview.character)}">Show readings</button>
@@ -2413,7 +2427,7 @@ function wireActions() {
           method: "POST",
           body: { kind: "speaking", input: input?.value ?? "", prompt },
         });
-        if (output) output.textContent = next.tutor?.answer ?? state.tutor.answer;
+        setFeedbackNode(output, next.tutor?.answer ?? state.tutor.answer);
         await refreshState();
       }
 
@@ -2443,9 +2457,7 @@ function wireActions() {
           method: "POST",
           body: { kind: "listening", answer, answerKey, prompt },
         });
-        if (output) {
-          output.textContent = answer === answerKey ? `Correct. ${prompt}.` : `Not quite. ${prompt}.`;
-        }
+        setFeedbackNode(output, answer === answerKey ? `Correct. ${prompt}.` : `Not quite. ${prompt}.`);
         await refreshState();
       }
 
@@ -2466,7 +2478,7 @@ function wireActions() {
           method: "POST",
           body: { kind: "writing", input: input?.value ?? "" },
         });
-        if (output) output.textContent = result.tutor?.answer ?? state.tutor.answer;
+        setFeedbackNode(output, result.tutor?.answer ?? state.tutor.answer);
         await refreshState();
       }
 
@@ -2485,7 +2497,7 @@ function wireActions() {
           method: "POST",
           body: { kind: "tutor", question: input?.value ?? state.tutor.question },
         });
-        if (output) output.textContent = next.tutor?.answer ?? state.tutor.answer;
+        setFeedbackNode(output, next.tutor?.answer ?? state.tutor.answer);
         await refreshState();
       }
 

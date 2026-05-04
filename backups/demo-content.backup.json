@@ -1,53 +1,645 @@
 {
+  "view": "learn",
+  "activeLessonId": "anime-intro",
+  "toggles": {
+    "furigana": true,
+    "romaji": false,
+    "translation": true
+  },
+  "roleplay": {
+    "scenario": "restaurant",
+    "transcript": [
+      {
+        "speaker": "System",
+        "text": "ラーメンをください。"
+      },
+      {
+        "speaker": "You",
+        "text": "ラーメンをください。"
+      },
+      {
+        "speaker": "Tutor",
+        "text": "Your sentence already matches the model response."
+      }
+    ]
+  },
+  "tutor": {
+    "question": "Can you explain よろしくお願いします?",
+    "answer": "It is a compact phrase for polite cooperation. In practical use it means 'please treat me well' or 'I look forward to working with you.'"
+  },
+  "chest": {
+    "ready": true,
+    "lastReward": "Rare badge: Sakura Night"
+  },
   "progress": {
-    "xp": 1280,
-    "level": 8,
-    "credits": 245,
-    "streak": 12,
+    "xp": 1438.6666666666665,
+    "level": 9,
+    "credits": 289,
+    "streak": 13,
     "streakFreezeCount": 0,
+    "streakLastActiveDate": "2026-05-01",
     "kanji": 54,
     "vocab": 218,
-    "speakingMinutes": 34,
+    "speakingMinutes": 42,
     "listeningMinutes": 89,
-    "completedLessons": ["anime-intro"],
-    "reviewedWords": 118,
-    "speakingSessions": 7,
-    "listeningExercises": 22,
-    "completedExercises": ["anime-intro-exercise-1"],
+    "completedLessons": [
+      "anime-intro"
+    ],
+    "completedExercises": [
+      "food-ramen-exercise",
+      "anime-intro-exercise"
+    ],
     "savedWords": [],
     "savedKanji": [],
-    "lessonNotes": {}
+    "lessonNotes": {},
+    "reviewedWords": 122,
+    "speakingSessions": 9,
+    "listeningExercises": 22
   },
+  "lessons": [
+    {
+      "id": "anime-intro",
+      "title": "Anime Dialogue: First Encounter",
+      "theme": "anime dialogue",
+      "difficulty": "N5",
+      "japanese": "はじめまして。今日はよろしくお願いします。",
+      "romaji": "Hajimemashite. Kyou wa yoroshiku onegaishimasu.",
+      "translation": "Nice to meet you. Please be kind to me today.",
+      "grammar": "Polite introductory phrase with はじめまして and よろしくお願いします.",
+      "vocab": [
+        {
+          "word": "はじめまして",
+          "kana": "はじめまして",
+          "meaning": "nice to meet you"
+        },
+        {
+          "word": "今日",
+          "kana": "きょう",
+          "meaning": "today"
+        },
+        {
+          "word": "よろしく",
+          "kana": "よろしく",
+          "meaning": "kindly / best regards"
+        }
+      ],
+      "kanji": [
+        "今日",
+        "願"
+      ],
+      "grammarPoints": [
+        {
+          "title": "Grammar point 1",
+          "explanation": "Polite introductory phrase with はじめまして and よろしくお願いします.",
+          "example": ""
+        }
+      ],
+      "exercises": [
+        {
+          "id": "anime-intro-exercise",
+          "type": "multiple-choice",
+          "prompt": "Which meaning best fits: はじめまして。今日はよろしくお願いします。",
+          "choices": [
+            "Nice to meet you. Please be kind to me today.",
+            "Polite introductory phrase with はじめまして and よろしくお願いします.",
+            "anime dialogue"
+          ],
+          "answer": "Nice to meet you. Please be kind to me today.",
+          "explanation": "Polite introductory phrase with はじめまして and よろしくお願いします."
+        }
+      ],
+      "dialogueLines": [
+        {
+          "speaker": "Narration",
+          "text": "はじめまして。今日はよろしくお願いします。"
+        }
+      ]
+    },
+    {
+      "id": "food-ramen",
+      "title": "Food Culture: Ramen Order",
+      "theme": "food culture",
+      "difficulty": "N5",
+      "japanese": "ラーメンを一つください。スープはあっさりでお願いします。",
+      "romaji": "Raamen o hitotsu kudasai. Suupu wa assari de onegaishimasu.",
+      "translation": "One ramen, please. Light broth, please.",
+      "grammar": "Use を with a quantity and でお願いします for a polite request.",
+      "vocab": [
+        {
+          "word": "一つ",
+          "kana": "ひとつ",
+          "meaning": "one item"
+        },
+        {
+          "word": "あっさり",
+          "kana": "あっさり",
+          "meaning": "light / not heavy"
+        },
+        {
+          "word": "お願いします",
+          "kana": "おねがいします",
+          "meaning": "please"
+        }
+      ],
+      "kanji": [
+        "一",
+        "汁"
+      ],
+      "grammarPoints": [
+        {
+          "title": "Grammar point 1",
+          "explanation": "Use を with a quantity and でお願いします for a polite request.",
+          "example": ""
+        }
+      ],
+      "exercises": [
+        {
+          "id": "food-ramen-exercise",
+          "type": "multiple-choice",
+          "prompt": "Which meaning best fits: ラーメンを一つください。スープはあっさりでお願いします。",
+          "choices": [
+            "One ramen, please. Light broth, please.",
+            "Use を with a quantity and でお願いします for a polite request.",
+            "food culture"
+          ],
+          "answer": "One ramen, please. Light broth, please.",
+          "explanation": "Use を with a quantity and でお願いします for a polite request."
+        }
+      ],
+      "dialogueLines": [
+        {
+          "speaker": "Narration",
+          "text": "ラーメンを一つください。スープはあっさりでお願いします。"
+        }
+      ]
+    },
+    {
+      "id": "history-samurai",
+      "title": "Samurai History: Resolve",
+      "theme": "samurai/history",
+      "difficulty": "N4",
+      "japanese": "武士は言葉より行動で示す。",
+      "romaji": "Bushi wa kotoba yori koudou de shimesu.",
+      "translation": "A samurai shows through action rather than words.",
+      "grammar": "Comparison structure より and the dictionary form of 示す for stated principle.",
+      "vocab": [
+        {
+          "word": "武士",
+          "kana": "ぶし",
+          "meaning": "samurai / warrior"
+        },
+        {
+          "word": "行動",
+          "kana": "こうどう",
+          "meaning": "action"
+        },
+        {
+          "word": "示す",
+          "kana": "しめす",
+          "meaning": "to show"
+        }
+      ],
+      "kanji": [
+        "武",
+        "行",
+        "示"
+      ],
+      "grammarPoints": [
+        {
+          "title": "Grammar point 1",
+          "explanation": "Comparison structure より and the dictionary form of 示す for stated principle.",
+          "example": ""
+        }
+      ],
+      "exercises": [
+        {
+          "id": "history-samurai-exercise",
+          "type": "multiple-choice",
+          "prompt": "Which meaning best fits: 武士は言葉より行動で示す。",
+          "choices": [
+            "A samurai shows through action rather than words.",
+            "Comparison structure より and the dictionary form of 示す for stated principle.",
+            "samurai/history"
+          ],
+          "answer": "A samurai shows through action rather than words.",
+          "explanation": "Comparison structure より and the dictionary form of 示す for stated principle."
+        }
+      ],
+      "dialogueLines": [
+        {
+          "speaker": "Narration",
+          "text": "武士は言葉より行動で示す。"
+        }
+      ]
+    }
+  ],
   "reviews": [
-    { "id": "review-1", "prompt": "一つ", "answer": "ひとつ", "meaning": "one item", "due": "Now", "ease": 2.5 },
-    { "id": "review-2", "prompt": "武士", "answer": "ぶし", "meaning": "samurai", "due": "In 1 day", "ease": 2.3 },
-    { "id": "review-3", "prompt": "よろしくお願いします", "answer": "よろしくおねがいします", "meaning": "please treat me well", "due": "Now", "ease": 2.1 }
+    {
+      "id": "review-2",
+      "prompt": "武士",
+      "answer": "ぶし",
+      "meaning": "samurai",
+      "due": "In 1 day",
+      "ease": 2.3,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_lesson_id": "anime-intro"
+    },
+    {
+      "id": "review-1",
+      "prompt": "一つ",
+      "answer": "ひとつ",
+      "meaning": "one item",
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_lesson_id": "anime-intro"
+    },
+    {
+      "id": "review-3",
+      "prompt": "よろしくお願いします",
+      "answer": "よろしくおねがいします",
+      "meaning": "please treat me well",
+      "due": "Now",
+      "ease": 2.1,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_lesson_id": "anime-intro"
+    }
+  ],
+  "kanjiEntries": [
+    {
+      "id": "kanji-food-ramen-1",
+      "character": "一",
+      "meaning": "一 used in Food Culture: Ramen Order",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "ラーメンを一つください。スープはあっさりでお願いします。",
+        "One ramen, please. Light broth, please."
+      ],
+      "source": "seed"
+    },
+    {
+      "id": "kanji-anime-intro-1",
+      "character": "今日",
+      "meaning": "今日 used in Anime Dialogue: First Encounter",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "はじめまして。今日はよろしくお願いします。",
+        "Nice to meet you. Please be kind to me today."
+      ],
+      "source": "seed"
+    },
+    {
+      "id": "kanji-history-samurai-1",
+      "character": "武",
+      "meaning": "武 used in Samurai History: Resolve",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "武士は言葉より行動で示す。",
+        "A samurai shows through action rather than words."
+      ],
+      "source": "seed"
+    },
+    {
+      "id": "kanji-food-ramen-2",
+      "character": "汁",
+      "meaning": "汁 used in Food Culture: Ramen Order",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "ラーメンを一つください。スープはあっさりでお願いします。",
+        "One ramen, please. Light broth, please."
+      ],
+      "source": "seed"
+    },
+    {
+      "id": "kanji-history-samurai-3",
+      "character": "示",
+      "meaning": "示 used in Samurai History: Resolve",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "武士は言葉より行動で示す。",
+        "A samurai shows through action rather than words."
+      ],
+      "source": "seed"
+    },
+    {
+      "id": "kanji-history-samurai-2",
+      "character": "行",
+      "meaning": "行 used in Samurai History: Resolve",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "武士は言葉より行動で示す。",
+        "A samurai shows through action rather than words."
+      ],
+      "source": "seed"
+    },
+    {
+      "id": "kanji-anime-intro-2",
+      "character": "願",
+      "meaning": "願 used in Anime Dialogue: First Encounter",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "はじめまして。今日はよろしくお願いします。",
+        "Nice to meet you. Please be kind to me today."
+      ],
+      "source": "seed"
+    }
+  ],
+  "kanjiReviews": [
+    {
+      "id": "kanji-food-ramen-1",
+      "character": "一",
+      "prompt": "What does 一 mean?",
+      "answer": "一 used in Food Culture: Ramen Order",
+      "meaning": "一 used in Food Culture: Ramen Order",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "ラーメンを一つください。スープはあっさりでお願いします。",
+        "One ramen, please. Light broth, please."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-food-ramen-1",
+      "source": "manual"
+    },
+    {
+      "id": "kanji-anime-intro-1",
+      "character": "今日",
+      "prompt": "What does 今日 mean?",
+      "answer": "今日 used in Anime Dialogue: First Encounter",
+      "meaning": "今日 used in Anime Dialogue: First Encounter",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "はじめまして。今日はよろしくお願いします。",
+        "Nice to meet you. Please be kind to me today."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-anime-intro-1",
+      "source": "manual"
+    },
+    {
+      "id": "kanji-history-samurai-1",
+      "character": "武",
+      "prompt": "What does 武 mean?",
+      "answer": "武 used in Samurai History: Resolve",
+      "meaning": "武 used in Samurai History: Resolve",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "武士は言葉より行動で示す。",
+        "A samurai shows through action rather than words."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-history-samurai-1",
+      "source": "manual"
+    },
+    {
+      "id": "kanji-food-ramen-2",
+      "character": "汁",
+      "prompt": "What does 汁 mean?",
+      "answer": "汁 used in Food Culture: Ramen Order",
+      "meaning": "汁 used in Food Culture: Ramen Order",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "ラーメンを一つください。スープはあっさりでお願いします。",
+        "One ramen, please. Light broth, please."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-food-ramen-2",
+      "source": "manual"
+    },
+    {
+      "id": "kanji-history-samurai-3",
+      "character": "示",
+      "prompt": "What does 示 mean?",
+      "answer": "示 used in Samurai History: Resolve",
+      "meaning": "示 used in Samurai History: Resolve",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "武士は言葉より行動で示す。",
+        "A samurai shows through action rather than words."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-history-samurai-3",
+      "source": "manual"
+    },
+    {
+      "id": "kanji-history-samurai-2",
+      "character": "行",
+      "prompt": "What does 行 mean?",
+      "answer": "行 used in Samurai History: Resolve",
+      "meaning": "行 used in Samurai History: Resolve",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "武士は言葉より行動で示す。",
+        "A samurai shows through action rather than words."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-history-samurai-2",
+      "source": "manual"
+    },
+    {
+      "id": "kanji-anime-intro-2",
+      "character": "願",
+      "prompt": "What does 願 mean?",
+      "answer": "願 used in Anime Dialogue: First Encounter",
+      "meaning": "願 used in Anime Dialogue: First Encounter",
+      "onYomi": "",
+      "kunYomi": "",
+      "examples": [
+        "はじめまして。今日はよろしくお願いします。",
+        "Nice to meet you. Please be kind to me today."
+      ],
+      "due": "Now",
+      "ease": 2.5,
+      "interval_days": 1,
+      "repetitions": 0,
+      "mistakes": 0,
+      "source_entry_id": "kanji-anime-intro-2",
+      "source": "manual"
+    }
   ],
   "achievements": [
-    { "name": "First Lesson Completed", "unlocked": true },
-    { "name": "7-Day Streak", "unlocked": true },
-    { "name": "50 Kanji Learned", "unlocked": true },
-    { "name": "100 Words Reviewed", "unlocked": false },
-    { "name": "First Spoken Conversation", "unlocked": false },
-    { "name": "Anime Dialogue Master", "unlocked": false }
+    {
+      "name": "First Lesson Completed",
+      "unlocked": true
+    },
+    {
+      "name": "7-Day Streak",
+      "unlocked": true
+    },
+    {
+      "name": "50 Kanji Learned",
+      "unlocked": true
+    },
+    {
+      "name": "100 Words Reviewed",
+      "unlocked": true
+    },
+    {
+      "name": "First Spoken Conversation",
+      "unlocked": true
+    },
+    {
+      "name": "Anime Dialogue Master",
+      "unlocked": true
+    }
   ],
   "dailyTasks": [
-    { "name": "Complete 1 lesson", "reward": "+40 XP", "complete": true },
-    { "name": "Review 10 vocabulary items", "reward": "+30 XP", "complete": false },
-    { "name": "Practice 3 kanji", "reward": "+20 XP", "complete": false },
-    { "name": "Speak 5 sentences", "reward": "+50 XP", "complete": false }
+    {
+      "id": "task-1",
+      "name": "Complete 1 lesson",
+      "reward": "+40 XP",
+      "complete": true
+    },
+    {
+      "id": "task-2",
+      "name": "Review 10 vocabulary items",
+      "reward": "+30 XP",
+      "complete": false
+    },
+    {
+      "id": "task-3",
+      "name": "Practice 3 kanji",
+      "reward": "+20 XP",
+      "complete": false
+    },
+    {
+      "id": "task-4",
+      "name": "Speak 5 sentences",
+      "reward": "+50 XP",
+      "complete": false
+    }
   ],
   "cosmetics": [
-    { "name": "Sakura Theme", "cost": 120, "owned": true, "equipped": true },
-    { "name": "Ramen Master Icon", "cost": 80, "owned": false },
-    { "name": "Manga Panel Background", "cost": 160, "owned": false }
+    {
+      "id": "cosmetic-1",
+      "name": "Sakura Theme",
+      "cost": 120,
+      "owned": true,
+      "equipped": true
+    },
+    {
+      "id": "cosmetic-2",
+      "name": "Ramen Master Icon",
+      "cost": 80,
+      "owned": false,
+      "equipped": false
+    },
+    {
+      "id": "cosmetic-3",
+      "name": "Manga Panel Background",
+      "cost": 160,
+      "owned": false,
+      "equipped": false
+    }
   ],
   "admin": {
+    "roles": [
+      "Super Admin",
+      "Content Admin",
+      "Support Admin",
+      "Analytics Admin"
+    ],
     "aiUsage": {
-      "dailyRequests": 18,
-      "monthlyRequests": 362,
-      "cachedResponses": 124,
-      "failedRequests": 1
+      "dailyRequests": 0,
+      "monthlyRequests": 2,
+      "cachedResponses": 0,
+      "failedRequests": 0,
+      "provider": "fallback",
+      "host": "http://127.0.0.1:1234/v1",
+      "model": "llama3",
+      "ready": false
+    },
+    "analytics": {
+      "xpEvents": 8,
+      "xpAwarded": 158.66666666666652,
+      "creditEvents": 6,
+      "creditsAwarded": 44,
+      "studySessions": 8,
+      "studyMinutes": 26,
+      "reviewHistory": 0,
+      "kanjiReviewHistory": 0,
+      "aiRequests": 2,
+      "aiCacheHits": 0,
+      "sessionKinds": [
+        {
+          "kind": "lesson-exercise",
+          "count": 5,
+          "durationMinutes": 15
+        },
+        {
+          "kind": "speaking",
+          "count": 2,
+          "durationMinutes": 8
+        },
+        {
+          "kind": "tutor",
+          "count": 1,
+          "durationMinutes": 3
+        }
+      ],
+      "topLessons": [
+        {
+          "lessonId": "anime-intro",
+          "reviewCount": 3
+        }
+      ],
+      "topKanji": [],
+      "moderationStatus": [],
+      "moderationTypes": [],
+      "moderationReviewers": [],
+      "importSources": [],
+      "dailyAi": [
+        {
+          "dateKey": "2026-05-01",
+          "count": 1
+        },
+        {
+          "dateKey": "2026-04-30",
+          "count": 1
+        }
+      ]
     },
     "siteHealth": "Green",
     "maintenanceMode": false,
@@ -55,54 +647,127 @@
     "authenticated": false,
     "sessionUser": null,
     "auditLog": [
+      "Tutor question answered",
+      "Lesson exercise passed: anime-intro-exercise",
+      "Updated free AI usage limits",
       "Published anime dialogue module",
       "Approved 12 grammar explanations",
-      "Updated free AI usage limits"
+      "Updated free AI usage limits",
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits",
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits",
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits",
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits",
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits",
+      "Published anime dialogue module",
+      "Approved 12 grammar explanations",
+      "Updated free AI usage limits",
+      "Published anime dialogue module"
     ],
     "contentReviewQueue": [
-      { "id": "content-review-1", "itemType": "lesson", "itemId": "anime-intro", "status": "pending", "notes": "Seeded review queue" }
+      {
+        "id": "content-review-1",
+        "itemType": "lesson",
+        "itemId": "anime-intro",
+        "status": "pending",
+        "notes": "Seeded review queue",
+        "source": "seed",
+        "decisionReason": "",
+        "reviewedBy": "",
+        "reviewedAt": null,
+        "createdAt": "2026-05-01T17:07:44.438Z"
+      }
     ],
-    "users": [
-      { "id": "user-1", "username": "mika", "email": "mika@example.com", "level": 11, "status": "active", "credits": 340, "streak": 18 },
-      { "id": "user-2", "username": "ren", "email": "ren@example.com", "level": 9, "status": "active", "credits": 220, "streak": 12 },
-      { "id": "user-3", "username": "yui", "email": "yui@example.com", "level": 7, "status": "suspended", "credits": 180, "streak": 4 }
-    ],
-    "challenges": [
-      { "id": "challenge-anime-dialogue", "title": "7-Day Anime Dialogue Challenge", "description": "Complete anime dialogue lessons to build streak momentum.", "category": "lesson", "targetCount": 3, "rewardXp": 120, "rewardCredits": 40, "claimed": false, "progress": 3 },
-      { "id": "challenge-kanji-sprint", "title": "Kanji Sprint", "description": "Hit focused study sessions for kanji practice.", "category": "study", "targetCount": 5, "rewardXp": 150, "rewardCredits": 50, "claimed": false, "progress": 2 },
-      { "id": "challenge-listening-week", "title": "Listening Week", "description": "Complete listening drills and keep the audio loop going.", "category": "listening", "targetCount": 4, "rewardXp": 100, "rewardCredits": 35, "claimed": false, "progress": 1 }
+    "moderationActions": [],
+    "datasetImports": [],
+    "permissions": {
+      "roles": [],
+      "permissions": []
+    },
+    "users": [],
+    "challenges": [],
+    "studySessions": [
+      {
+        "id": 8,
+        "kind": "tutor",
+        "durationMinutes": 3,
+        "xpDelta": 15,
+        "creditsDelta": 0,
+        "createdAt": "2026-05-01T16:27:52.239Z"
+      },
+      {
+        "id": 7,
+        "kind": "speaking",
+        "durationMinutes": 4,
+        "xpDelta": 33.33333333333326,
+        "creditsDelta": 12,
+        "createdAt": "2026-05-01T16:26:50.822Z"
+      },
+      {
+        "id": 6,
+        "kind": "speaking",
+        "durationMinutes": 4,
+        "xpDelta": 33.33333333333326,
+        "creditsDelta": 12,
+        "createdAt": "2026-05-01T16:25:28.660Z"
+      },
+      {
+        "id": 5,
+        "kind": "lesson-exercise",
+        "durationMinutes": 3,
+        "xpDelta": 18,
+        "creditsDelta": 5,
+        "createdAt": "2026-05-01T16:23:31.501Z"
+      },
+      {
+        "id": 4,
+        "kind": "lesson-exercise",
+        "durationMinutes": 3,
+        "xpDelta": 5,
+        "creditsDelta": 0,
+        "createdAt": "2026-05-01T16:22:23.516Z"
+      },
+      {
+        "id": 3,
+        "kind": "lesson-exercise",
+        "durationMinutes": 3,
+        "xpDelta": 18,
+        "creditsDelta": 5,
+        "createdAt": "2026-05-01T16:20:33.302Z"
+      },
+      {
+        "id": 2,
+        "kind": "lesson-exercise",
+        "durationMinutes": 3,
+        "xpDelta": 18,
+        "creditsDelta": 5,
+        "createdAt": "2026-05-01T16:20:32.136Z"
+      },
+      {
+        "id": 1,
+        "kind": "lesson-exercise",
+        "durationMinutes": 3,
+        "xpDelta": 18,
+        "creditsDelta": 5,
+        "createdAt": "2026-05-01T16:20:00.503Z"
+      }
     ],
     "leaderboard": [
-      { "name": "You", "xp": 1280, "track": "Local" },
-      { "name": "Mika", "xp": 1110, "track": "Speaking" },
-      { "name": "Ren", "xp": 980, "track": "Kanji" },
-      { "name": "Yui", "xp": 930, "track": "Listening" }
+      {
+        "name": "You",
+        "xp": 1438.6666666666665,
+        "track": "Local"
+      }
     ]
   },
-  "roleplay": {
-    "scenario": "restaurant",
-    "transcript": [
-      { "speaker": "System", "text": "Welcome to the roleplay table. Pick a scene and answer naturally." },
-      { "speaker": "You", "text": "ラーメンをください。" },
-      { "speaker": "Server", "text": "かしこまりました。スープはあっさりにしますか？" }
-    ]
-  },
-  "tutor": {
-    "question": "Can you explain よろしくお願いします?",
-    "answer": "It is a compact phrase for polite collaboration. In context it means 'please take care of me' or 'I look forward to working with you.'"
-  },
-  "chest": {
-    "ready": true,
-    "lastReward": "Rare badge: Sakura Night"
-  },
-  "users": [
-    { "id": "user-1", "username": "mika", "email": "mika@example.com", "level": 11, "status": "active", "credits": 340, "streak": 18 },
-    { "id": "user-2", "username": "ren", "email": "ren@example.com", "level": 9, "status": "active", "credits": 220, "streak": 12 },
-    { "id": "user-3", "username": "yui", "email": "yui@example.com", "level": 7, "status": "suspended", "credits": 180, "streak": 4 }
-  ],
-  "challenges": [
-    { "id": "challenge-anime-dialogue", "title": "7-Day Anime Dialogue Challenge", "description": "Complete anime dialogue lessons to build streak momentum.", "category": "lesson", "targetCount": 3, "rewardXp": 120, "rewardCredits": 40, "claimed": false, "progress": 3 },
-    { "id": "challenge-kanji-sprint", "title": "Kanji Sprint", "description": "Hit focused study sessions for kanji practice.", "category": "study", "targetCount": 5, "rewardXp": 150, "rewardCredits": 50, "claimed": false, "progress": 2 },
-    { "id": "challenge-listening-week", "title": "Listening Week", "description": "Complete listening drills and keep the audio loop going.", "category": "listening", "targetCount": 4, "rewardXp": 100, "rewardCredits": 35, "claimed": false, "progress": 1 }
-  ]
+  "challenges": []
 }

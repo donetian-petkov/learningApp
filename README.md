@@ -52,7 +52,7 @@ npm run check
 
 ## What the app includes
 
-- Learn, Practice, Review, Progress, and Admin screens
+- Learn, Practice, Review, Progress, Settings, and Admin screens
 - SQLite persistence with a local Node API
 - Pop-culture lesson content for anime dialogue, food, samurai/history, manga, daily life, and school/workplace themes
 - Furigana, romaji, and translation toggles
@@ -61,9 +61,10 @@ npm run check
 - Saved study deck for bookmarked words and kanji
 - XP, credits, achievements, streaks, streak freezes, daily tasks, cosmetics, and reward chests
 - Lesson import, dictionary import, kanji import, review import, and dataset bundle import
-- Local admin login, permissions, moderation queue, analytics, AI playground, and backup/restore
+- Local admin login, permissions, moderation queue, analytics, AI playground, settings, and backup/restore
 - Browser TTS with local system TTS fallback
 - Local Whisper-backed transcription when configured
+- The default seed starts with lesson content only; sample progress and fake users are not preloaded
 
 ## Data storage
 
@@ -116,3 +117,4 @@ The admin tools accept:
 - Browser TTS remains the default if system TTS is unavailable.
 - Whisper and local AI providers are optional, not required for the MVP.
 - Cosmetics are cosmetic only and do not unlock core learning content.
+- The local bootstrap admin account is `admin` / `fieldguide123`.

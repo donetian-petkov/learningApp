@@ -1847,12 +1847,13 @@ export class SqliteStorageAdapter {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    const refreshed = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
     const updated = {
-      ...current,
+      ...refreshed,
       progress: {
-        ...current.progress,
-        xp: current.progress.xp + task.reward_xp,
-        credits: current.progress.credits + task.reward_credits,
+        ...refreshed.progress,
+        xp: refreshed.progress.xp + task.reward_xp,
+        credits: refreshed.progress.credits + task.reward_credits,
       },
     };
     const streakUpdate = this.advanceStreakForActivity(updated, sessionUser ?? current.admin.sessionUser ?? null, "task");
@@ -1898,11 +1899,12 @@ export class SqliteStorageAdapter {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    const refreshed = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
     const updated = {
-      ...current,
+      ...refreshed,
       progress: {
-        ...current.progress,
-        credits: current.progress.credits - cosmetic.cost,
+        ...refreshed.progress,
+        credits: refreshed.progress.credits - cosmetic.cost,
       },
     };
     this.saveAppState(updated, sessionUser ?? current.admin.sessionUser ?? null);
