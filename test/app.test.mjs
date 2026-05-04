@@ -49,7 +49,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
   const temp = createTempStore();
   try {
     const snapshot = temp.store.getSnapshot();
-    assert.equal(snapshot.lessons.length, 6);
+    assert.equal(snapshot.lessons.length, 10);
     assert.equal(snapshot.reviews.length >= 12, true);
     assert.equal(snapshot.progress.xp, 0);
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
@@ -838,7 +838,7 @@ test("user management mutations and reset work", () => {
     assert.equal(temp.store.getUsers({ username: "akira" }).length, 0);
 
     const resetSnapshot = temp.store.resetDatabase();
-    assert.equal(resetSnapshot.lessons.length, 6);
+    assert.equal(resetSnapshot.lessons.length, 10);
     assert.equal(temp.store.getSchemaVersion(), 19);
   } finally {
     cleanupTempStore(temp);

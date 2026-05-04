@@ -1,3 +1,5 @@
+import { buildLessonPack } from "./shared.mjs";
+
 export const LESSONS = [
   {
     id: "anime-intro",
@@ -359,6 +361,10 @@ export const LESSONS = [
       },
     ],
   },
+  ...buildLessonPack("Festival Night", "festivals", 1),
+  ...buildLessonPack("Shopping Run", "shopping", 1),
+  ...buildLessonPack("Friendship Chat", "friendship", 1),
+  ...buildLessonPack("Transit Announcements", "transit", 1),
 ];
 
 const ACHIEVEMENTS = [
