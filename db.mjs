@@ -1228,6 +1228,14 @@ export class SqliteStorageAdapter {
       this.seedAdminAccount();
     }
     if (lessonCount > 0) {
+      const missingLessons = INITIAL_APP_STATE.lessons.filter((lesson) =>
+        !this.db.prepare("SELECT 1 FROM lessons WHERE id = ?").get(lesson.id)
+      );
+      if (missingLessons.length) {
+        this.seedAdditionalLessons(missingLessons);
+      }
+    }
+    if (lessonCount > 0) {
       if (reviewCount === 0) {
         this.seedReviewItemsFromLessons();
       }
@@ -2991,13 +2999,88 @@ export class SqliteStorageAdapter {
     ).run("admin-1", ADMIN_CREDENTIALS.username, sha256(ADMIN_CREDENTIALS.password), "Super Admin", nowIso());
   }
 
-  seedReviewItemsFromLessons() {
-    const lessons = this.db.prepare("SELECT id, title, japanese, translation FROM lessons ORDER BY order_index, id").all();
-    if (!lessons.length) return;
+  seedAdditionalLessons(lessons) {
+    const rows = Array.isArray(lessons) ? lessons : [];
+    if (!rows.length) return;
+    const existingIds = new Set(this.db.prepare("SELECT id FROM lessons").all().map((row) => row.id));
+    const startingOrder = Number(this.db.prepare("SELECT COALESCE(MAX(order_index), -1) AS max_order FROM lessons").get().max_order ?? -1) + 1;
+    let orderIndex = startingOrder;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      rows.forEach((lesson, index) => {
+        const normalized = normalizeLesson(lesson, orderIndex + index);
+        if (existingIds.has(normalized.id)) return;
+        this.db.prepare(
+          "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          normalized.id,
+          normalized.title,
+          normalized.theme,
+          normalized.difficulty,
+          normalized.japanese,
+          normalized.romaji,
+          normalized.translation,
+          normalized.grammar,
+          orderIndex + index
+        );
+        normalized.vocab.forEach((item, vocabIndex) => {
+          this.db.prepare("INSERT INTO lesson_vocab (lesson_id, word, kana, meaning, order_index) VALUES (?, ?, ?, ?, ?)")
+            .run(normalized.id, item.word, item.kana, item.meaning, vocabIndex);
+        });
+        normalized.kanji.forEach((kanji, kanjiIndex) => {
+          this.db.prepare("INSERT INTO lesson_kanji (lesson_id, kanji, order_index) VALUES (?, ?, ?)")
+            .run(normalized.id, kanji, kanjiIndex);
+        });
+        const fallbackMaterials = buildLessonStudyMaterials(normalized.japanese, normalized.translation, normalized.grammar, normalized.title, normalized.theme);
+        const grammarPoints = normalized.grammarPoints?.length ? normalized.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
+        const exercises = normalized.exercises?.length ? normalized.exercises.map(normalizeExerciseItem) : fallbackMaterials.exercises;
+        const dialogueLines = Array.isArray(normalized.dialogueLines) && normalized.dialogueLines.length
+          ? normalized.dialogueLines.map((line, lineIndex) => ({
+            speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
+            text: String(line?.text ?? "").trim(),
+          }))
+          : buildLessonDialogueLines(normalized);
+        grammarPoints.forEach((point, grammarIndex) => {
+          this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
+            .run(normalized.id, point.title, point.explanation, point.example, grammarIndex);
+        });
+        dialogueLines.forEach((line, dialogueIndex) => {
+          this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
+            .run(normalized.id, line.speaker, line.text, dialogueIndex);
+        });
+        exercises.forEach((exercise, exerciseIndex) => {
+          this.db.prepare(
+            "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+          ).run(
+            exercise.id || `${normalized.id}-exercise-${exerciseIndex + 1}`,
+            normalized.id,
+            exercise.type,
+            exercise.prompt,
+            toJson(exercise.choices ?? []),
+            exercise.answer,
+            exercise.explanation,
+            exerciseIndex
+          );
+        });
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.seedReviewItemsFromLessons(rows, false);
+    this.seedKanjiReviewsFromEntries();
+  }
+
+  seedReviewItemsFromLessons(lessons = null, pruneMissing = true) {
+    const lessonsToSeed = Array.isArray(lessons) && lessons.length
+      ? lessons
+      : this.db.prepare("SELECT id, title, japanese, translation FROM lessons ORDER BY order_index, id").all();
+    if (!lessonsToSeed.length) return;
     const existingIds = new Set(this.db.prepare("SELECT id FROM review_items").all().map((row) => row.id));
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      lessons.forEach((lesson) => {
+      lessonsToSeed.forEach((lesson) => {
         const vocabRows = this.db.prepare(
           "SELECT word, kana, meaning, order_index FROM lesson_vocab WHERE lesson_id = ? ORDER BY order_index, id"
         ).all(lesson.id);
@@ -3044,9 +3127,11 @@ export class SqliteStorageAdapter {
           existingIds.delete(review.id);
         });
       });
-      existingIds.forEach((id) => {
-        this.db.prepare("DELETE FROM review_items WHERE id = ?").run(id);
-      });
+      if (pruneMissing) {
+        existingIds.forEach((id) => {
+          this.db.prepare("DELETE FROM review_items WHERE id = ?").run(id);
+        });
+      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");

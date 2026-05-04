@@ -49,8 +49,8 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
   const temp = createTempStore();
   try {
     const snapshot = temp.store.getSnapshot();
-    assert.equal(snapshot.lessons.length, 3);
-    assert.equal(snapshot.reviews.length >= 6, true);
+    assert.equal(snapshot.lessons.length, 6);
+    assert.equal(snapshot.reviews.length >= 12, true);
     assert.equal(snapshot.progress.xp, 0);
     assert.equal(snapshot.progress.level, calculateLevel(snapshot.progress.xp));
     assert.equal(snapshot.progress.streakFreezeCount, 0);
@@ -59,9 +59,9 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(temp.store.getSchemaVersion(), 17);
     assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
-    assert.equal(snapshot.kanjiEntries.length >= 3, true);
+    assert.equal(snapshot.kanjiEntries.length >= 6, true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
-    assert.equal(snapshot.kanjiReviews.length >= 3, true);
+    assert.equal(snapshot.kanjiReviews.length >= 6, true);
     assert.equal(snapshot.admin.users.length, 0);
     assert.equal(snapshot.admin.challenges.length, 3);
   } finally {
@@ -826,7 +826,7 @@ test("user management mutations and reset work", () => {
     assert.equal(temp.store.getUsers({ username: "akira" }).length, 0);
 
     const resetSnapshot = temp.store.resetDatabase();
-    assert.equal(resetSnapshot.lessons.length, 3);
+    assert.equal(resetSnapshot.lessons.length, 6);
     assert.equal(temp.store.getSchemaVersion(), 17);
   } finally {
     cleanupTempStore(temp);
