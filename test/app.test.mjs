@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, filterModerationActions, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, chooseJapaneseVoice, describeLessonExerciseType, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, filterModerationActions, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -1025,6 +1025,13 @@ test("lesson exercise evaluation normalizes ordering, dictation, and listening p
     { selected: "shopping" }
   );
   assert.equal(listening.correct, true);
+});
+
+test("lesson exercise type descriptions stay explicit for the UI", () => {
+  assert.equal(describeLessonExerciseType("ordering"), "Arrange the line in sequence.");
+  assert.equal(describeLessonExerciseType("dictation"), "Type exactly what you hear.");
+  assert.equal(describeLessonExerciseType("kana-reconstruction"), "Rebuild the reading from memory.");
+  assert.equal(describeLessonExerciseType("listening-comprehension"), "Choose the answer that matches the audio context.");
 });
 
 test("lesson draft generation returns theme-based content", () => {

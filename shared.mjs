@@ -1131,6 +1131,21 @@ export function evaluateLessonExercise(exercise = {}, submission = {}) {
   };
 }
 
+export function describeLessonExerciseType(type = "") {
+  const normalized = String(type ?? "").trim().toLowerCase();
+  if (normalized.includes("ordering")) return "Arrange the line in sequence.";
+  if (normalized.includes("dictation")) return "Type exactly what you hear.";
+  if (normalized.includes("kana")) return "Rebuild the reading from memory.";
+  if (normalized.includes("kanji")) return "Recall the kanji pattern and meaning.";
+  if (normalized.includes("listening")) return "Choose the answer that matches the audio context.";
+  if (normalized.includes("matching")) return "Match the prompt to the best answer.";
+  if (normalized.includes("cloze")) return "Fill the blank with the missing meaning.";
+  if (normalized.includes("translation")) return "Translate the line into natural English.";
+  if (normalized.includes("short")) return "Answer in one short sentence.";
+  if (normalized.includes("choice") || normalized.includes("multiple")) return "Pick the best option.";
+  return "Answer the exercise.";
+}
+
 export function buildLessonDraft(title, theme) {
   const normalizedTheme = String(theme ?? "custom").trim().toLowerCase() || "custom";
   const normalizedTitle = String(title ?? "New Lesson").trim() || "New Lesson";

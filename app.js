@@ -1,5 +1,5 @@
 import { INITIAL_APP_STATE } from "./seed-data.mjs";
-import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
+import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, describeLessonExerciseType, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
 
 const defaultState = structuredClone(INITIAL_APP_STATE);
 
@@ -625,6 +625,7 @@ function renderLearn() {
                 ? `
                   <p class="eyebrow">Exercise ${lessonExerciseIndex + 1} of ${exercises.length}</p>
                   <strong>${escapeHtml(activeExercise.type || "exercise")}</strong>
+                  <p class="muted">${escapeHtml(describeLessonExerciseType(activeExercise.type))}</p>
                   ${activeExercise.hint ? `<p class="muted">${escapeHtml(activeExercise.hint)}</p>` : ""}
                   <p>${escapeHtml(activeExercise.prompt || "")}</p>
                   ${
