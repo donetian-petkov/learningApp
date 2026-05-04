@@ -1858,6 +1858,14 @@ function renderAdmin() {
             <span>Kanji breakdowns JSON</span>
             <textarea data-field="lesson-kanji-breakdowns" rows="6" placeholder='[{"character":"駅","meaning":"station","onYomi":"エキ","kunYomi":"","components":"馬 + 尺","mnemonic":"...","examples":["駅はどこですか。"],"lessonContext":"Travel"}]'>${escapeHtml(JSON.stringify(lessonDraft.kanjiBreakdowns ?? [], null, 2))}</textarea>
           </label>
+          <label class="field">
+            <span>Lesson goals JSON</span>
+            <textarea data-field="lesson-goals" rows="4" placeholder='["Complete the scene","Answer every exercise","Save a note"]'>${escapeHtml(JSON.stringify(lessonDraft.lessonGoals ?? [], null, 2))}</textarea>
+          </label>
+          <label class="field">
+            <span>Reference tags JSON</span>
+            <textarea data-field="lesson-reference-tags" rows="3" placeholder='["travel","station","N5"]'>${escapeHtml(JSON.stringify(lessonDraft.referenceTags ?? [], null, 2))}</textarea>
+          </label>
           <div class="field-row">
             <label class="field">
               <span>Pack title</span>
@@ -3047,6 +3055,8 @@ function wireActions() {
         const mediaInput = app.querySelector('[data-field="lesson-media"]');
         const popCultureNotesInput = app.querySelector('[data-field="lesson-pop-culture-notes"]');
         const kanjiBreakdownsInput = app.querySelector('[data-field="lesson-kanji-breakdowns"]');
+        const lessonGoalsInput = app.querySelector('[data-field="lesson-goals"]');
+        const referenceTagsInput = app.querySelector('[data-field="lesson-reference-tags"]');
         const title = titleInput?.value?.trim();
         if (!title && !adminLessonEditor) {
           return;
@@ -3079,6 +3089,8 @@ function wireActions() {
           media: parseCollection(mediaInput?.value, adminLessonEditor?.media ?? baseLesson.media),
           popCultureNotes: parseCollection(popCultureNotesInput?.value, adminLessonEditor?.popCultureNotes ?? baseLesson.popCultureNotes),
           kanjiBreakdowns: parseCollection(kanjiBreakdownsInput?.value, adminLessonEditor?.kanjiBreakdowns ?? baseLesson.kanjiBreakdowns),
+          lessonGoals: parseCollection(lessonGoalsInput?.value, adminLessonEditor?.lessonGoals ?? baseLesson.lessonGoals),
+          referenceTags: parseCollection(referenceTagsInput?.value, adminLessonEditor?.referenceTags ?? baseLesson.referenceTags),
         };
         if (adminLessonEditor?.id) {
           await apiJson(`/api/lessons/${encodeURIComponent(adminLessonEditor.id)}`, {

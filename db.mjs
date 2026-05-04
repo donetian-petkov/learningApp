@@ -1645,8 +1645,11 @@ export class SqliteStorageAdapter {
       vocab: Array.isArray(patch.vocab) ? patch.vocab : this.loadLessonVocab(lessonId),
       kanji: Array.isArray(patch.kanji) ? patch.kanji : this.loadLessonKanji(lessonId),
       scenes: Array.isArray(patch.scenes) ? patch.scenes : this.loadLessonScenes(lessonId),
+      media: Array.isArray(patch.media) ? patch.media : this.loadLessonMedia(lessonId),
       popCultureNotes: Array.isArray(patch.popCultureNotes) ? patch.popCultureNotes : this.loadLessonPopCultureNotes(lessonId),
       kanjiBreakdowns: Array.isArray(patch.kanjiBreakdowns) ? patch.kanjiBreakdowns : this.loadLessonKanjiBreakdowns(lessonId),
+      lessonGoals: Array.isArray(patch.lessonGoals) ? patch.lessonGoals : this.loadLessonGoals(lessonId),
+      referenceTags: Array.isArray(patch.referenceTags) ? patch.referenceTags : this.loadLessonReferenceTags(lessonId),
     });
     this.db.exec("BEGIN IMMEDIATE");
     try {

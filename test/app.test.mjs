@@ -224,13 +224,16 @@ test("lesson CRUD works through the SQLite adapter", () => {
       japanese: "駅はどこですか。",
       romaji: "Eki wa doko desu ka.",
       translation: "Where is the station?",
-      grammar: "Question form for directions.",
-      vocab: [{ word: "駅", kana: "えき", meaning: "station" }],
-      kanji: ["駅"],
-      grammarPoints: [
-        { title: "Topic particle", explanation: "Use は to mark the topic.", example: "駅はどこですか。" },
-        { title: "Direction", explanation: "Use ですか for a polite question.", example: "駅はどこですか。" },
-      ],
+        grammar: "Question form for directions.",
+        vocab: [{ word: "駅", kana: "えき", meaning: "station" }],
+        kanji: ["駅"],
+        media: [{ type: "reference", title: "Station card", caption: "Text reference", alt: "Station reference", source: "travel", uri: "", license: "local", sceneIndex: 0, orderIndex: 0 }],
+        lessonGoals: ["Reach the station", "Ask for directions"],
+        referenceTags: ["travel", "station"],
+        grammarPoints: [
+          { title: "Topic particle", explanation: "Use は to mark the topic.", example: "駅はどこですか。" },
+          { title: "Direction", explanation: "Use ですか for a polite question.", example: "駅はどこですか。" },
+        ],
       dialogueLines: [
         { speaker: "Narration", text: "At the station" },
         { speaker: "Speaker A", text: "駅はどこですか。" },
@@ -247,13 +250,20 @@ test("lesson CRUD works through the SQLite adapter", () => {
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.length >= 4, true);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.exercises.some((exercise) => exercise.type === "cloze"), true);
     assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.dialogueLines.length, 3);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.media.length, 1);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.lessonGoals.length, 2);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.referenceTags.length, 2);
 
     const updated = temp.store.updateLesson("travel-station", {
       title: "Travel: Station Directions",
       translation: "Where is the station entrance?",
+      lessonGoals: ["Find the station entrance"],
+      referenceTags: ["travel", "directions"],
     });
     assert.equal(updated.title, "Travel: Station Directions");
     assert.equal(updated.translation, "Where is the station entrance?");
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.lessonGoals.length, 1);
+    assert.equal(temp.store.getLessons().find((lesson) => lesson.id === "travel-station")?.referenceTags.length, 2);
 
     assert.equal(temp.store.deleteLesson("travel-station"), true);
     assert.equal(temp.store.getLessons().some((lesson) => lesson.id === "travel-station"), false);
