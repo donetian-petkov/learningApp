@@ -67,6 +67,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(Array.isArray(snapshot.lessons[0].scenes), true);
     assert.equal(snapshot.lessons[0].scenes.length >= 3, true);
     assert.equal(Array.isArray(snapshot.lessons[0].scenes[0].mediaRefs), true);
+    assert.equal(Array.isArray(snapshot.lessons[0].media), true);
     assert.equal(Array.isArray(snapshot.lessons[0].popCultureNotes), true);
     assert.equal(Array.isArray(snapshot.lessons[0].kanjiBreakdowns), true);
     assert.equal(Array.isArray(snapshot.lessons[0].exercises), true);
@@ -1036,6 +1037,7 @@ test("lesson draft generation returns theme-based content", () => {
   assert.ok(Array.isArray(draft.dialogueLines));
   assert.ok(Array.isArray(draft.exercises));
   assert.ok(Array.isArray(draft.scenes) && draft.scenes.length >= 3);
+  assert.ok(Array.isArray(draft.media) && draft.media.length >= 2);
   assert.ok(Array.isArray(draft.popCultureNotes) && draft.popCultureNotes.length >= 2);
   assert.ok(Array.isArray(draft.kanjiBreakdowns));
 });

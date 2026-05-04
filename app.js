@@ -478,6 +478,25 @@ function renderLearn() {
                     `
                   ).join("")
                 : "<p class='muted'>No media references have been added yet.</p>"
+              }
+          </div>
+        </div>
+        <div class="grid-card spaced">
+          <h3>Pop-culture notes</h3>
+          <p class="muted">These notes explain why the lesson feels natural in anime, manga, workplace, or everyday Japanese context.</p>
+          <div class="list">
+            ${
+              Array.isArray(activeLesson.popCultureNotes) && activeLesson.popCultureNotes.length
+                ? activeLesson.popCultureNotes.map(
+                    (note, index) => `
+                      <div class="list-item">
+                        <strong>${escapeHtml(note.title || `Note ${index + 1}`)}</strong>
+                        <span class="muted">${escapeHtml(note.context || "")}</span>
+                        <span class="muted">${escapeHtml([note.reference, note.sceneHint, note.sourceType].filter(Boolean).join(" · "))}</span>
+                      </div>
+                    `
+                  ).join("")
+                : "<p class='muted'>No pop-culture notes are attached to this lesson yet.</p>"
             }
           </div>
         </div>
@@ -1827,6 +1846,10 @@ function renderAdmin() {
             <textarea data-field="lesson-scenes" rows="6" placeholder='[{"title":"Opening","setting":"Anime opening","summary":"Set the scene.","lines":[{"speaker":"Narration","text":"..."},{"speaker":"Hero","text":"..."}],"references":["..."]}]'>${escapeHtml(JSON.stringify(lessonDraft.scenes ?? [], null, 2))}</textarea>
           </label>
           <label class="field">
+            <span>Media JSON</span>
+            <textarea data-field="lesson-media" rows="4" placeholder='[{"type":"reference","title":"Context card","caption":"Text reference for the scene","alt":"Lesson reference","source":"anime","uri":"","license":"local","sceneIndex":0,"orderIndex":0}]'>${escapeHtml(JSON.stringify(lessonDraft.media ?? [], null, 2))}</textarea>
+          </label>
+          <label class="field">
             <span>Pop culture notes JSON</span>
             <textarea data-field="lesson-pop-culture-notes" rows="4" placeholder='[{"title":"Episode framing","context":"Why this line feels like anime.","reference":"..."}]'>${escapeHtml(JSON.stringify(lessonDraft.popCultureNotes ?? [], null, 2))}</textarea>
           </label>
@@ -3020,6 +3043,7 @@ function wireActions() {
         const dialogueLinesInput = app.querySelector('[data-field="lesson-dialogue-lines"]');
         const exercisesInput = app.querySelector('[data-field="lesson-exercises"]');
         const scenesInput = app.querySelector('[data-field="lesson-scenes"]');
+        const mediaInput = app.querySelector('[data-field="lesson-media"]');
         const popCultureNotesInput = app.querySelector('[data-field="lesson-pop-culture-notes"]');
         const kanjiBreakdownsInput = app.querySelector('[data-field="lesson-kanji-breakdowns"]');
         const title = titleInput?.value?.trim();
@@ -3051,6 +3075,7 @@ function wireActions() {
           dialogueLines: parseCollection(dialogueLinesInput?.value, adminLessonEditor?.dialogueLines ?? baseLesson.dialogueLines),
           exercises: parseCollection(exercisesInput?.value, adminLessonEditor?.exercises ?? baseLesson.exercises),
           scenes: parseCollection(scenesInput?.value, adminLessonEditor?.scenes ?? baseLesson.scenes),
+          media: parseCollection(mediaInput?.value, adminLessonEditor?.media ?? baseLesson.media),
           popCultureNotes: parseCollection(popCultureNotesInput?.value, adminLessonEditor?.popCultureNotes ?? baseLesson.popCultureNotes),
           kanjiBreakdowns: parseCollection(kanjiBreakdownsInput?.value, adminLessonEditor?.kanjiBreakdowns ?? baseLesson.kanjiBreakdowns),
         };
