@@ -571,6 +571,18 @@ test("analytics summary is derived from persisted activity", async () => {
 test("snapshot export and restore preserve persisted state", () => {
   const temp = createTempStore();
   try {
+    temp.store.updateLesson("anime-intro", {
+      media: [
+        {
+          label: "Anime opening",
+          kind: "clip",
+          url: "https://example.com/opening.mp3",
+          note: "Theme song cue",
+        },
+      ],
+      lessonGoals: ["Use the intro phrase", "Identify the opening context"],
+      referenceTags: ["anime", "intro"],
+    });
     temp.store.completeLesson("food-ramen");
     temp.store.recordDatasetImport({
       sourceType: "bundle",
@@ -591,6 +603,9 @@ test("snapshot export and restore preserve persisted state", () => {
     const restored = temp.store.saveAppState(snapshot);
     assert.equal(restored.progress.completedLessons.includes("food-ramen"), true);
     assert.equal(restored.lessons.some((lesson) => lesson.id === "anime-intro"), true);
+    assert.equal(restored.lessons.find((lesson) => lesson.id === "anime-intro")?.media.length, 1);
+    assert.equal(restored.lessons.find((lesson) => lesson.id === "anime-intro")?.lessonGoals.length, 2);
+    assert.equal(restored.lessons.find((lesson) => lesson.id === "anime-intro")?.referenceTags.length, 2);
     assert.equal(restored.admin.maintenanceMode, false);
     assert.equal(restored.admin.datasetImports.length >= 1, true);
     assert.equal(restored.admin.moderationActions.length >= 1, true);
