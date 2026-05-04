@@ -72,6 +72,8 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(Array.isArray(snapshot.lessons[0].media), true);
     assert.equal(Array.isArray(snapshot.lessons[0].popCultureNotes), true);
     assert.equal(Array.isArray(snapshot.lessons[0].kanjiBreakdowns), true);
+    assert.equal(Array.isArray(snapshot.lessons[0].lessonGoals), true);
+    assert.equal(Array.isArray(snapshot.lessons[0].referenceTags), true);
     assert.equal(Array.isArray(snapshot.lessons[0].exercises), true);
     assert.equal(snapshot.lessons[0].exercises.length >= 4, true);
     assert.equal(snapshot.lessons[0].exercises.some((exercise) => exercise.type === "cloze"), true);

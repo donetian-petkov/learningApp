@@ -352,11 +352,22 @@ function renderLearn() {
         <h3>${escapeHtml(lesson.title)}</h3>
         <p class="muted">${escapeHtml(lesson.difficulty)} · ${state.progress.completedLessons.includes(lesson.id) ? "Completed" : "In progress"}</p>
         <p class="muted">${Array.isArray(lesson.scenes) ? lesson.scenes.length : 0} scenes · ${Array.isArray(lesson.exercises) ? lesson.exercises.length : 0} exercises</p>
+        <p class="muted">${Array.isArray(lesson.media) ? lesson.media.length : 0} media slots · ${Array.isArray(lesson.lessonGoals) ? lesson.lessonGoals.length : 0} goals · ${Array.isArray(lesson.referenceTags) ? lesson.referenceTags.length : 0} tags</p>
         <div class="kana">${escapeHtml(state.toggles.furigana ? lesson.japanese : lesson.translation)}</div>
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(lesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(lesson.translation)}</p>` : ""}
         <p>${escapeHtml(lesson.grammar)}</p>
         ${Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length ? `<p class="muted">${escapeHtml(lesson.popCultureNotes[0].title)} · ${escapeHtml(lesson.popCultureNotes[0].context)}</p>` : ""}
+        ${
+          Array.isArray(lesson.lessonGoals) && lesson.lessonGoals.length
+            ? `<div class="tag-row">${lesson.lessonGoals.slice(0, 3).map((goal) => `<span class="tag">${escapeHtml(goal)}</span>`).join("")}</div>`
+            : ""
+        }
+        ${
+          Array.isArray(lesson.referenceTags) && lesson.referenceTags.length
+            ? `<div class="tag-row">${lesson.referenceTags.slice(0, 3).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>`
+            : ""
+        }
         <div class="tag-row">
           ${lesson.vocab
             .map((item) => `<span class="tag">${escapeHtml(item.word)} · ${escapeHtml(item.meaning)}</span>`)
