@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createStorageAdapter } from "../db.mjs";
-import { answerAiFeature, answerTutor, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, filterModerationActions, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
+import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, chooseJapaneseVoice, escapeHtml, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, filterLessonCatalog, filterModerationActions, findNextLessonId, normalizeSentence, sm2Next } from "../shared.mjs";
 
 function createTempStore() {
   const dir = mkdtempSync(join(tmpdir(), "pop-culture-japanese-"));
@@ -56,14 +56,17 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.progress.streakFreezeCount, 0);
     assert.equal(snapshot.admin.authenticated, false);
     assert.equal(snapshot.admin.roles.length, 4);
-    assert.equal(temp.store.getSchemaVersion(), 18);
+    assert.equal(temp.store.getSchemaVersion(), 19);
     assert.equal(temp.store.getMigrationHistory(1).length >= 1, true);
     assert.equal(Array.isArray(snapshot.kanjiEntries), true);
     assert.equal(snapshot.kanjiEntries.length >= 6, true);
+    assert.equal(snapshot.kanjiEntries.every((entry) => Array.isArray(entry.radicals)), true);
+    assert.equal(snapshot.kanjiEntries.some((entry) => entry.strokeCount > 0), true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
     assert.equal(snapshot.kanjiReviews.length >= 6, true);
     assert.equal(Array.isArray(snapshot.lessons[0].scenes), true);
     assert.equal(snapshot.lessons[0].scenes.length >= 3, true);
+    assert.equal(Array.isArray(snapshot.lessons[0].scenes[0].mediaRefs), true);
     assert.equal(Array.isArray(snapshot.lessons[0].popCultureNotes), true);
     assert.equal(Array.isArray(snapshot.lessons[0].kanjiBreakdowns), true);
     assert.equal(Array.isArray(snapshot.lessons[0].exercises), true);
@@ -836,7 +839,7 @@ test("user management mutations and reset work", () => {
 
     const resetSnapshot = temp.store.resetDatabase();
     assert.equal(resetSnapshot.lessons.length, 6);
-    assert.equal(temp.store.getSchemaVersion(), 18);
+    assert.equal(temp.store.getSchemaVersion(), 19);
   } finally {
     cleanupTempStore(temp);
   }
@@ -975,6 +978,54 @@ test("lesson exercise evaluation handles multiple choice and translation", () =>
   assert.ok(cloze.feedback.includes("Correct"));
 });
 
+test("lesson exercise evaluation normalizes ordering, dictation, and listening prompts", () => {
+  const ordering = evaluateLessonExercise(
+    {
+      type: "ordering",
+      prompt: "Put the line in order",
+      answer: "A / B / C",
+      explanation: "Keep the scene sequence intact.",
+    },
+    { order: ["A", "B", "C"] }
+  );
+  assert.equal(ordering.correct, true);
+  assert.ok(ordering.feedback.includes("Correct"));
+
+  const dictation = evaluateLessonExercise(
+    {
+      type: "dictation",
+      prompt: "Type what you hear",
+      answer: "今日はよろしくお願いします。",
+      explanation: "Listen for the polite greeting.",
+    },
+    { input: "今日はよろしくお願いします" }
+  );
+  assert.equal(dictation.correct, true);
+
+  const kana = evaluateLessonExercise(
+    {
+      type: "kana-reconstruction",
+      prompt: "Rebuild the reading",
+      answer: "あさごはん",
+      explanation: "Recall the reading from the lesson.",
+    },
+    { input: "あさごはん" }
+  );
+  assert.equal(kana.correct, true);
+
+  const listening = evaluateLessonExercise(
+    {
+      type: "listening-comprehension",
+      prompt: "What context does this line belong to?",
+      choices: ["shopping", "festival"],
+      answer: "shopping",
+      explanation: "The line is set in a shop scene.",
+    },
+    { selected: "shopping" }
+  );
+  assert.equal(listening.correct, true);
+});
+
 test("lesson draft generation returns theme-based content", () => {
   const draft = buildLessonDraft("Train Station", "travel");
   assert.equal(draft.title, "Train Station");
@@ -989,6 +1040,27 @@ test("lesson draft generation returns theme-based content", () => {
   assert.ok(Array.isArray(draft.kanjiBreakdowns));
 });
 
+test("lesson draft generation covers the new curriculum themes", () => {
+  const shopping = buildLessonDraft("Shopping Run", "shopping");
+  const festival = buildLessonDraft("Festival Night", "festivals");
+  const friendship = buildLessonDraft("Friendship Chat", "friendship");
+  const transit = buildLessonDraft("Transit Announcements", "transit");
+
+  assert.equal(shopping.theme, "shopping");
+  assert.ok(shopping.japanese.includes("商品") || shopping.japanese.includes("いくら"));
+  assert.ok(shopping.scenes.every((scene) => scene.sceneType && scene.tone && Array.isArray(scene.mediaRefs)));
+
+  assert.equal(festival.theme, "festivals");
+  assert.ok(festival.japanese.includes("祭り") || festival.translation.includes("Festival"));
+
+  assert.equal(friendship.theme, "friendship");
+  assert.ok(friendship.japanese.includes("友達") || friendship.translation.includes("friend"));
+
+  assert.equal(transit.theme, "transit");
+  assert.ok(transit.japanese.includes("電車") || transit.translation.includes("station"));
+  assert.ok(transit.scenes.every((scene) => scene.sceneType && scene.tone && Array.isArray(scene.mediaRefs)));
+});
+
 test("lesson pack generation returns multiple imported lessons", () => {
   const pack = buildLessonPack("Travel Pack", "travel", 4);
   assert.equal(pack.length, 4);
@@ -999,6 +1071,41 @@ test("lesson pack generation returns multiple imported lessons", () => {
   assert.ok(pack.every((lesson) => Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length >= 3));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.scenes) && lesson.scenes.length >= 3));
   assert.ok(pack.every((lesson) => Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length >= 2));
+});
+
+test("lesson pack generation handles the new curriculum themes", () => {
+  const shoppingPack = buildLessonPack("Shopping Run", "shopping", 3);
+  const festivalPack = buildLessonPack("Festival Night", "festivals", 2);
+  const transitPack = buildLessonPack("Transit Announcements", "transit", 2);
+
+  assert.equal(shoppingPack.length, 3);
+  assert.ok(shoppingPack.every((lesson) => lesson.theme === "shopping"));
+  assert.ok(shoppingPack.some((lesson) => lesson.translation.includes("How much") || lesson.japanese.includes("いくら")));
+
+  assert.equal(festivalPack.length, 2);
+  assert.ok(festivalPack.every((lesson) => lesson.theme === "festivals"));
+  assert.ok(festivalPack.some((lesson) => lesson.translation.includes("Festival") || lesson.japanese.includes("祭り")));
+
+  assert.equal(transitPack.length, 2);
+  assert.ok(transitPack.every((lesson) => lesson.theme === "transit"));
+  assert.ok(transitPack.some((lesson) => lesson.japanese.includes("電車") || lesson.translation.includes("train")));
+});
+
+test("scene blueprints and kanji breakdowns carry richer metadata", () => {
+  const scenes = buildSceneBlueprint("festival", "Festival Night", "祭りの夜はとてもにぎやかです。", "Festival nights are very lively.", "Use の to attach the event to the time.");
+  assert.equal(scenes.length, 3);
+  assert.ok(scenes.every((scene) => scene.sceneType));
+  assert.ok(scenes.every((scene) => scene.tone));
+  assert.ok(scenes.every((scene) => Array.isArray(scene.mediaRefs)));
+
+  const breakdowns = buildKanjiBreakdowns(["商", "買", "通"], "Shopping Run", "shopping", [
+    { word: "商品", kana: "しょうひん" },
+    { word: "買い物", kana: "かいもの" },
+  ]);
+  assert.equal(breakdowns.length, 3);
+  assert.ok(breakdowns.every((entry) => Array.isArray(entry.radicals)));
+  assert.ok(breakdowns.every((entry) => entry.strokeCount > 0));
+  assert.ok(breakdowns.some((entry) => entry.lessonExamples.length > 0));
 });
 
 test("lesson catalog filters by query, theme, and difficulty", () => {

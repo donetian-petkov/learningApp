@@ -409,6 +409,24 @@ function renderLearn() {
             <span class="tag">Exercises</span>
             <span class="tag">Notes</span>
           </div>
+          ${
+            Array.isArray(activeLesson.lessonGoals) && activeLesson.lessonGoals.length
+              ? `
+                <div class="tag-row">
+                  ${activeLesson.lessonGoals.slice(0, 4).map((goal) => `<span class="tag">${escapeHtml(goal)}</span>`).join("")}
+                </div>
+              `
+              : ""
+          }
+          ${
+            Array.isArray(activeLesson.referenceTags) && activeLesson.referenceTags.length
+              ? `
+                <div class="tag-row">
+                  ${activeLesson.referenceTags.slice(0, 4).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+                </div>
+              `
+              : ""
+          }
         </div>
         <div class="grid-card spaced">
           <h3>Scenario pack</h3>
@@ -432,12 +450,36 @@ function renderLearn() {
                   <p class="muted">${escapeHtml(activeScene.setting || "Scene setting")}</p>
                   <p>${escapeHtml(activeScene.summary || "")}</p>
                   <div class="tag-row">
+                    ${activeScene.sceneType ? `<span class="tag">${escapeHtml(activeScene.sceneType)}</span>` : ""}
+                    ${activeScene.tone ? `<span class="tag">${escapeHtml(activeScene.tone)}</span>` : ""}
+                    ${(activeScene.mediaRefs ?? []).slice(0, 3).map((reference) => `<span class="tag">${escapeHtml(reference)}</span>`).join("")}
+                  </div>
+                  <div class="tag-row">
                     ${(activeScene.references ?? []).slice(0, 4).map((reference) => `<span class="tag">${escapeHtml(reference)}</span>`).join("")}
                   </div>
                 </div>
               `
               : "<p class='muted'>The current lesson has one scene. Add more scenes in Admin to make it a full pack.</p>"
           }
+        </div>
+        <div class="grid-card spaced">
+          <h3>Media references</h3>
+          <p class="muted">These slots can point to screenshots, source clips, or the reference image you want learners to connect to the scene.</p>
+          <div class="list">
+            ${
+              Array.isArray(activeLesson.media) && activeLesson.media.length
+                ? activeLesson.media.map(
+                    (media, index) => `
+                      <div class="list-item">
+                        <strong>${escapeHtml(media.title || `Media ${index + 1}`)}</strong>
+                        <span class="muted">${escapeHtml(media.caption || media.alt || "Reference asset")}</span>
+                        <span class="muted">${escapeHtml([media.type, media.source].filter(Boolean).join(" · ") || "local reference")}</span>
+                      </div>
+                    `
+                  ).join("")
+                : "<p class='muted'>No media references have been added yet.</p>"
+            }
+          </div>
         </div>
         <div class="grid-card spaced">
           <h3>Lesson mastery</h3>

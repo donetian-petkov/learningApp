@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonStudyMaterials, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonPack, buildLessonStudyMaterials, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -83,9 +83,12 @@ function normalizeLesson(lesson, index = 0) {
       : [],
     scenes: Array.isArray(lesson.scenes) ? lesson.scenes.map(normalizeScene) : [],
     popCultureNotes: Array.isArray(lesson.popCultureNotes) ? lesson.popCultureNotes.map(normalizePopCultureNote) : [],
+    media: Array.isArray(lesson.media) ? lesson.media.map(normalizeMediaSlot) : [],
     kanjiBreakdowns: Array.isArray(lesson.kanjiBreakdowns)
       ? lesson.kanjiBreakdowns.map(normalizeKanjiBreakdown)
       : [],
+    lessonGoals: Array.isArray(lesson.lessonGoals) ? lesson.lessonGoals.map(String).filter(Boolean) : [],
+    referenceTags: Array.isArray(lesson.referenceTags) ? lesson.referenceTags.map(String).filter(Boolean) : [],
     dialogueLines: Array.isArray(lesson.dialogueLines)
       ? lesson.dialogueLines.map((line, lineIndex) => ({
         speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
@@ -162,6 +165,10 @@ function normalizeScene(item = {}, index = 0) {
         }))
       : [],
     references: Array.isArray(item.references) ? item.references.map((entry) => String(entry).trim()).filter(Boolean) : [],
+    sceneType: String(item.sceneType ?? item.scene_type ?? item.type ?? "").trim(),
+    tone: String(item.tone ?? "").trim(),
+    mediaRefs: Array.isArray(item.mediaRefs) ? item.mediaRefs.map((entry) => String(entry).trim()).filter(Boolean) : [],
+    sourceType: String(item.sourceType ?? item.source_type ?? "").trim(),
   };
 }
 
@@ -170,6 +177,24 @@ function normalizePopCultureNote(item = {}, index = 0) {
     title: String(item.title ?? `Context note ${index + 1}`).trim() || `Context note ${index + 1}`,
     context: String(item.context ?? "").trim(),
     reference: String(item.reference ?? "").trim(),
+    sceneHint: String(item.sceneHint ?? "").trim(),
+    sourceType: String(item.sourceType ?? "").trim(),
+    sourceTitle: String(item.sourceTitle ?? "").trim(),
+    sourceUrl: String(item.sourceUrl ?? item.sourceId ?? "").trim(),
+  };
+}
+
+function normalizeMediaSlot(item = {}, index = 0) {
+  return {
+    type: String(item.type ?? "reference").trim() || "reference",
+    title: String(item.title ?? `Media ${index + 1}`).trim() || `Media ${index + 1}`,
+    caption: String(item.caption ?? "").trim(),
+    alt: String(item.alt ?? "").trim(),
+    source: String(item.source ?? "").trim(),
+    uri: String(item.uri ?? "").trim(),
+    license: String(item.license ?? "local").trim() || "local",
+    sceneIndex: Number(item.sceneIndex ?? 0),
+    orderIndex: Number(item.orderIndex ?? index),
   };
 }
 
@@ -180,10 +205,16 @@ function normalizeKanjiBreakdown(item = {}, index = 0) {
     onYomi: String(item.onYomi ?? item.on_yomi ?? "").trim(),
     kunYomi: String(item.kunYomi ?? item.kun_yomi ?? "").trim(),
     components: String(item.components ?? "").trim(),
+    radicals: Array.isArray(item.radicals) ? item.radicals.map((entry) => String(entry).trim()).filter(Boolean) : String(item.radicals ?? "").trim(),
+    strokeCount: Number(item.strokeCount ?? item.stroke_count ?? 0) || 0,
+    strokeOrderSource: String(item.strokeOrderSource ?? item.stroke_order_source ?? "").trim(),
     mnemonic: String(item.mnemonic ?? "").trim(),
     examples: Array.isArray(item.examples) ? item.examples.map((entry) => String(entry).trim()).filter(Boolean) : [],
     lessonContext: String(item.lessonContext ?? item.lesson_context ?? "").trim(),
     lessonExamples: Array.isArray(item.lessonExamples) ? item.lessonExamples.map((entry) => String(entry).trim()).filter(Boolean) : [],
+    group: String(item.group ?? "").trim(),
+    difficulty: String(item.difficulty ?? "N5").trim() || "N5",
+    relatedKanji: Array.isArray(item.relatedKanji) ? item.relatedKanji.map((entry) => String(entry).trim()).filter(Boolean) : [],
     id: item.id ?? `kanji-breakdown-${index + 1}`,
   };
 }
@@ -334,6 +365,12 @@ function normalizeKanjiEntry(entry, index = 0) {
     onYomi: String(entry.onYomi ?? entry.on_yomi ?? "").trim(),
     kunYomi: String(entry.kunYomi ?? entry.kun_yomi ?? "").trim(),
     examples: Array.isArray(entry.examples) ? entry.examples.map(String).filter(Boolean) : [],
+    radicals: Array.isArray(entry.radicals) ? entry.radicals.map((item) => String(item).trim()).filter(Boolean) : String(entry.radicals ?? "").split(/[、,\/]/).map((item) => item.trim()).filter(Boolean),
+    strokeCount: Number(entry.strokeCount ?? entry.stroke_count ?? 0) || 0,
+    strokeOrderSource: String(entry.strokeOrderSource ?? entry.stroke_order_source ?? "").trim(),
+    groupName: String(entry.groupName ?? entry.group_name ?? "").trim(),
+    difficulty: String(entry.difficulty ?? "N5").trim() || "N5",
+    relatedKanji: Array.isArray(entry.relatedKanji) ? entry.relatedKanji.map((item) => String(item).trim()).filter(Boolean) : String(entry.relatedKanji ?? entry.related_kanji ?? "").split(/[、,\/]/).map((item) => item.trim()).filter(Boolean),
     source: String(entry.source ?? "manual").trim() || "manual",
   };
 }
@@ -742,6 +779,9 @@ export class SqliteStorageAdapter {
         scenes_json TEXT NOT NULL DEFAULT '[]',
         pop_culture_notes_json TEXT NOT NULL DEFAULT '[]',
         kanji_breakdowns_json TEXT NOT NULL DEFAULT '[]',
+        media_json TEXT NOT NULL DEFAULT '[]',
+        lesson_goals_json TEXT NOT NULL DEFAULT '[]',
+        reference_tags_json TEXT NOT NULL DEFAULT '[]',
         order_index INTEGER NOT NULL DEFAULT 0
       );
 
@@ -770,6 +810,12 @@ export class SqliteStorageAdapter {
         on_yomi TEXT NOT NULL,
         kun_yomi TEXT NOT NULL,
         examples_json TEXT NOT NULL,
+        radicals_json TEXT NOT NULL DEFAULT '[]',
+        stroke_count INTEGER NOT NULL DEFAULT 0,
+        stroke_order_source TEXT NOT NULL DEFAULT '',
+        group_name TEXT NOT NULL DEFAULT '',
+        difficulty TEXT NOT NULL DEFAULT 'N5',
+        related_kanji_json TEXT NOT NULL DEFAULT '[]',
         source TEXT NOT NULL DEFAULT 'seed'
       );
 
@@ -1311,6 +1357,38 @@ export class SqliteStorageAdapter {
       setSchemaVersion(this.db, 18);
       this.backfillRichLessonContent();
     }
+    if (getSchemaVersion(this.db) < 19) {
+      try {
+        this.db.exec("ALTER TABLE lessons ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE lessons ADD COLUMN lesson_goals_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE lessons ADD COLUMN reference_tags_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE kanji_entries ADD COLUMN radicals_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE kanji_entries ADD COLUMN stroke_count INTEGER NOT NULL DEFAULT 0");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE kanji_entries ADD COLUMN stroke_order_source TEXT NOT NULL DEFAULT ''");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE kanji_entries ADD COLUMN group_name TEXT NOT NULL DEFAULT ''");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE kanji_entries ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'N5'");
+      } catch {}
+      try {
+        this.db.exec("ALTER TABLE kanji_entries ADD COLUMN related_kanji_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {}
+      setSchemaVersion(this.db, 19);
+      this.backfillRichLessonContent();
+      this.backfillKanjiMetadata();
+    }
   }
 
   seedIfNeeded() {
@@ -1328,6 +1406,18 @@ export class SqliteStorageAdapter {
       if (missingLessons.length) {
         this.seedAdditionalLessons(missingLessons);
       }
+      const desiredExtraLessons = [
+        ...buildLessonPack("Festival Night", "festivals", 1),
+        ...buildLessonPack("Shopping Run", "shopping", 1),
+        ...buildLessonPack("Friendship Chat", "friendship", 1),
+        ...buildLessonPack("Transit Announcements", "transit", 1),
+      ];
+      const missingGenerated = desiredExtraLessons.filter((lesson) =>
+        !this.db.prepare("SELECT 1 FROM lessons WHERE id = ?").get(lesson.id)
+      );
+      if (missingGenerated.length) {
+        this.seedAdditionalLessons(missingGenerated);
+      }
     }
     if (lessonCount > 0) {
       if (reviewCount === 0) {
@@ -1337,6 +1427,7 @@ export class SqliteStorageAdapter {
         this.seedKanjiReviewsFromEntries();
       }
       this.backfillRichLessonContent();
+      this.backfillKanjiMetadata();
       return;
     }
     const snapshot = normalizeState(INITIAL_APP_STATE);
@@ -1502,9 +1593,10 @@ export class SqliteStorageAdapter {
     ];
     [...kanjiRows.values(), ...coreKanjiEntries].forEach((entry) => {
       this.db.prepare(
-        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), entry.source ?? "seed");
+        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, radicals_json, stroke_count, stroke_order_source, group_name, difficulty, related_kanji_json, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), toJson(entry.radicals ?? []), entry.strokeCount ?? 0, entry.strokeOrderSource ?? "", entry.groupName ?? "", entry.difficulty ?? "N5", toJson(entry.relatedKanji ?? []), entry.source ?? "seed");
     });
+    this.backfillKanjiMetadata();
   }
 
   close() {
@@ -1559,8 +1651,8 @@ export class SqliteStorageAdapter {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare(
-        "UPDATE lessons SET title = ?, theme = ?, difficulty = ?, japanese = ?, romaji = ?, translation = ?, grammar = ?, scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?"
-      ).run(lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, toJson(lesson.scenes), toJson(lesson.popCultureNotes), toJson(lesson.kanjiBreakdowns), lessonId);
+        "UPDATE lessons SET title = ?, theme = ?, difficulty = ?, japanese = ?, romaji = ?, translation = ?, grammar = ?, scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?"
+      ).run(lesson.title, lesson.theme, lesson.difficulty, lesson.japanese, lesson.romaji, lesson.translation, lesson.grammar, toJson(lesson.scenes), toJson(lesson.popCultureNotes), toJson(lesson.kanjiBreakdowns), toJson(lesson.media), toJson(lesson.lessonGoals), toJson(lesson.referenceTags), lessonId);
       this.replaceLessonChildren(lessonId, lesson);
       this.enqueueContentReviewRow({
         id: `content-review-${lessonId}`,
@@ -2252,7 +2344,10 @@ export class SqliteStorageAdapter {
       grammar: lesson.grammar,
       scenes: parseJson(lesson.scenes_json, []),
       popCultureNotes: parseJson(lesson.pop_culture_notes_json, []),
+      media: parseJson(lesson.media_json, []),
       kanjiBreakdowns: parseJson(lesson.kanji_breakdowns_json, []),
+      lessonGoals: parseJson(lesson.lesson_goals_json, []),
+      referenceTags: parseJson(lesson.reference_tags_json, []),
       vocab: this.db
         .prepare("SELECT word, kana, meaning FROM lesson_vocab WHERE lesson_id = ? ORDER BY order_index, id")
         .all(lesson.id),
@@ -2283,6 +2378,12 @@ export class SqliteStorageAdapter {
       onYomi: row.on_yomi,
       kunYomi: row.kun_yomi,
       examples: parseJson(row.examples_json, []),
+      radicals: parseJson(row.radicals_json, []),
+      strokeCount: row.stroke_count ?? 0,
+      strokeOrderSource: row.stroke_order_source ?? "",
+      group: row.group_name ?? "",
+      difficulty: row.difficulty ?? "N5",
+      relatedKanji: parseJson(row.related_kanji_json, []),
       source: row.source,
     }));
     const kanjiReviews = this.db.prepare("SELECT * FROM kanji_review_items ORDER BY due, character, id").all().map((row) => ({
@@ -2705,7 +2806,7 @@ export class SqliteStorageAdapter {
 
     snapshot.lessons.forEach((lesson, orderIndex) => {
       this.db.prepare(
-        "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, media_json, lesson_goals_json, reference_tags_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         lesson.id,
         lesson.title,
@@ -2718,6 +2819,9 @@ export class SqliteStorageAdapter {
         toJson(lesson.scenes ?? []),
         toJson(lesson.popCultureNotes ?? []),
         toJson(lesson.kanjiBreakdowns ?? []),
+        toJson(lesson.media ?? []),
+        toJson(lesson.lessonGoals ?? []),
+        toJson(lesson.referenceTags ?? []),
         orderIndex
       );
       lesson.vocab.forEach((item, vocabIndex) => {
@@ -2762,8 +2866,8 @@ export class SqliteStorageAdapter {
           exerciseIndex
         );
       });
-      this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?")
-        .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), lesson.id);
+      this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?")
+        .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), toJson(lesson.media ?? []), toJson(lesson.lessonGoals ?? []), toJson(lesson.referenceTags ?? []), lesson.id);
     });
 
     const kanjiSet = new Map();
@@ -2788,8 +2892,8 @@ export class SqliteStorageAdapter {
     });
     Array.from(kanjiSet.values()).forEach((entry) => {
       this.db.prepare(
-        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), entry.source ?? "seed");
+        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, radicals_json, stroke_count, stroke_order_source, group_name, difficulty, related_kanji_json, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), toJson(entry.radicals ?? []), entry.strokeCount ?? 0, entry.strokeOrderSource ?? "", entry.groupName ?? "", entry.difficulty ?? "N5", toJson(entry.relatedKanji ?? []), entry.source ?? "seed");
     });
 
     const kanjiReviews = Array.isArray(snapshot.kanjiReviews) && snapshot.kanjiReviews.length
@@ -3130,7 +3234,7 @@ export class SqliteStorageAdapter {
         const normalized = normalizeLesson(lesson, orderIndex + index);
         if (existingIds.has(normalized.id)) return;
         this.db.prepare(
-          "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, media_json, lesson_goals_json, reference_tags_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
           normalized.id,
           normalized.title,
@@ -3143,6 +3247,9 @@ export class SqliteStorageAdapter {
           toJson(normalized.scenes ?? buildSceneBlueprint(normalized.theme, normalized.title, normalized.japanese, normalized.translation, normalized.grammar)),
           toJson(normalized.popCultureNotes ?? buildPopCultureNotes(normalized.title, normalized.theme)),
           toJson(normalized.kanjiBreakdowns ?? buildKanjiBreakdowns(normalized.kanji, normalized.title, normalized.theme, normalized.vocab)),
+          toJson(normalized.media ?? []),
+          toJson(normalized.lessonGoals ?? []),
+          toJson(normalized.referenceTags ?? []),
           orderIndex + index
         );
         normalized.vocab.forEach((item, vocabIndex) => {
@@ -3187,8 +3294,8 @@ export class SqliteStorageAdapter {
             exerciseIndex
           );
         });
-        this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?")
-          .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), normalized.id);
+      this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?")
+        .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), toJson(normalized.media ?? []), toJson(normalized.lessonGoals ?? []), toJson(normalized.referenceTags ?? []), normalized.id);
       });
       this.db.exec("COMMIT");
     } catch (error) {
@@ -3200,7 +3307,7 @@ export class SqliteStorageAdapter {
   }
 
   backfillRichLessonContent() {
-    const lessons = this.db.prepare("SELECT id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json FROM lessons ORDER BY order_index, id").all();
+    const lessons = this.db.prepare("SELECT id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, media_json, lesson_goals_json, reference_tags_json FROM lessons ORDER BY order_index, id").all();
     if (!lessons.length) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -3211,6 +3318,9 @@ export class SqliteStorageAdapter {
         const scenes = parseJson(lesson.scenes_json, []);
         const notes = parseJson(lesson.pop_culture_notes_json, []);
         const breakdowns = parseJson(lesson.kanji_breakdowns_json, []);
+        const media = parseJson(lesson.media_json, []);
+        const goals = parseJson(lesson.lesson_goals_json, []);
+        const tags = parseJson(lesson.reference_tags_json, []);
         const nextScenes = scenes.length ? scenes : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
         const nextNotes = notes.length ? notes : buildPopCultureNotes(lesson.title, lesson.theme);
         const nextBreakdowns = breakdowns.length ? breakdowns : buildKanjiBreakdowns(kanji, lesson.title, lesson.theme, vocab);
@@ -3233,8 +3343,11 @@ export class SqliteStorageAdapter {
             );
           });
         }
-        this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?")
-          .run(toJson(nextScenes), toJson(nextNotes), toJson(nextBreakdowns), lesson.id);
+        const nextMedia = media.length ? media : buildMediaSlots(lesson.title, lesson.theme);
+        const nextGoals = goals.length ? goals : fallbackMaterials.lessonGoals;
+        const nextTags = tags.length ? tags : fallbackMaterials.referenceTags;
+        this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?")
+          .run(toJson(nextScenes), toJson(nextNotes), toJson(nextBreakdowns), toJson(nextMedia), toJson(nextGoals), toJson(nextTags), lesson.id);
       });
       this.db.exec("COMMIT");
     } catch (error) {
@@ -3595,8 +3708,56 @@ export class SqliteStorageAdapter {
       onYomi: row.on_yomi,
       kunYomi: row.kun_yomi,
       examples: parseJson(row.examples_json, []),
+      radicals: parseJson(row.radicals_json, []),
+      strokeCount: row.stroke_count ?? 0,
+      strokeOrderSource: row.stroke_order_source ?? "",
+      group: row.group_name ?? "",
+      difficulty: row.difficulty ?? "N5",
+      relatedKanji: parseJson(row.related_kanji_json, []),
       source: row.source,
     };
+  }
+
+  backfillKanjiMetadata() {
+    const rows = this.db.prepare("SELECT id, character, meaning, on_yomi, kun_yomi, examples_json, radicals_json, stroke_count, stroke_order_source, group_name, difficulty, related_kanji_json, source FROM kanji_entries ORDER BY character, id").all();
+    if (!rows.length) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      rows.forEach((row) => {
+        const current = normalizeKanjiEntry({
+          id: row.id,
+          character: row.character,
+          meaning: row.meaning,
+          onYomi: row.on_yomi,
+          kunYomi: row.kun_yomi,
+          examples: parseJson(row.examples_json, []),
+          radicals: parseJson(row.radicals_json, []),
+          strokeCount: row.stroke_count,
+          strokeOrderSource: row.stroke_order_source,
+          groupName: row.group_name,
+          difficulty: row.difficulty,
+          relatedKanji: parseJson(row.related_kanji_json, []),
+          source: row.source,
+        });
+        const derived = buildKanjiBreakdowns([current.character], current.character, current.groupName || current.difficulty || "kanji", []);
+        const richer = derived[0] ?? {};
+        this.db.prepare(
+          "UPDATE kanji_entries SET radicals_json = ?, stroke_count = ?, stroke_order_source = ?, group_name = ?, difficulty = ?, related_kanji_json = ? WHERE id = ?"
+        ).run(
+          toJson(current.radicals?.length ? current.radicals : richer.radicals ?? []),
+          current.strokeCount || richer.strokeCount || 0,
+          current.strokeOrderSource || richer.strokeOrderSource || "",
+          current.groupName || richer.group || "",
+          current.difficulty || richer.difficulty || "N5",
+          toJson(current.relatedKanji?.length ? current.relatedKanji : richer.relatedKanji ?? []),
+          row.id
+        );
+      });
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   lookupKanji(character) {
@@ -3619,8 +3780,8 @@ export class SqliteStorageAdapter {
         const normalized = normalizeKanjiEntry(entry, index);
         this.db.prepare(
           `
-            INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, radicals_json, stroke_count, stroke_order_source, group_name, difficulty, related_kanji_json, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         ).run(
           normalized.id,
@@ -3629,6 +3790,12 @@ export class SqliteStorageAdapter {
           normalized.onYomi,
           normalized.kunYomi,
           toJson(normalized.examples),
+          toJson(normalized.radicals ?? []),
+          normalized.strokeCount ?? 0,
+          normalized.strokeOrderSource ?? "",
+          normalized.groupName ?? "",
+          normalized.difficulty ?? "N5",
+          toJson(normalized.relatedKanji ?? []),
           normalized.source
         );
         imported.push(normalized);
@@ -4178,9 +4345,24 @@ export class SqliteStorageAdapter {
     return parseJson(row?.pop_culture_notes_json, []);
   }
 
+  loadLessonMedia(lessonId) {
+    const row = this.db.prepare("SELECT media_json FROM lessons WHERE id = ?").get(lessonId);
+    return parseJson(row?.media_json, []);
+  }
+
   loadLessonKanjiBreakdowns(lessonId) {
     const row = this.db.prepare("SELECT kanji_breakdowns_json FROM lessons WHERE id = ?").get(lessonId);
     return parseJson(row?.kanji_breakdowns_json, []);
+  }
+
+  loadLessonGoals(lessonId) {
+    const row = this.db.prepare("SELECT lesson_goals_json FROM lessons WHERE id = ?").get(lessonId);
+    return parseJson(row?.lesson_goals_json, []);
+  }
+
+  loadLessonReferenceTags(lessonId) {
+    const row = this.db.prepare("SELECT reference_tags_json FROM lessons WHERE id = ?").get(lessonId);
+    return parseJson(row?.reference_tags_json, []);
   }
 
   loadLessonExercises(lessonId) {
@@ -4252,13 +4434,13 @@ export class SqliteStorageAdapter {
       );
     });
     this.db.prepare(
-      "UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ? WHERE id = ?"
-    ).run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), lessonId);
+      "UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?"
+    ).run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), toJson(lesson.media ?? []), toJson(lesson.lessonGoals ?? []), toJson(lesson.referenceTags ?? []), lessonId);
   }
 
   insertLessonRow(lesson, orderIndex = 0) {
     this.db.prepare(
-      "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, media_json, lesson_goals_json, reference_tags_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       lesson.id,
       lesson.title,
@@ -4271,6 +4453,9 @@ export class SqliteStorageAdapter {
       toJson(lesson.scenes ?? []),
       toJson(lesson.popCultureNotes ?? []),
       toJson(lesson.kanjiBreakdowns ?? []),
+      toJson(lesson.media ?? []),
+      toJson(lesson.lessonGoals ?? []),
+      toJson(lesson.referenceTags ?? []),
       orderIndex
     );
     this.replaceLessonChildren(lesson.id, lesson);
