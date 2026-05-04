@@ -63,6 +63,7 @@ test("SQLite store seeds lessons, progress, and admin defaults", () => {
     assert.equal(snapshot.kanjiEntries.every((entry) => Array.isArray(entry.radicals)), true);
     assert.equal(snapshot.kanjiEntries.some((entry) => entry.strokeCount > 0), true);
     assert.equal(snapshot.kanjiEntries.every((entry) => typeof entry.groupName === "string"), true);
+    assert.equal(snapshot.kanjiEntries.some((entry) => Array.isArray(entry.relatedKanji) && entry.relatedKanji.length > 0), true);
     assert.equal(Array.isArray(snapshot.kanjiReviews), true);
     assert.equal(snapshot.kanjiReviews.length >= 6, true);
     assert.equal(Array.isArray(snapshot.lessons[0].scenes), true);

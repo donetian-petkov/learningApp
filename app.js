@@ -732,10 +732,12 @@ function renderLearn() {
                           <strong>${escapeHtml(entry.character)}</strong>
                           <span class="muted">${escapeHtml(entry.onYomi || "—")} / ${escapeHtml(entry.kunYomi || "—")}</span>
                           <span>${escapeHtml(entry.meaning || "")}</span>
+                          <span class="muted">Group: ${escapeHtml(entry.group || "—")} · Difficulty: ${escapeHtml(entry.difficulty || "—")} · Strokes: ${escapeHtml(String(entry.strokeCount ?? "—"))}</span>
                           ${entry.components ? `<span class="muted">Components: ${escapeHtml(entry.components)}</span>` : ""}
                           ${entry.mnemonic ? `<span class="muted">Mnemonic: ${escapeHtml(entry.mnemonic)}</span>` : ""}
                           ${entry.lessonContext ? `<span class="muted">Context: ${escapeHtml(entry.lessonContext)}</span>` : ""}
                           ${Array.isArray(entry.lessonExamples) && entry.lessonExamples.length ? `<span class="muted">Lesson words: ${escapeHtml(entry.lessonExamples.join(" · "))}</span>` : ""}
+                          ${Array.isArray(entry.relatedKanji) && entry.relatedKanji.length ? `<span class="muted">Related: ${escapeHtml(entry.relatedKanji.join(" · "))}</span>` : ""}
                         </div>
                       </div>
                     `
@@ -767,7 +769,9 @@ function renderLearn() {
                   <strong>${escapeHtml(selectedKanjiEntry.character)}</strong>
                   <p class="muted">${escapeHtml(selectedKanjiEntry.onYomi || "No on-yomi stored")} / ${escapeHtml(selectedKanjiEntry.kunYomi || "No kun-yomi stored")}</p>
                   <p>${escapeHtml(selectedKanjiEntry.meaning)}</p>
+                  <p class="muted">Group: ${escapeHtml(selectedKanjiEntry.groupName || selectedKanjiEntry.group || "—")} · Difficulty: ${escapeHtml(selectedKanjiEntry.difficulty || "—")} · Strokes: ${escapeHtml(String(selectedKanjiEntry.strokeCount ?? "—"))}</p>
                   <p class="muted">${escapeHtml((selectedKanjiEntry.examples ?? []).slice(0, 2).join(" · ") || "No examples available.")}</p>
+                  ${Array.isArray(selectedKanjiEntry.relatedKanji) && selectedKanjiEntry.relatedKanji.length ? `<p class="muted">Related kanji: ${escapeHtml(selectedKanjiEntry.relatedKanji.join(" · "))}</p>` : ""}
                 `
                 : "<p class='muted'>Select a kanji to see readings and examples.</p>"
             }
@@ -784,7 +788,9 @@ function renderLearn() {
                 </div>
                 <p class="muted">${escapeHtml(selectedStudyEntry.onYomi || "No on-yomi stored")} / ${escapeHtml(selectedStudyEntry.kunYomi || "No kun-yomi stored")}</p>
                 <p>${escapeHtml(selectedStudyEntry.meaning)}</p>
+                <p class="muted">Group: ${escapeHtml(selectedStudyEntry.groupName || selectedStudyEntry.group || "—")} · Difficulty: ${escapeHtml(selectedStudyEntry.difficulty || "—")} · Strokes: ${escapeHtml(String(selectedStudyEntry.strokeCount ?? "—"))}</p>
                 <p class="muted">${escapeHtml(selectedStudyExample || (studyExamples.length ? studyExamples[0] : "No examples available."))}</p>
+                ${Array.isArray(selectedStudyEntry.relatedKanji) && selectedStudyEntry.relatedKanji.length ? `<p class="muted">Related kanji: ${escapeHtml(selectedStudyEntry.relatedKanji.join(" · "))}</p>` : ""}
                 ${
                   lessonKanjiBreakdowns.find((entry) => entry.character === selectedStudyEntry.character)
                     ? (() => {
@@ -793,6 +799,8 @@ function renderLearn() {
                           <p class="muted">Components: ${escapeHtml(lessonBreakdown.components || "—")}</p>
                           <p class="muted">Mnemonic: ${escapeHtml(lessonBreakdown.mnemonic || "—")}</p>
                           <p class="muted">Context: ${escapeHtml(lessonBreakdown.lessonContext || "—")}</p>
+                          <p class="muted">Group: ${escapeHtml(lessonBreakdown.group || "—")} · Difficulty: ${escapeHtml(lessonBreakdown.difficulty || "—")} · Strokes: ${escapeHtml(String(lessonBreakdown.strokeCount ?? "—"))}</p>
+                          ${Array.isArray(lessonBreakdown.relatedKanji) && lessonBreakdown.relatedKanji.length ? `<p class="muted">Related kanji: ${escapeHtml(lessonBreakdown.relatedKanji.join(" · "))}</p>` : ""}
                           ${Array.isArray(lessonBreakdown.lessonExamples) && lessonBreakdown.lessonExamples.length ? `<p class="muted">Lesson words: ${escapeHtml(lessonBreakdown.lessonExamples.join(" · "))}</p>` : ""}
                         `;
                       })()
