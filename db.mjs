@@ -1355,10 +1355,6 @@ export class SqliteStorageAdapter {
       try {
         this.db.exec("ALTER TABLE lessons ADD COLUMN kanji_breakdowns_json TEXT NOT NULL DEFAULT '[]'");
       } catch {}
-      setSchemaVersion(this.db, 18);
-      this.backfillRichLessonContent();
-    }
-    if (getSchemaVersion(this.db) < 19) {
       try {
         this.db.exec("ALTER TABLE lessons ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'");
       } catch {}
@@ -1368,6 +1364,9 @@ export class SqliteStorageAdapter {
       try {
         this.db.exec("ALTER TABLE lessons ADD COLUMN reference_tags_json TEXT NOT NULL DEFAULT '[]'");
       } catch {}
+      setSchemaVersion(this.db, 18);
+    }
+    if (getSchemaVersion(this.db) < 19) {
       try {
         this.db.exec("ALTER TABLE kanji_entries ADD COLUMN radicals_json TEXT NOT NULL DEFAULT '[]'");
       } catch {}
