@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonPack, buildLessonStudyMaterials, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonPack, buildLessonStudyMaterials, buildMediaSlots, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -706,6 +706,29 @@ function recordMigrationVersion(db, version) {
   ).run(Number(version), nowIso());
 }
 
+function hasColumn(db, table, column) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some((row) => row.name === column);
+}
+
+function ensureLessonRichColumns(db) {
+  if (!hasColumn(db, "lessons", "media_json")) {
+    try {
+      db.exec("ALTER TABLE lessons ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'");
+    } catch {}
+  }
+  if (!hasColumn(db, "lessons", "lesson_goals_json")) {
+    try {
+      db.exec("ALTER TABLE lessons ADD COLUMN lesson_goals_json TEXT NOT NULL DEFAULT '[]'");
+    } catch {}
+  }
+  if (!hasColumn(db, "lessons", "reference_tags_json")) {
+    try {
+      db.exec("ALTER TABLE lessons ADD COLUMN reference_tags_json TEXT NOT NULL DEFAULT '[]'");
+    } catch {}
+  }
+}
+
 function parseRewardText(text) {
   const xpMatch = String(text).match(/\+(\d+)\s*XP/i);
   const creditMatch = String(text).match(/\+(\d+)\s*credits?/i);
@@ -1366,6 +1389,7 @@ export class SqliteStorageAdapter {
       } catch {}
       setSchemaVersion(this.db, 18);
     }
+    ensureLessonRichColumns(this.db);
     if (getSchemaVersion(this.db) < 19) {
       try {
         this.db.exec("ALTER TABLE kanji_entries ADD COLUMN radicals_json TEXT NOT NULL DEFAULT '[]'");
@@ -1392,6 +1416,7 @@ export class SqliteStorageAdapter {
   }
 
   seedIfNeeded() {
+    ensureLessonRichColumns(this.db);
     const lessonCount = this.db.prepare("SELECT COUNT(*) AS count FROM lessons").get().count;
     const reviewCount = this.db.prepare("SELECT COUNT(*) AS count FROM review_items").get().count;
     const kanjiReviewCount = this.db.prepare("SELECT COUNT(*) AS count FROM kanji_review_items").get().count;
