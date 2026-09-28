@@ -4,9 +4,23 @@ Local-first Japanese learning MVP focused on pop culture modules, SQLite persist
 
 ## Screenshots
 
-| Learn overview | Practice session | Progress dashboard |
+The interface is a dark, card-based layout with an icon navigation bar, icon toggles for furigana, romaji and translation, and illustrated covers for each lesson theme. On phones the navigation moves to a bottom tab bar and the header stays pinned at the top.
+
+### Desktop
+
+| Learn | Lesson modules |
+| --- | --- |
+| ![Learn screen on desktop](docs/screenshots/desktop-learn.png) | ![Lesson module cards on desktop](docs/screenshots/desktop-learn-modules.png) |
+
+| Practice | Review | Progress |
 | --- | --- | --- |
-| ![Pop Culture Japanese learn overview](docs/screenshots/learn-overview.png) | ![Pop Culture Japanese practice session](docs/screenshots/practice-session.png) | ![Pop Culture Japanese progress dashboard](docs/screenshots/progress-dashboard.png) |
+| ![Practice screen on desktop](docs/screenshots/desktop-practice.png) | ![Review screen on desktop](docs/screenshots/desktop-review.png) | ![Progress screen on desktop](docs/screenshots/desktop-progress.png) |
+
+### Mobile
+
+| Learn | Lesson card | Practice | Review |
+| --- | --- | --- | --- |
+| ![Learn screen on mobile](docs/screenshots/mobile-learn.png) | ![Lesson card on mobile](docs/screenshots/mobile-learn-modules.png) | ![Practice screen on mobile](docs/screenshots/mobile-practice.png) | ![Review screen on mobile](docs/screenshots/mobile-review.png) |
 
 ## Requirements
 
@@ -59,6 +73,7 @@ npm run check
 ## What the app includes
 
 - Learn, Practice, Review, Progress, Settings, and Admin screens
+- Responsive layout with a bottom tab bar on phones, inline SVG icons (`icons.js`, adapted from Lucide), and themed cover art for each lesson module
 - SQLite persistence with a local Node API
 - Pop-culture lesson content for anime dialogue, food, samurai/history, manga, daily life, and school/workplace themes
 - Furigana, romaji, and translation toggles

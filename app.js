@@ -1,4 +1,5 @@
 import { INITIAL_APP_STATE } from "./seed-data.mjs";
+import { decorateIcons, icon, themeArt } from "./icons.js";
 import { buildLessonDraft, buildLessonPack, buildLessonProgressChecklist, chooseJapaneseVoice, describeLessonExerciseType, describeRuntimeMode, escapeHtml, filterLessonCatalog, filterModerationActions, findNextLessonId } from "./shared.mjs";
 
 const defaultState = structuredClone(INITIAL_APP_STATE);
@@ -308,6 +309,7 @@ function render() {
   };
 
   app.innerHTML = views[state.view]();
+  decorateIcons(app);
   wireActions();
 }
 
@@ -319,7 +321,11 @@ function syncHeader() {
   toggleButtons.forEach((button) => {
     const key = button.dataset.toggle;
     const label = key[0].toUpperCase() + key.slice(1);
-    button.textContent = `${label}: ${state.toggles[key] ? "On" : "Off"}`;
+    const on = Boolean(state.toggles[key]);
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-pressed", String(on));
+    button.title = `${label}: ${on ? "On" : "Off"}`;
+    button.querySelector(".toggle-state").textContent = on ? "On" : "Off";
   });
 }
 
@@ -375,7 +381,8 @@ function renderLearn() {
     : [];
   const moduleCards = filteredLessons.map(
     (lesson) => `
-      <article class="grid-card">
+      <article class="grid-card module-card">
+        ${themeArt(lesson.theme, lesson.title)}
         <p class="tag">${escapeHtml(lesson.theme)}</p>
         <h3>${escapeHtml(lesson.title)}</h3>
         <p class="muted">${escapeHtml(lesson.difficulty)} · ${state.progress.completedLessons.includes(lesson.id) ? "Completed" : "In progress"}</p>
@@ -2260,9 +2267,26 @@ function renderAdmin() {
   `;
 }
 
+
 function renderStat(label, value) {
+  const STAT_ICONS = {
+    XP: "zap",
+    Level: "trophy",
+    Credits: "coins",
+    Streak: "flame",
+    "Kanji learned": "graduation",
+    Vocabulary: "book",
+    "Speaking minutes": "mic",
+    "Listening minutes": "headphones",
+    "Kanji drill items": "layers",
+    "Saved words": "bookmark",
+    "Saved kanji": "bookmark",
+    "Lesson notes": "notePlus",
+    "Streak freezes": "snow",
+  };
   return `
     <div class="stat">
+      ${STAT_ICONS[label] ? `<span class="stat-icon" data-icon="${STAT_ICONS[label]}">${icon(STAT_ICONS[label])}</span>` : ""}
       <strong>${value}</strong>
       <span class="muted">${label}</span>
     </div>
