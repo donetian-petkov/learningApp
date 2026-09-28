@@ -2,6 +2,12 @@
 
 Local-first Japanese learning MVP focused on pop culture modules, SQLite persistence, spaced repetition, gamification, and admin tooling.
 
+## Screenshots
+
+| Learn overview | Practice session | Progress dashboard |
+| --- | --- | --- |
+| ![Pop Culture Japanese learn overview](docs/screenshots/learn-overview.png) | ![Pop Culture Japanese practice session](docs/screenshots/practice-session.png) | ![Pop Culture Japanese progress dashboard](docs/screenshots/progress-dashboard.png) |
+
 ## Requirements
 
 ### Required
