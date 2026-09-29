@@ -41,6 +41,8 @@ let savedStudyMode = "all";
 let savedStudyFeedback = "";
 let lessonNoteFeedback = "";
 let lessonCatalogQuery = "";
+let renderedView = null;
+let consumedFields = new Set();
 let persistTimer = null;
 let persistInFlight = null;
 let persistQueued = false;
@@ -387,8 +389,65 @@ function render() {
     admin: renderAdmin,
   };
 
+  // Redrawing replaces every element, so remember what the user was in the middle of:
+  // unsent text in fields, which field had focus (and where the cursor was), and the
+  // scroll position. Switching to another screen starts at the top instead.
+  const sameView = renderedView === state.view;
+  const drafts = sameView ? captureFieldDrafts() : new Map();
+  const focus = sameView ? captureFocusedField() : null;
+  const scrollY = window.scrollY;
+
   app.innerHTML = views[state.view]();
   decorateIcons(app);
+
+  restoreFieldDrafts(drafts);
+  restoreFocusedField(focus);
+  window.scrollTo(0, sameView ? scrollY : 0);
+  renderedView = state.view;
+}
+
+// Text typed into a field but not yet used. Fields in the card of the last clicked
+// button are left out, because that click is what used (or cleared) their text.
+function captureFieldDrafts() {
+  const drafts = new Map();
+  app.querySelectorAll("input[data-field], textarea[data-field]").forEach((field) => {
+    if (field.type === "file" || field.type === "checkbox" || field.type === "radio") return;
+    if (consumedFields.has(field.dataset.field) || field.value === field.defaultValue) return;
+    drafts.set(field.dataset.field, { value: field.value, renderedValue: field.defaultValue });
+  });
+  return drafts;
+}
+
+function restoreFieldDrafts(drafts) {
+  drafts.forEach((draft, name) => {
+    const field = app.querySelector(`[data-field="${CSS.escape(name)}"]`);
+    // Only put the draft back if the app didn't deliberately change this field.
+    if (field && field.defaultValue === draft.renderedValue) field.value = draft.value;
+  });
+}
+
+function captureFocusedField() {
+  const active = document.activeElement;
+  if (!active?.dataset?.field || !app.contains(active)) return null;
+  return {
+    name: active.dataset.field,
+    start: typeof active.selectionStart === "number" ? active.selectionStart : null,
+    end: typeof active.selectionEnd === "number" ? active.selectionEnd : null,
+  };
+}
+
+function restoreFocusedField(focus) {
+  if (!focus) return;
+  const field = app.querySelector(`[data-field="${CSS.escape(focus.name)}"]`);
+  if (!field) return;
+  field.focus({ preventScroll: true });
+  if (focus.start !== null && typeof field.setSelectionRange === "function") {
+    try {
+      field.setSelectionRange(focus.start, focus.end ?? focus.start);
+    } catch {
+      // Some input types (number, email) don't support a cursor position.
+    }
+  }
 }
 
 function syncHeader() {
@@ -2504,7 +2563,10 @@ app.addEventListener("click", (event) => {
     return;
   }
   const button = event.target.closest("[data-action]");
-  if (button && app.contains(button)) handleAction(button);
+  if (!button || !app.contains(button)) return;
+  const card = button.closest(".grid-card, .detail-card, form") ?? app;
+  consumedFields = new Set(Array.from(card.querySelectorAll("[data-field]"), (field) => field.dataset.field));
+  handleAction(button);
 });
 
 function selectLessonStep(button) {
