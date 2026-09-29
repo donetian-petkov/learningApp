@@ -83,6 +83,7 @@ npm run check
 - XP, credits, achievements, streaks, streak freezes, daily tasks, cosmetics, and reward chests
 - Lesson import, dictionary import, kanji import, review import, and dataset bundle import
 - Local admin login, permissions, moderation queue, analytics, AI playground, settings, and backup/restore
+- Works fully offline: the Inter font ships in `fonts/` (SIL Open Font License) and Japanese text uses the system's Japanese font
 - Browser TTS with local system TTS fallback
 - Local Whisper-backed transcription when configured
 - The default seed starts with lesson content only; sample progress and fake users are not preloaded

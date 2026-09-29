@@ -23,6 +23,8 @@ const mimeTypes = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".mjs": "text/javascript; charset=utf-8",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 // Only the files the browser actually needs are served. Everything else under the
@@ -35,7 +37,7 @@ const publicFiles = new Set([
   "/seed-data.mjs",
   "/styles.css",
 ]);
-const publicPrefixes = ["/docs/screenshots/"];
+const publicPrefixes = ["/docs/screenshots/", "/fonts/"];
 const compressibleTypes = new Set([".html", ".css", ".js", ".mjs", ".json", ".svg"]);
 const staticCache = new Map();
 

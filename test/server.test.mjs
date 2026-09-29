@@ -32,6 +32,10 @@ test("static server serves the app files", async () => {
   assert.match(index.headers["content-type"], /text\/html/);
   assert.match(String(index.body), /<script type="module" src="\.\/app\.js">/);
 
+  const font = await get("/fonts/inter-latin-wght-normal.woff2");
+  assert.equal(font.statusCode, 200);
+  assert.equal(font.headers["content-type"], "font/woff2");
+
   const script = await get("/app.js");
   assert.equal(script.statusCode, 200);
   assert.match(script.headers["content-type"], /javascript/);
