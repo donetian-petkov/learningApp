@@ -41,6 +41,9 @@ let savedStudyMode = "all";
 let savedStudyFeedback = "";
 let lessonNoteFeedback = "";
 let lessonCatalogQuery = "";
+let persistTimer = null;
+let persistInFlight = null;
+let persistQueued = false;
 let lessonCatalogTheme = "";
 let lessonStep = "overview";
 const LESSON_STEPS = [
@@ -249,6 +252,30 @@ toggleButtons.forEach((button) => {
   });
 });
 
+// Keyboard shortcuts for the vocab flashcard on the Review screen: Space reveals
+// the answer, 1-4 grade it (Again, Hard, Good, Easy), and the arrow keys move
+// between cards. They stay out of the way while you're typing in a field.
+document.addEventListener("keydown", (event) => {
+  if (state.view !== "review" || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  // A focused button inside the page keeps its own Space/Enter behaviour; the top
+  // navigation doesn't, so the shortcuts still work right after opening Review.
+  if (app.contains(event.target) && event.target.closest?.("button, a")) return;
+  const card = app.querySelector("[data-flashcard]");
+  if (!card) return;
+  const press = (selector) => {
+    const button = card.querySelector(selector);
+    if (!button) return false;
+    event.preventDefault();
+    button.click();
+    return true;
+  };
+  if (event.key === " " || event.key === "Enter") press('[data-action="review-reveal-card"]');
+  else if (event.key === "ArrowLeft") press('[data-action="review-prev-card"]');
+  else if (event.key === "ArrowRight") press('[data-action="review-next-card"]');
+  else if (["1", "2", "3", "4"].includes(event.key)) press(`[data-action="grade-review"][data-grade="${Number(event.key) + 1}"]`);
+});
+
 render();
 init();
 
@@ -285,6 +312,9 @@ async function loadSystemStatus() {
 }
 
 async function apiJson(path, options = {}) {
+  // A waiting state save must reach the server before any call that changes data
+  // there, or it would arrive afterwards and overwrite that change.
+  if (options.method && options.method !== "GET") await settlePendingSave();
   const response = await fetch(path, {
     method: options.method ?? "GET",
     headers: options.body ? { "content-type": "application/json" } : undefined,
@@ -297,13 +327,53 @@ async function apiJson(path, options = {}) {
   return payload;
 }
 
+// Saves are batched: rapid clicks produce one request a moment later instead of
+// one per click, and only one save is in flight at a time so an older copy of
+// the state can never land after a newer one.
+
 function persist() {
-  fetch("/api/state", {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(flushPersist, 400);
+}
+
+async function flushPersist() {
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  if (persistInFlight) {
+    persistQueued = true;
+    return;
+  }
+  persistInFlight = postState();
+  await persistInFlight;
+  persistInFlight = null;
+  if (persistQueued) {
+    persistQueued = false;
+    flushPersist();
+  }
+}
+
+function postState(options = {}) {
+  return fetch("/api/state", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(state),
+    ...options,
   }).catch(() => {});
 }
+
+async function settlePendingSave() {
+  if (persistTimer) await flushPersist();
+  while (persistInFlight) await persistInFlight;
+}
+
+// If the tab is closed or hidden with a save still waiting, send it straight away.
+window.addEventListener("pagehide", () => {
+  if (!persistTimer && !persistQueued) return;
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  persistQueued = false;
+  postState({ keepalive: true });
+});
 
 function render() {
   syncHeader();
@@ -319,7 +389,6 @@ function render() {
 
   app.innerHTML = views[state.view]();
   decorateIcons(app);
-  wireActions();
 }
 
 function syncHeader() {
@@ -424,8 +493,8 @@ function renderLearn() {
             .join("")}
         </div>
         <div class="button-row">
-          <button class="primary" data-action="select-lesson" data-id="${lesson.id}">${state.progress.completedLessons.includes(lesson.id) ? "Review lesson" : "Study lesson"}</button>
-          <button class="secondary" data-action="speak-lesson" data-id="${lesson.id}">Play audio</button>
+          <button class="primary" data-action="select-lesson" data-id="${escapeHtml(lesson.id)}">${state.progress.completedLessons.includes(lesson.id) ? "Review lesson" : "Study lesson"}</button>
+          <button class="secondary" data-action="speak-lesson" data-id="${escapeHtml(lesson.id)}">Play audio</button>
         </div>
       </article>
     `
@@ -1032,7 +1101,7 @@ function renderPractice() {
               <p class="muted" data-output="dictionary-feedback">${
                 dictionaryLookup.length
                   ? dictionaryLookup
-                      .map((item) => `${item.term} (${item.reading || "—"}) · ${item.meaning}`)
+                      .map((item) => escapeHtml(`${item.term} (${item.reading || "—"}) · ${item.meaning}`))
                       .join(" | ")
                   : "Search a word to see a local dictionary entry."
               }</p>
@@ -1182,15 +1251,15 @@ function renderReview() {
     .map(
       (item) => `
         <div class="list-item">
-          <strong>${item.prompt}</strong>
-          <p class="muted">${item.meaning}</p>
-          <p>Answer: ${item.answer}</p>
-          <p>Due: ${item.due} · Ease: ${item.ease.toFixed(1)}</p>
+          <strong>${escapeHtml(item.prompt)}</strong>
+          <p class="muted">${escapeHtml(item.meaning)}</p>
+          <p>Answer: ${escapeHtml(item.answer)}</p>
+          <p>Due: ${escapeHtml(item.due)} · Ease: ${escapeHtml(item.ease.toFixed(1))}</p>
           <div class="button-row">
-            <button class="secondary" data-action="grade-review" data-review-id="${item.id}" data-grade="2">Again</button>
-            <button class="secondary" data-action="grade-review" data-review-id="${item.id}" data-grade="3">Hard</button>
-            <button class="primary" data-action="grade-review" data-review-id="${item.id}" data-grade="4">Good</button>
-            <button class="secondary" data-action="grade-review" data-review-id="${item.id}" data-grade="5">Easy</button>
+            <button class="secondary" data-action="grade-review" data-review-id="${escapeHtml(item.id)}" data-grade="2">Again</button>
+            <button class="secondary" data-action="grade-review" data-review-id="${escapeHtml(item.id)}" data-grade="3">Hard</button>
+            <button class="primary" data-action="grade-review" data-review-id="${escapeHtml(item.id)}" data-grade="4">Good</button>
+            <button class="secondary" data-action="grade-review" data-review-id="${escapeHtml(item.id)}" data-grade="5">Easy</button>
           </div>
         </div>
       `
@@ -1206,7 +1275,7 @@ function renderReview() {
         </div>
         <p>SM-2 scheduling, mistake review, vocab review, kanji review.</p>
       </div>
-      <div class="grid-card spaced">
+      <div class="grid-card spaced" data-flashcard>
         <h3>Vocab flashcard</h3>
         ${
           activeReview
@@ -1227,6 +1296,7 @@ function renderReview() {
                   `
                   : `
                     <p class="muted">Tap reveal to check the answer, then grade the card.</p>
+                    <p class="muted shortcut-hint">Keyboard: <kbd>Space</kbd> reveal · <kbd>1</kbd>–<kbd>4</kbd> grade · <kbd>←</kbd> <kbd>→</kbd> move</p>
                   `
               }
               <div class="button-row">
@@ -2425,1501 +2495,1508 @@ function buildSavedStudyChoices(activeItem, wordDeck = [], kanjiDeck = [], revie
   return Array.from(new Set(choices));
 }
 
-function wireActions() {
-  document.querySelectorAll("[data-lesson-step]").forEach((button) => {
-    button.addEventListener("click", () => {
+// One click listener on the app container handles every button, so a re-render
+// no longer has to attach hundreds of fresh listeners.
+app.addEventListener("click", (event) => {
+  const stepButton = event.target.closest("[data-lesson-step]");
+  if (stepButton && app.contains(stepButton)) {
+    selectLessonStep(stepButton);
+    return;
+  }
+  const button = event.target.closest("[data-action]");
+  if (button && app.contains(button)) handleAction(button);
+});
+
+function selectLessonStep(button) {
       lessonStep = button.dataset.lessonStep;
       render();
       document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
       const strip = document.querySelector(".lesson-steps");
       const active = strip?.querySelector(".lesson-step.active");
       if (strip && active) strip.scrollLeft = active.offsetLeft - (strip.clientWidth - active.clientWidth) / 2;
+}
+
+async function handleAction(button) {
+  const action = button.dataset.action;
+  if (action === "select-lesson") {
+    state.activeLessonId = button.dataset.id;
+    lessonExerciseIndex = 0;
+    lessonExerciseFeedback = "";
+    lessonExerciseDraftAnswer = "";
+    lessonExerciseResult = null;
+    lessonDialogueIndex = 0;
+    lessonSceneIndex = 0;
+    lessonStep = "overview";
+    persist();
+    render();
+    document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  if (action === "complete-lesson") {
+    const lessonId = button.dataset.id;
+    if (lessonId) {
+      await apiJson("/api/progress/lesson-complete", {
+        method: "POST",
+        body: { lessonId },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "speak-lesson") {
+    const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
+    if (lesson) {
+      void speakText(lesson.japanese);
+    }
+  }
+
+  if (action === "select-lesson-scene") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const scenes = Array.isArray(activeLesson?.scenes) ? activeLesson.scenes : [];
+    if (scenes.length) {
+      lessonSceneIndex = Number(button.dataset.index ?? 0) % scenes.length;
+      lessonDialogueIndex = 0;
+    }
+    render();
+  }
+
+  if (action === "dialogue-prev" || action === "dialogue-next") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+    const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
+    const lines = sceneLines.length
+      ? sceneLines
+      : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+        ? activeLesson.dialogueLines
+        : [];
+    if (lines.length) {
+      if (action === "dialogue-prev") {
+        lessonDialogueIndex = (lessonDialogueIndex - 1 + lines.length) % lines.length;
+      } else {
+        lessonDialogueIndex = (lessonDialogueIndex + 1) % lines.length;
+      }
+    }
+    render();
+  }
+
+  if (action === "scene-prev" || action === "scene-next") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const scenes = Array.isArray(activeLesson?.scenes) ? activeLesson.scenes : [];
+    if (scenes.length) {
+      if (action === "scene-prev") {
+        lessonSceneIndex = (lessonSceneIndex - 1 + scenes.length) % scenes.length;
+      } else {
+        lessonSceneIndex = (lessonSceneIndex + 1) % scenes.length;
+      }
+      lessonDialogueIndex = 0;
+    }
+    render();
+  }
+
+  if (action === "select-dialogue-line") {
+    const index = Number(button.dataset.index ?? 0);
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+    const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
+    const lines = sceneLines.length
+      ? sceneLines
+      : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+        ? activeLesson.dialogueLines
+        : [];
+    if (lines.length) {
+      lessonDialogueIndex = index % lines.length;
+    }
+    render();
+  }
+
+  if (action === "speak-dialogue-line") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
+    const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
+    const lines = sceneLines.length
+      ? sceneLines
+      : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
+        ? activeLesson.dialogueLines
+        : [];
+    const line = lines.length ? lines[lessonDialogueIndex % lines.length] : null;
+    if (line?.text) {
+      void speakText(line.text);
+    }
+  }
+
+  if (action === "explain-grammar") {
+    const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
+    const output = app.querySelector('[data-output="grammar-feedback"]');
+    if (lesson && output) {
+      const result = await apiJson("/api/ai/response", {
+        method: "POST",
+        body: {
+          feature: "grammar",
+          prompt: lesson.grammar,
+          context: { lessonTitle: lesson.title, lessonId: lesson.id },
+        },
+      });
+      output.textContent = result.response ?? lesson.grammar;
+    }
+  }
+
+  if (action === "lesson-exercise-prev" || action === "lesson-exercise-next") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const exerciseCount = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises.length : 0;
+    if (exerciseCount > 0) {
+      if (action === "lesson-exercise-prev") {
+        lessonExerciseIndex = (lessonExerciseIndex - 1 + exerciseCount) % exerciseCount;
+      } else {
+        lessonExerciseIndex = (lessonExerciseIndex + 1) % exerciseCount;
+      }
+    }
+    lessonExerciseFeedback = "";
+    lessonExerciseDraftAnswer = "";
+    lessonExerciseResult = null;
+    render();
+  }
+
+  if (action === "lesson-exercise-answer") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const exercises = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises : [];
+    const exercise = exercises[lessonExerciseIndex % Math.max(exercises.length, 1)];
+    if (!exercise) return;
+    lessonExerciseDraftAnswer = button.dataset.choice ?? "";
+    const result = await apiJson("/api/practice", {
+      method: "POST",
+      body: {
+        kind: "lesson-exercise",
+        lessonId: activeLesson.id,
+        exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+        exercise,
+        selected: lessonExerciseDraftAnswer,
+      },
     });
-  });
-  document.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const action = button.dataset.action;
-      if (action === "select-lesson") {
-        state.activeLessonId = button.dataset.id;
-        lessonExerciseIndex = 0;
-        lessonExerciseFeedback = "";
-        lessonExerciseDraftAnswer = "";
-        lessonExerciseResult = null;
-        lessonDialogueIndex = 0;
-        lessonSceneIndex = 0;
-        lessonStep = "overview";
-        persist();
-        render();
-        document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+    lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
+    lessonExerciseResult = {
+      exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+      selected: lessonExerciseDraftAnswer,
+      answer: result.exercise?.answer ?? exercise.answer ?? "",
+      correct: Boolean(result.exercise?.correct ?? result.correct ?? false),
+    };
+    if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
+      lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
+      lessonExerciseResult = null;
+    }
+    await refreshState();
+  }
 
-      if (action === "complete-lesson") {
-        const lessonId = button.dataset.id;
-        if (lessonId) {
-          await apiJson("/api/progress/lesson-complete", {
-            method: "POST",
-            body: { lessonId },
-          });
-          await refreshState();
-        }
-      }
+  if (action === "lesson-exercise-submit") {
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const exercises = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises : [];
+    const exercise = exercises[lessonExerciseIndex % Math.max(exercises.length, 1)];
+    if (!exercise) return;
+    const input = app.querySelector('[data-field="lesson-exercise-input"]');
+    const answer = input?.value ?? lessonExerciseDraftAnswer ?? "";
+    lessonExerciseDraftAnswer = answer;
+    const result = await apiJson("/api/practice", {
+      method: "POST",
+      body: {
+        kind: "lesson-exercise",
+        lessonId: activeLesson.id,
+        exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+        exercise,
+        input: answer,
+      },
+    });
+    lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
+    lessonExerciseResult = {
+      exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
+      selected: answer,
+      answer: result.exercise?.answer ?? exercise.answer ?? "",
+      correct: Boolean(result.exercise?.correct ?? result.correct ?? false),
+    };
+    if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
+      lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
+      lessonExerciseDraftAnswer = "";
+      lessonExerciseResult = null;
+    }
+    await refreshState();
+  }
 
-      if (action === "speak-lesson") {
-        const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
-        if (lesson) {
-          void speakText(lesson.japanese);
-        }
-      }
-
-      if (action === "select-lesson-scene") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const scenes = Array.isArray(activeLesson?.scenes) ? activeLesson.scenes : [];
-        if (scenes.length) {
-          lessonSceneIndex = Number(button.dataset.index ?? 0) % scenes.length;
-          lessonDialogueIndex = 0;
-        }
-        render();
-      }
-
-      if (action === "dialogue-prev" || action === "dialogue-next") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
-        const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
-        const lines = sceneLines.length
-          ? sceneLines
-          : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
-            ? activeLesson.dialogueLines
-            : [];
-        if (lines.length) {
-          if (action === "dialogue-prev") {
-            lessonDialogueIndex = (lessonDialogueIndex - 1 + lines.length) % lines.length;
-          } else {
-            lessonDialogueIndex = (lessonDialogueIndex + 1) % lines.length;
-          }
-        }
-        render();
-      }
-
-      if (action === "scene-prev" || action === "scene-next") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const scenes = Array.isArray(activeLesson?.scenes) ? activeLesson.scenes : [];
-        if (scenes.length) {
-          if (action === "scene-prev") {
-            lessonSceneIndex = (lessonSceneIndex - 1 + scenes.length) % scenes.length;
-          } else {
-            lessonSceneIndex = (lessonSceneIndex + 1) % scenes.length;
-          }
-          lessonDialogueIndex = 0;
-        }
-        render();
-      }
-
-      if (action === "select-dialogue-line") {
-        const index = Number(button.dataset.index ?? 0);
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
-        const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
-        const lines = sceneLines.length
-          ? sceneLines
-          : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
-            ? activeLesson.dialogueLines
-            : [];
-        if (lines.length) {
-          lessonDialogueIndex = index % lines.length;
-        }
-        render();
-      }
-
-      if (action === "speak-dialogue-line") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const scenes = Array.isArray(activeLesson?.scenes) && activeLesson.scenes.length ? activeLesson.scenes : [];
-        const sceneLines = scenes.length ? scenes[lessonSceneIndex % scenes.length]?.lines ?? [] : [];
-        const lines = sceneLines.length
-          ? sceneLines
-          : Array.isArray(activeLesson?.dialogueLines) && activeLesson.dialogueLines.length
-            ? activeLesson.dialogueLines
-            : [];
-        const line = lines.length ? lines[lessonDialogueIndex % lines.length] : null;
-        if (line?.text) {
-          void speakText(line.text);
-        }
-      }
-
-      if (action === "explain-grammar") {
-        const lesson = state.lessons.find((entry) => entry.id === button.dataset.id);
-        const output = app.querySelector('[data-output="grammar-feedback"]');
-        if (lesson && output) {
-          const result = await apiJson("/api/ai/response", {
-            method: "POST",
-            body: {
-              feature: "grammar",
-              prompt: lesson.grammar,
-              context: { lessonTitle: lesson.title, lessonId: lesson.id },
-            },
-          });
-          output.textContent = result.response ?? lesson.grammar;
-        }
-      }
-
-      if (action === "lesson-exercise-prev" || action === "lesson-exercise-next") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const exerciseCount = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises.length : 0;
-        if (exerciseCount > 0) {
-          if (action === "lesson-exercise-prev") {
-            lessonExerciseIndex = (lessonExerciseIndex - 1 + exerciseCount) % exerciseCount;
-          } else {
-            lessonExerciseIndex = (lessonExerciseIndex + 1) % exerciseCount;
-          }
-        }
-        lessonExerciseFeedback = "";
-        lessonExerciseDraftAnswer = "";
-        lessonExerciseResult = null;
-        render();
-      }
-
-      if (action === "lesson-exercise-answer") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const exercises = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises : [];
-        const exercise = exercises[lessonExerciseIndex % Math.max(exercises.length, 1)];
-        if (!exercise) return;
-        lessonExerciseDraftAnswer = button.dataset.choice ?? "";
-        const result = await apiJson("/api/practice", {
-          method: "POST",
-          body: {
-            kind: "lesson-exercise",
-            lessonId: activeLesson.id,
-            exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
-            exercise,
-            selected: lessonExerciseDraftAnswer,
-          },
-        });
-        lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
-        lessonExerciseResult = {
-          exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
-          selected: lessonExerciseDraftAnswer,
-          answer: result.exercise?.answer ?? exercise.answer ?? "",
-          correct: Boolean(result.exercise?.correct ?? result.correct ?? false),
-        };
-        if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
-          lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
-          lessonExerciseResult = null;
-        }
-        await refreshState();
-      }
-
-      if (action === "lesson-exercise-submit") {
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const exercises = Array.isArray(activeLesson?.exercises) ? activeLesson.exercises : [];
-        const exercise = exercises[lessonExerciseIndex % Math.max(exercises.length, 1)];
-        if (!exercise) return;
-        const input = app.querySelector('[data-field="lesson-exercise-input"]');
-        const answer = input?.value ?? lessonExerciseDraftAnswer ?? "";
-        lessonExerciseDraftAnswer = answer;
-        const result = await apiJson("/api/practice", {
-          method: "POST",
-          body: {
-            kind: "lesson-exercise",
-            lessonId: activeLesson.id,
-            exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
-            exercise,
-            input: answer,
-          },
-        });
-        lessonExerciseFeedback = result.tutor?.answer ?? lessonExerciseFeedback;
-        lessonExerciseResult = {
-          exerciseKey: button.dataset.exerciseKey ?? exercise.id ?? `${activeLesson.id}-exercise-${lessonExerciseIndex + 1}`,
-          selected: answer,
-          answer: result.exercise?.answer ?? exercise.answer ?? "",
-          correct: Boolean(result.exercise?.correct ?? result.correct ?? false),
-        };
-        if (result.progress?.completedExercises?.includes(button.dataset.exerciseKey ?? exercise.id)) {
-          lessonExerciseIndex = (lessonExerciseIndex + 1) % Math.max(exercises.length, 1);
-          lessonExerciseDraftAnswer = "";
-          lessonExerciseResult = null;
-        }
-        await refreshState();
-      }
-
-      if (action === "transcribe-speaking") {
-        const transcriptOutput = app.querySelector('[data-output="transcription-feedback"]');
-        const speakingInput = app.querySelector('[data-field="speaking-input"]');
-        const recognition = createSpeechRecognition();
-        if (recognition) {
-          let handled = false;
-          const useFallback = async (reason = "speech recognition unavailable") => {
-            if (handled) return;
-            handled = true;
-            const result = await recordSpeechFallback(speakingInput?.value ?? "", transcriptOutput);
-            if (speakingInput && result.transcript) speakingInput.value = result.transcript;
-            if (transcriptOutput && reason) {
-              transcriptOutput.textContent = transcriptOutput.textContent.includes("Transcript") ? transcriptOutput.textContent : `${reason}. Using the reference sentence.`;
-            }
-          };
-          if (transcriptOutput) transcriptOutput.textContent = "Listening for speech...";
-          recognition.onresult = (event) => {
-            if (handled) return;
-            handled = true;
-            const transcript = Array.from(event.results)
-              .map((result) => result[0]?.transcript ?? "")
-              .join(" ")
-              .trim();
-            if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript || "No speech detected."}`;
-            if (speakingInput && transcript) speakingInput.value = transcript;
-          };
-          recognition.onerror = () => useFallback("Speech recognition failed");
-          recognition.onend = () => {
-            if (!handled) useFallback("Speech recognition ended without a result");
-          };
-          recognition.start();
-          return;
-        }
-
+  if (action === "transcribe-speaking") {
+    const transcriptOutput = app.querySelector('[data-output="transcription-feedback"]');
+    const speakingInput = app.querySelector('[data-field="speaking-input"]');
+    const recognition = createSpeechRecognition();
+    if (recognition) {
+      let handled = false;
+      const useFallback = async (reason = "speech recognition unavailable") => {
+        if (handled) return;
+        handled = true;
         const result = await recordSpeechFallback(speakingInput?.value ?? "", transcriptOutput);
         if (speakingInput && result.transcript) speakingInput.value = result.transcript;
-      }
-
-      if (action === "open-feature") {
-        state.view = "practice";
-        persist();
-        render();
-      }
-
-      if (action === "open-roleplay") {
-        state.view = "practice";
-        persist();
-        render();
-      }
-
-      if (action === "continue-lesson") {
-        const lessonId = button.dataset.id ?? findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
-        if (lessonId) {
-          state.activeLessonId = lessonId;
-          state.view = "learn";
-          lessonExerciseIndex = 0;
-          lessonExerciseFeedback = "";
-          lessonExerciseDraftAnswer = "";
-          lessonExerciseResult = null;
-          lessonDialogueIndex = 0;
-          lessonSceneIndex = 0;
-          lessonStep = "overview";
-          persist();
-          render();
-          document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (transcriptOutput && reason) {
+          transcriptOutput.textContent = transcriptOutput.textContent.includes("Transcript") ? transcriptOutput.textContent : `${reason}. Using the reference sentence.`;
         }
-      }
+      };
+      if (transcriptOutput) transcriptOutput.textContent = "Listening for speech...";
+      recognition.onresult = (event) => {
+        if (handled) return;
+        handled = true;
+        const transcript = Array.from(event.results)
+          .map((result) => result[0]?.transcript ?? "")
+          .join(" ")
+          .trim();
+        if (transcriptOutput) transcriptOutput.textContent = `Transcript: ${transcript || "No speech detected."}`;
+        if (speakingInput && transcript) speakingInput.value = transcript;
+      };
+      recognition.onerror = () => useFallback("Speech recognition failed");
+      recognition.onend = () => {
+        if (!handled) useFallback("Speech recognition ended without a result");
+      };
+      recognition.start();
+      return;
+    }
 
-      if (action === "apply-lesson-filters") {
-        const query = app.querySelector('[data-field="lesson-filter-query"]');
-        const theme = app.querySelector('[data-field="lesson-filter-theme"]');
-        const difficulty = app.querySelector('[data-field="lesson-filter-difficulty"]');
-        lessonCatalogQuery = query?.value?.trim() ?? "";
-        lessonCatalogTheme = theme?.value?.trim() ?? "";
-        lessonCatalogDifficulty = difficulty?.value?.trim() ?? "";
-        render();
-      }
+    const result = await recordSpeechFallback(speakingInput?.value ?? "", transcriptOutput);
+    if (speakingInput && result.transcript) speakingInput.value = result.transcript;
+  }
 
-      if (action === "clear-lesson-filters") {
-        lessonCatalogQuery = "";
-        lessonCatalogTheme = "";
-        lessonCatalogDifficulty = "";
-        render();
-      }
+  if (action === "open-feature") {
+    state.view = "practice";
+    persist();
+    render();
+  }
 
-      if (action === "apply-moderation-filters") {
-        const query = app.querySelector('[data-field="moderation-filter-query"]');
-        const status = app.querySelector('[data-field="moderation-filter-status"]');
-        const itemType = app.querySelector('[data-field="moderation-filter-type"]');
-        const reviewer = app.querySelector('[data-field="moderation-filter-reviewer"]');
-        moderationFilters = {
-          query: query?.value?.trim() ?? "",
-          status: status?.value?.trim() ?? "",
-          itemType: itemType?.value?.trim() ?? "",
-          reviewer: reviewer?.value?.trim() ?? "",
-        };
-        render();
-      }
+  if (action === "open-roleplay") {
+    state.view = "practice";
+    persist();
+    render();
+  }
 
-      if (action === "clear-moderation-filters") {
-        moderationFilters = {
-          query: "",
-          status: "",
-          itemType: "",
-          reviewer: "",
-        };
-        render();
-      }
+  if (action === "continue-lesson") {
+    const lessonId = button.dataset.id ?? findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
+    if (lessonId) {
+      state.activeLessonId = lessonId;
+      state.view = "learn";
+      lessonExerciseIndex = 0;
+      lessonExerciseFeedback = "";
+      lessonExerciseDraftAnswer = "";
+      lessonExerciseResult = null;
+      lessonDialogueIndex = 0;
+      lessonSceneIndex = 0;
+      lessonStep = "overview";
+      persist();
+      render();
+      document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
 
-      if (action === "grade-review") {
-        const reviewId = button.dataset.reviewId;
-        const grade = Number(button.dataset.grade ?? 4);
-        if (reviewId) {
-          await apiJson(`/api/reviews/${encodeURIComponent(reviewId)}`, {
-            method: "PATCH",
-            body: { grade },
-          });
-          if (grade >= 4) {
-            await apiJson("/api/gamification/award", {
-              method: "POST",
-              body: { source: "review-pass", delta: { xp: grade === 5 ? 24 : 20, credits: grade === 5 ? 6 : 5, streak: 0 } },
-            });
-          }
-          reviewReveal = false;
-          const count = (state.reviews ?? []).length;
-          reviewDeckIndex = count ? (reviewDeckIndex + 1) % count : 0;
-          await refreshState();
-        }
-      }
+  if (action === "apply-lesson-filters") {
+    const query = app.querySelector('[data-field="lesson-filter-query"]');
+    const theme = app.querySelector('[data-field="lesson-filter-theme"]');
+    const difficulty = app.querySelector('[data-field="lesson-filter-difficulty"]');
+    lessonCatalogQuery = query?.value?.trim() ?? "";
+    lessonCatalogTheme = theme?.value?.trim() ?? "";
+    lessonCatalogDifficulty = difficulty?.value?.trim() ?? "";
+    render();
+  }
 
-      if (action === "review-reveal-card") {
-        reviewReveal = !reviewReveal;
-        render();
-      }
+  if (action === "clear-lesson-filters") {
+    lessonCatalogQuery = "";
+    lessonCatalogTheme = "";
+    lessonCatalogDifficulty = "";
+    render();
+  }
 
-      if (action === "review-next-card" || action === "review-prev-card") {
-        const count = (state.reviews ?? []).length;
-        if (count) {
-          reviewDeckIndex = action === "review-next-card"
-            ? (reviewDeckIndex + 1) % count
-            : (reviewDeckIndex - 1 + count) % count;
-        }
-        reviewReveal = false;
-        render();
-      }
+  if (action === "apply-moderation-filters") {
+    const query = app.querySelector('[data-field="moderation-filter-query"]');
+    const status = app.querySelector('[data-field="moderation-filter-status"]');
+    const itemType = app.querySelector('[data-field="moderation-filter-type"]');
+    const reviewer = app.querySelector('[data-field="moderation-filter-reviewer"]');
+    moderationFilters = {
+      query: query?.value?.trim() ?? "",
+      status: status?.value?.trim() ?? "",
+      itemType: itemType?.value?.trim() ?? "",
+      reviewer: reviewer?.value?.trim() ?? "",
+    };
+    render();
+  }
 
-      if (action === "saved-study-mode") {
-        savedStudyMode = button.dataset.mode ?? "all";
-        savedStudyIndex = 0;
-        savedStudyReveal = false;
-        savedStudyFeedback = "";
-        render();
-      }
+  if (action === "clear-moderation-filters") {
+    moderationFilters = {
+      query: "",
+      status: "",
+      itemType: "",
+      reviewer: "",
+    };
+    render();
+  }
 
-      if (action === "saved-study-prev" || action === "saved-study-next") {
-        const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word" }));
-        const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji" }));
-        const deck = savedStudyMode === "words"
-          ? savedWordQueue
-          : savedStudyMode === "kanji"
-            ? savedKanjiQueue
-            : [...savedWordQueue, ...savedKanjiQueue];
-        if (deck.length) {
-          savedStudyIndex = action === "saved-study-next"
-            ? (savedStudyIndex + 1) % deck.length
-            : (savedStudyIndex - 1 + deck.length) % deck.length;
-        }
-        savedStudyReveal = false;
-        savedStudyFeedback = "";
-        render();
-      }
-
-      if (action === "saved-study-reveal") {
-        savedStudyReveal = !savedStudyReveal;
-        render();
-      }
-
-      if (action === "saved-study-answer") {
-        const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word", display: item.term }));
-        const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji", display: item.character }));
-        const deck = savedStudyMode === "words"
-          ? savedWordQueue
-          : savedStudyMode === "kanji"
-            ? savedKanjiQueue
-            : [...savedWordQueue, ...savedKanjiQueue];
-        const active = deck.length ? deck[savedStudyIndex % deck.length] : null;
-        const correct = active?.kind === "kanji" ? String(active.meaning || active.display || "") : String(active?.meaning || "");
-        const selected = String(button.dataset.answer ?? "");
-        const isCorrect = selected === correct;
-        savedStudyFeedback = isCorrect
-          ? `Correct. ${active?.display || "This item"} means ${correct}.`
-          : `Not quite. ${active?.display || "This item"} means ${correct}.`;
-        savedStudyReveal = true;
-        if (isCorrect) {
-          await apiJson("/api/gamification/award", {
-            method: "POST",
-            body: { source: "saved-study-pass", delta: { xp: 12, credits: 3, streak: 0 } },
-          });
-          await apiJson("/api/study-sessions", {
-            method: "POST",
-            body: { kind: "saved-study", durationMinutes: 4, xpDelta: 12, creditsDelta: 3 },
-          });
-          await refreshState();
-        } else {
-          render();
-        }
-      }
-
-      if (action === "kanji-quiz-answer") {
-        const reviewId = button.dataset.reviewId;
-        const answer = button.dataset.answer ?? "";
-        const kanjiReview = (state.kanjiReviews ?? []).find((entry) => entry.id === reviewId);
-        if (reviewId && kanjiReview) {
-          const correct = answer === kanjiReview.meaning;
-          const grade = correct ? 4 : 2;
-          await apiJson(`/api/kanji/reviews/${encodeURIComponent(reviewId)}`, {
-            method: "PATCH",
-            body: { grade },
-          });
-          if (correct) {
-            await apiJson("/api/gamification/award", {
-              method: "POST",
-              body: { source: "kanji-review-pass", delta: { xp: 18, credits: 4, streak: 0 } },
-            });
-            kanjiReviewFeedback = `Correct. ${kanjiReview.character} means ${kanjiReview.meaning}.`;
-          } else {
-            kanjiReviewFeedback = `Not quite. ${kanjiReview.character} means ${kanjiReview.meaning}.`;
-          }
-          kanjiReviewIndex = 0;
-          await refreshState();
-        }
-      }
-
-      if (action === "kanji-next-review") {
-        const count = (state.kanjiReviews ?? []).length;
-        kanjiReviewIndex = count ? (kanjiReviewIndex + 1) % count : 0;
-        kanjiReviewFeedback = "";
-        render();
-      }
-
-      if (action === "kanji-show-readings") {
-        const character = button.dataset.character ?? "";
-        const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
-        kanjiSelection = deck.find((entry) => entry.character === character)
-          ?? state.kanjiReviews?.find((entry) => entry.character === character)
-          ?? null;
-        const deckIndex = deck.findIndex((entry) => entry.character === character);
-        if (deckIndex >= 0) {
-          kanjiStudyIndex = deckIndex;
-          kanjiStudyExampleIndex = 0;
-        }
-        render();
-      }
-
-      if (action === "check-speaking") {
-        const input = app.querySelector('[data-field="speaking-input"]');
-        const output = app.querySelector('[data-output="speaking-feedback"]');
-        const prompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length]?.reference ?? "";
-        const next = await apiJson("/api/practice", {
+  if (action === "grade-review") {
+    const reviewId = button.dataset.reviewId;
+    const grade = Number(button.dataset.grade ?? 4);
+    if (reviewId) {
+      await apiJson(`/api/reviews/${encodeURIComponent(reviewId)}`, {
+        method: "PATCH",
+        body: { grade },
+      });
+      if (grade >= 4) {
+        await apiJson("/api/gamification/award", {
           method: "POST",
-          body: { kind: "speaking", input: input?.value ?? "", prompt },
+          body: { source: "review-pass", delta: { xp: grade === 5 ? 24 : 20, credits: grade === 5 ? 6 : 5, streak: 0 } },
         });
-        setFeedbackNode(output, next.tutor?.answer ?? state.tutor.answer);
-        await refreshState();
       }
+      reviewReveal = false;
+      const count = (state.reviews ?? []).length;
+      reviewDeckIndex = count ? (reviewDeckIndex + 1) % count : 0;
+      await refreshState();
+    }
+  }
 
-      if (action === "speaking-starter") {
-        const input = app.querySelector('[data-field="speaking-input"]');
-        if (input) {
-          input.value = button.dataset.value ?? "ラーメンをください。";
-          input.focus();
-        }
-      }
+  if (action === "review-reveal-card") {
+    reviewReveal = !reviewReveal;
+    render();
+  }
 
-      if (action === "next-speaking") {
-        speakingPromptIndex = (speakingPromptIndex + 1) % speakingPrompts.length;
-        render();
-      }
+  if (action === "review-next-card" || action === "review-prev-card") {
+    const count = (state.reviews ?? []).length;
+    if (count) {
+      reviewDeckIndex = action === "review-next-card"
+        ? (reviewDeckIndex + 1) % count
+        : (reviewDeckIndex - 1 + count) % count;
+    }
+    reviewReveal = false;
+    render();
+  }
 
-      if (action === "play-sample") {
-        void speakText("ラーメンをください。");
-      }
+  if (action === "saved-study-mode") {
+    savedStudyMode = button.dataset.mode ?? "all";
+    savedStudyIndex = 0;
+    savedStudyReveal = false;
+    savedStudyFeedback = "";
+    render();
+  }
 
-      if (action === "listening-answer") {
-        const output = app.querySelector('[data-output="listening-feedback"]');
-        const answer = button.dataset.answer ?? "";
-        const answerKey = button.dataset.answerKey ?? "";
-        const prompt = button.dataset.prompt ?? "the listening prompt";
-        await apiJson("/api/practice", {
+  if (action === "saved-study-prev" || action === "saved-study-next") {
+    const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word" }));
+    const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji" }));
+    const deck = savedStudyMode === "words"
+      ? savedWordQueue
+      : savedStudyMode === "kanji"
+        ? savedKanjiQueue
+        : [...savedWordQueue, ...savedKanjiQueue];
+    if (deck.length) {
+      savedStudyIndex = action === "saved-study-next"
+        ? (savedStudyIndex + 1) % deck.length
+        : (savedStudyIndex - 1 + deck.length) % deck.length;
+    }
+    savedStudyReveal = false;
+    savedStudyFeedback = "";
+    render();
+  }
+
+  if (action === "saved-study-reveal") {
+    savedStudyReveal = !savedStudyReveal;
+    render();
+  }
+
+  if (action === "saved-study-answer") {
+    const savedWordQueue = (state.progress.savedWords ?? []).map((item) => ({ ...item, kind: "word", display: item.term }));
+    const savedKanjiQueue = (state.progress.savedKanji ?? []).map((item) => ({ ...item, kind: "kanji", display: item.character }));
+    const deck = savedStudyMode === "words"
+      ? savedWordQueue
+      : savedStudyMode === "kanji"
+        ? savedKanjiQueue
+        : [...savedWordQueue, ...savedKanjiQueue];
+    const active = deck.length ? deck[savedStudyIndex % deck.length] : null;
+    const correct = active?.kind === "kanji" ? String(active.meaning || active.display || "") : String(active?.meaning || "");
+    const selected = String(button.dataset.answer ?? "");
+    const isCorrect = selected === correct;
+    savedStudyFeedback = isCorrect
+      ? `Correct. ${active?.display || "This item"} means ${correct}.`
+      : `Not quite. ${active?.display || "This item"} means ${correct}.`;
+    savedStudyReveal = true;
+    if (isCorrect) {
+      await apiJson("/api/gamification/award", {
+        method: "POST",
+        body: { source: "saved-study-pass", delta: { xp: 12, credits: 3, streak: 0 } },
+      });
+      await apiJson("/api/study-sessions", {
+        method: "POST",
+        body: { kind: "saved-study", durationMinutes: 4, xpDelta: 12, creditsDelta: 3 },
+      });
+      await refreshState();
+    } else {
+      render();
+    }
+  }
+
+  if (action === "kanji-quiz-answer") {
+    const reviewId = button.dataset.reviewId;
+    const answer = button.dataset.answer ?? "";
+    const kanjiReview = (state.kanjiReviews ?? []).find((entry) => entry.id === reviewId);
+    if (reviewId && kanjiReview) {
+      const correct = answer === kanjiReview.meaning;
+      const grade = correct ? 4 : 2;
+      await apiJson(`/api/kanji/reviews/${encodeURIComponent(reviewId)}`, {
+        method: "PATCH",
+        body: { grade },
+      });
+      if (correct) {
+        await apiJson("/api/gamification/award", {
           method: "POST",
-          body: { kind: "listening", answer, answerKey, prompt },
+          body: { source: "kanji-review-pass", delta: { xp: 18, credits: 4, streak: 0 } },
         });
-        setFeedbackNode(output, answer === answerKey ? `Correct. ${prompt}.` : `Not quite. ${prompt}.`);
-        await refreshState();
+        kanjiReviewFeedback = `Correct. ${kanjiReview.character} means ${kanjiReview.meaning}.`;
+      } else {
+        kanjiReviewFeedback = `Not quite. ${kanjiReview.character} means ${kanjiReview.meaning}.`;
       }
+      kanjiReviewIndex = 0;
+      await refreshState();
+    }
+  }
 
-      if (action === "replay-listening") {
-        const scenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
-        void speakText(scenario.question);
-      }
+  if (action === "kanji-next-review") {
+    const count = (state.kanjiReviews ?? []).length;
+    kanjiReviewIndex = count ? (kanjiReviewIndex + 1) % count : 0;
+    kanjiReviewFeedback = "";
+    render();
+  }
 
-      if (action === "next-listening") {
-        listeningScenarioIndex = (listeningScenarioIndex + 1) % listeningScenarios.length;
-        render();
-      }
+  if (action === "kanji-show-readings") {
+    const character = button.dataset.character ?? "";
+    const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+    kanjiSelection = deck.find((entry) => entry.character === character)
+      ?? state.kanjiReviews?.find((entry) => entry.character === character)
+      ?? null;
+    const deckIndex = deck.findIndex((entry) => entry.character === character);
+    if (deckIndex >= 0) {
+      kanjiStudyIndex = deckIndex;
+      kanjiStudyExampleIndex = 0;
+    }
+    render();
+  }
 
-      if (action === "check-writing") {
-        const input = app.querySelector('[data-field="writing-input"]');
-        const output = app.querySelector('[data-output="writing-feedback"]');
-        const result = await apiJson("/api/practice", {
-          method: "POST",
-          body: { kind: "writing", input: input?.value ?? "" },
-        });
-        setFeedbackNode(output, result.tutor?.answer ?? state.tutor.answer);
-        await refreshState();
-      }
-
-      if (action === "writing-starter") {
-        const input = app.querySelector('[data-field="writing-input"]');
-        if (input) {
-          input.value = button.dataset.value ?? "私は毎日日本語を勉強します。";
-          input.focus();
-        }
-      }
-
-      if (action === "ask-tutor") {
-        const input = app.querySelector('[data-field="tutor-input"]');
-        const output = app.querySelector('[data-output="tutor-feedback"]');
-        const next = await apiJson("/api/practice", {
-          method: "POST",
-          body: { kind: "tutor", question: input?.value ?? state.tutor.question },
-        });
-        setFeedbackNode(output, next.tutor?.answer ?? state.tutor.answer);
-        await refreshState();
-      }
-
-      if (action === "send-roleplay") {
-        const select = app.querySelector('[data-field="roleplay-scenario"]');
-        const input = app.querySelector('[data-field="roleplay-input"]');
-        const scenario = select?.value ?? "restaurant";
-        roleplayDraft = input?.value ?? roleplayDraft;
-        await apiJson("/api/practice", {
-          method: "POST",
-          body: { kind: "roleplay", scenario, input: roleplayDraft },
-        });
-        roleplayDraft = "";
-        await refreshState();
-      }
-
-      if (action === "roleplay-reset") {
-        roleplayDraft = "";
-        const active = app.querySelector('[data-field="roleplay-input"]');
-        if (active) active.value = "";
-        await apiJson("/api/practice", {
-          method: "POST",
-          body: { kind: "roleplay", scenario: app.querySelector('[data-field="roleplay-scenario"]')?.value ?? "restaurant" },
-        });
-        await refreshState();
-      }
-
-      if (action === "lookup-word") {
-        const term = button.dataset.term ?? "";
-        dictionaryLookup = await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`);
-        readingSelection = dictionaryLookup[0] ?? null;
-        render();
-      }
-
-      if (action === "toggle-word-bookmark") {
-        await apiJson("/api/progress/bookmarks", {
-          method: "POST",
-          body: {
-            kind: "word",
-            item: {
-              word: button.dataset.word ?? "",
-              term: button.dataset.word ?? "",
-              reading: button.dataset.reading ?? "",
-              kana: button.dataset.reading ?? "",
-              meaning: button.dataset.meaning ?? "",
-              example: button.dataset.example ?? "",
-              source: button.dataset.source ?? "manual",
-              sourceLessonId: button.dataset.sourceLessonId ?? "",
-              sourceLessonTitle: button.dataset.sourceLessonTitle ?? "",
-            },
-          },
-        });
-        await refreshState();
-      }
-
-      if (action === "lookup-kanji") {
-        const term = button.dataset.term ?? "";
-        const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
-        kanjiSelection = deck.find((entry) => entry.character === term)
-          ?? state.kanjiReviews?.find((entry) => entry.character === term)
-          ?? null;
-        const deckIndex = deck.findIndex((entry) => entry.character === term);
-        if (deckIndex >= 0) {
-          kanjiStudyIndex = deckIndex;
-          kanjiStudyExampleIndex = 0;
-        }
-        render();
-      }
-
-      if (action === "toggle-kanji-bookmark") {
-        let examples = [];
-        try {
-          examples = JSON.parse(button.dataset.examples ?? "[]");
-        } catch {
-          examples = [];
-        }
-        await apiJson("/api/progress/bookmarks", {
-          method: "POST",
-          body: {
-            kind: "kanji",
-            item: {
-              character: button.dataset.character ?? "",
-              meaning: button.dataset.meaning ?? "",
-              onYomi: button.dataset.onYomi ?? "",
-              kunYomi: button.dataset.kunYomi ?? "",
-              examples,
-              source: button.dataset.source ?? "manual",
-              sourceLessonId: button.dataset.sourceLessonId ?? "",
-              sourceLessonTitle: button.dataset.sourceLessonTitle ?? "",
-            },
-          },
-        });
-        await refreshState();
-      }
-
-      if (action === "save-lesson-note") {
-        const lessonId = button.dataset.lessonId ?? state.activeLessonId;
-        const input = app.querySelector('[data-field="lesson-note-input"]');
-        const note = button.dataset.clear === "true" ? "" : (input?.value ?? "");
-        const result = await apiJson("/api/progress/lesson-note", {
-          method: "POST",
-          body: { lessonId, note },
-        });
-        lessonNoteFeedback = result?.lessonNotes?.[lessonId] ? "Lesson note saved." : "Lesson note cleared.";
-        await refreshState();
-      }
-
-      if (action === "append-lesson-note") {
-        const lessonId = button.dataset.lessonId ?? state.activeLessonId;
-        const input = app.querySelector('[data-field="lesson-note-input"]');
-        if (input) {
-          const snippet = button.dataset.snippet ?? "";
-          const current = input.value.trim();
-          input.value = current ? `${current}\n${snippet}` : snippet;
-          lessonNoteFeedback = `Added a snippet for ${lessonId}.`;
-          input.focus();
-        }
-        render();
-      }
-
-      if (action === "edit-lesson-note") {
-        const lessonId = button.dataset.lessonId ?? state.activeLessonId;
-        state.activeLessonId = lessonId;
-        lessonNoteFeedback = "Editing lesson note.";
-        persist();
-        render();
-      }
-
-      if (action === "fill-lesson-note") {
-        const input = app.querySelector('[data-field="lesson-note-input"]');
-        const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
-        const prefix = button.dataset.value ?? "Note:";
-        if (input) {
-          const current = input.value.trim();
-          const line = activeLesson
-            ? `${prefix} ${activeLesson.title} · ${activeLesson.theme}`
-            : `${prefix} `;
-          input.value = current ? `${current}\n${line}` : line;
-          input.focus();
-        }
-      }
-
-      if (action === "lookup-dictionary") {
-        const input = app.querySelector('[data-field="dictionary-input"]');
-        const term = input?.value?.trim() ?? "";
-        dictionaryLookup = term ? await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`) : [];
-        readingSelection = dictionaryLookup[0] ?? null;
-        render();
-      }
-
-      if (action === "clear-dictionary") {
-        dictionaryLookup = [];
-        readingSelection = null;
-        kanjiSelection = null;
-        render();
-      }
-
-      if (action === "kanji-study-next" || action === "kanji-study-prev" || action === "kanji-study-example") {
-        const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
-        if (deck.length) {
-          if (action === "kanji-study-next") {
-            kanjiStudyIndex = (kanjiStudyIndex + 1) % deck.length;
-            kanjiStudyExampleIndex = 0;
-          } else if (action === "kanji-study-prev") {
-            kanjiStudyIndex = (kanjiStudyIndex - 1 + deck.length) % deck.length;
-            kanjiStudyExampleIndex = 0;
-          } else {
-            const entry = deck[kanjiStudyIndex % deck.length];
-            const exampleCount = Array.isArray(entry?.examples) ? entry.examples.filter(Boolean).length : 0;
-            kanjiStudyExampleIndex = exampleCount ? (kanjiStudyExampleIndex + 1) % exampleCount : 0;
-          }
-          kanjiSelection = deck[kanjiStudyIndex % deck.length] ?? kanjiSelection;
-        }
-        render();
-      }
-
-      if (action === "claim-challenge") {
-        const challengeId = button.dataset.challengeId;
-        if (challengeId) {
-          await apiJson(`/api/challenges/${encodeURIComponent(challengeId)}/claim`, { method: "POST" });
-          await refreshState();
-        }
-      }
-
-      if (action === "open-chest") {
-        const result = await apiJson("/api/gamification/chest", { method: "POST" });
-        state.chest.lastReward = result.reward ?? state.chest.lastReward;
-        await refreshState();
-      }
-
-      if (action === "complete-task") {
-        const task = state.dailyTasks.find((entry) => entry.name === button.dataset.task);
-        if (task && !task.complete) {
-          await apiJson("/api/progress/task-complete", {
-            method: "POST",
-            body: { taskId: task.id ?? task.name },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "buy-streak-freeze") {
-        if (state.progress.credits >= 50) {
-          await apiJson("/api/gamification/streak-freeze", { method: "POST" });
-          await refreshState();
-        }
-      }
-
-      if (action === "buy-cosmetic") {
-        const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
-        if (cosmetic && !cosmetic.owned && state.progress.credits >= cosmetic.cost) {
-          await apiJson("/api/cosmetics/buy", {
-            method: "POST",
-            body: { cosmeticId: cosmetic.id ?? cosmetic.name },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "equip-cosmetic") {
-        const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
-        if (cosmetic && cosmetic.owned && !cosmetic.equipped) {
-          await apiJson("/api/cosmetics/equip", {
-            method: "POST",
-            body: { cosmeticId: cosmetic.id ?? cosmetic.name },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "toggle-maintenance") {
-        const next = await apiJson("/api/settings", {
-          method: "PATCH",
-          body: {
-            maintenanceMode: !state.admin.maintenanceMode,
-            announcements: state.admin.announcements,
-          },
-        });
-        state.admin.maintenanceMode = next.maintenanceMode;
-        state.admin.siteHealth = next.maintenanceMode ? "Amber" : "Green";
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Maintenance mode ${state.admin.maintenanceMode ? "enabled" : "disabled"}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "save-announcement") {
-        const input = app.querySelector('[data-field="announcement-input"]');
-        const next = await apiJson("/api/settings", {
-          method: "PATCH",
-          body: {
-            announcements: input?.value ?? state.admin.announcements,
-            maintenanceMode: state.admin.maintenanceMode,
-          },
-        });
-        state.admin.announcements = next.announcements;
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: "Updated homepage announcement" },
-        });
-        await refreshState();
-      }
-
-      if (action === "edit-lesson") {
-        const lessonId = button.dataset.lessonId;
-        const lesson = state.lessons.find((entry) => entry.id === lessonId);
-        if (lesson) {
-          adminLessonEditor = structuredClone(lesson);
-          render();
-        }
-      }
-
-      if (action === "cancel-lesson-edit") {
-        adminLessonEditor = null;
-        render();
-      }
-
-      if (action === "edit-kanji") {
-        const character = button.dataset.kanjiCharacter;
-        const kanji = state.kanjiEntries.find((entry) => entry.character === character);
-        if (kanji) {
-          adminKanjiEditor = buildKanjiEditorDraft(kanji);
-          render();
-        }
-      }
-
-      if (action === "new-kanji") {
-        adminKanjiEditor = buildKanjiEditorDraft();
-        render();
-      }
-
-      if (action === "cancel-kanji-edit") {
-        adminKanjiEditor = null;
-        render();
-      }
-
-      if (action === "save-lesson") {
-        const titleInput = app.querySelector('[data-field="lesson-title"]');
-        const themeInput = app.querySelector('[data-field="lesson-theme"]');
-        const difficultyInput = app.querySelector('[data-field="lesson-difficulty"]');
-        const japaneseInput = app.querySelector('[data-field="lesson-japanese"]');
-        const romajiInput = app.querySelector('[data-field="lesson-romaji"]');
-        const translationInput = app.querySelector('[data-field="lesson-translation"]');
-        const grammarInput = app.querySelector('[data-field="lesson-grammar"]');
-        const grammarPointsInput = app.querySelector('[data-field="lesson-grammar-points"]');
-        const dialogueLinesInput = app.querySelector('[data-field="lesson-dialogue-lines"]');
-        const exercisesInput = app.querySelector('[data-field="lesson-exercises"]');
-        const scenesInput = app.querySelector('[data-field="lesson-scenes"]');
-        const mediaInput = app.querySelector('[data-field="lesson-media"]');
-        const popCultureNotesInput = app.querySelector('[data-field="lesson-pop-culture-notes"]');
-        const kanjiBreakdownsInput = app.querySelector('[data-field="lesson-kanji-breakdowns"]');
-        const lessonGoalsInput = app.querySelector('[data-field="lesson-goals"]');
-        const referenceTagsInput = app.querySelector('[data-field="lesson-reference-tags"]');
-        const title = titleInput?.value?.trim();
-        if (!title && !adminLessonEditor) {
-          return;
-        }
-        const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "custom";
-        const baseLesson = buildLesson(title || adminLessonEditor?.title || "New Lesson", theme);
-        const parseCollection = (value, fallback) => {
-          if (!value) return fallback;
-          try {
-            const parsed = JSON.parse(value);
-            return Array.isArray(parsed) ? parsed : fallback;
-          } catch {
-            return fallback;
-          }
-        };
-        const payload = {
-          ...baseLesson,
-          id: adminLessonEditor?.id ?? baseLesson.id,
-          title: title || adminLessonEditor?.title || baseLesson.title,
-          theme,
-          difficulty: difficultyInput?.value?.trim() || adminLessonEditor?.difficulty || baseLesson.difficulty,
-          japanese: japaneseInput?.value?.trim() || adminLessonEditor?.japanese || baseLesson.japanese,
-          romaji: romajiInput?.value?.trim() || adminLessonEditor?.romaji || baseLesson.romaji,
-          translation: translationInput?.value?.trim() || adminLessonEditor?.translation || baseLesson.translation,
-          grammar: grammarInput?.value?.trim() || adminLessonEditor?.grammar || baseLesson.grammar,
-          grammarPoints: parseCollection(grammarPointsInput?.value, adminLessonEditor?.grammarPoints ?? baseLesson.grammarPoints),
-          dialogueLines: parseCollection(dialogueLinesInput?.value, adminLessonEditor?.dialogueLines ?? baseLesson.dialogueLines),
-          exercises: parseCollection(exercisesInput?.value, adminLessonEditor?.exercises ?? baseLesson.exercises),
-          scenes: parseCollection(scenesInput?.value, adminLessonEditor?.scenes ?? baseLesson.scenes),
-          media: parseCollection(mediaInput?.value, adminLessonEditor?.media ?? baseLesson.media),
-          popCultureNotes: parseCollection(popCultureNotesInput?.value, adminLessonEditor?.popCultureNotes ?? baseLesson.popCultureNotes),
-          kanjiBreakdowns: parseCollection(kanjiBreakdownsInput?.value, adminLessonEditor?.kanjiBreakdowns ?? baseLesson.kanjiBreakdowns),
-          lessonGoals: parseCollection(lessonGoalsInput?.value, adminLessonEditor?.lessonGoals ?? baseLesson.lessonGoals),
-          referenceTags: parseCollection(referenceTagsInput?.value, adminLessonEditor?.referenceTags ?? baseLesson.referenceTags),
-        };
-        if (adminLessonEditor?.id) {
-          await apiJson(`/api/lessons/${encodeURIComponent(adminLessonEditor.id)}`, {
-            method: "PATCH",
-            body: payload,
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Updated lesson: ${payload.title}` },
-          });
-        } else {
-          await apiJson("/api/lessons", {
-            method: "POST",
-            body: payload,
-          });
-          await apiJson("/api/gamification/award", {
-            method: "POST",
-            body: { source: "lesson-create", delta: { xp: 25, credits: 0, streak: 0 } },
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Added lesson: ${payload.title}` },
-          });
-        }
-        adminLessonEditor = null;
-        await refreshState();
-      }
-
-      if (action === "save-kanji") {
-        const wasEditing = Boolean(adminKanjiEditor?.id);
-        const characterInput = app.querySelector('[data-field="kanji-character"]');
-        const meaningInput = app.querySelector('[data-field="kanji-meaning"]');
-        const onYomiInput = app.querySelector('[data-field="kanji-on-yomi"]');
-        const kunYomiInput = app.querySelector('[data-field="kanji-kun-yomi"]');
-        const groupNameInput = app.querySelector('[data-field="kanji-group-name"]');
-        const difficultyInput = app.querySelector('[data-field="kanji-difficulty"]');
-        const strokeCountInput = app.querySelector('[data-field="kanji-stroke-count"]');
-        const strokeOrderSourceInput = app.querySelector('[data-field="kanji-stroke-order-source"]');
-        const examplesInput = app.querySelector('[data-field="kanji-examples"]');
-        const radicalsInput = app.querySelector('[data-field="kanji-radicals"]');
-        const relatedInput = app.querySelector('[data-field="kanji-related"]');
-        const character = characterInput?.value?.trim();
-        if (!character) {
-          window.alert("Enter a kanji character before saving.");
-          return;
-        }
-        const payload = {
-          id: adminKanjiEditor?.id ?? `kanji-${character}`,
-          character,
-          meaning: meaningInput?.value?.trim() || character,
-          onYomi: onYomiInput?.value?.trim() || "",
-          kunYomi: kunYomiInput?.value?.trim() || "",
-          examples: parseLineList(examplesInput?.value, adminKanjiEditor?.examples ?? []),
-          radicals: parseLineList(radicalsInput?.value, adminKanjiEditor?.radicals ?? []),
-          strokeCount: Number(strokeCountInput?.value ?? adminKanjiEditor?.strokeCount ?? 0) || 0,
-          strokeOrderSource: strokeOrderSourceInput?.value?.trim() || adminKanjiEditor?.strokeOrderSource || "",
-          groupName: groupNameInput?.value?.trim() || adminKanjiEditor?.groupName || "",
-          difficulty: difficultyInput?.value?.trim() || adminKanjiEditor?.difficulty || "N5",
-          relatedKanji: parseLineList(relatedInput?.value, adminKanjiEditor?.relatedKanji ?? []),
-          source: adminKanjiEditor?.source ?? "manual",
-        };
-        await apiJson("/api/kanji/import", {
-          method: "POST",
-          body: { entries: [payload] },
-        });
-        adminKanjiEditor = null;
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `${wasEditing ? "Updated" : "Added"} kanji entry: ${payload.character}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "generate-lesson-draft") {
-        const titleInput = app.querySelector('[data-field="lesson-title"]');
-        const themeInput = app.querySelector('[data-field="lesson-theme"]');
-        const title = titleInput?.value?.trim() || "New Lesson";
-        const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
-        adminLessonEditor = buildLessonDraft(title, theme);
-        render();
-      }
-
-      if (action === "generate-lesson-pack") {
-        const titleInput = app.querySelector('[data-field="lesson-pack-title"]');
-        const themeInput = app.querySelector('[data-field="lesson-theme"]');
-        const countInput = app.querySelector('[data-field="lesson-pack-count"]');
-        const importInput = app.querySelector('[data-field="lesson-import-json"]');
-        const title = titleInput?.value?.trim() || adminLessonEditor?.title || "New Lesson Pack";
-        const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
-        const count = Number(countInput?.value ?? 3) || 3;
-        const lessons = buildLessonPack(title, theme, count);
-        if (importInput) {
-          importInput.value = JSON.stringify(lessons, null, 2);
-        }
-        const result = await apiJson("/api/lessons/import", {
-          method: "POST",
-          body: { lessons },
-        });
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Generated lesson pack: ${result.imported} lessons` },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-lessons") {
-        const importInput = app.querySelector('[data-field="lesson-import-json"]');
-        const raw = importInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Lesson import JSON is not valid.");
-          return;
-        }
-        const result = await apiJson("/api/lessons/import", {
-          method: "POST",
-          body: Array.isArray(parsed) ? { lessons: parsed } : parsed,
-        });
-        if (importInput) {
-          importInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Imported lessons: ${result.imported}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "queue-content-review") {
-        const noteInput = app.querySelector('[data-field="content-review-note"]');
-        const note = noteInput?.value?.trim() || "Manually queued from admin panel";
-        const lesson = adminLessonEditor ?? state.lessons.find((entry) => entry.id === state.activeLessonId) ?? state.lessons[0];
-        if (!lesson) {
-          return;
-        }
-        await apiJson("/api/admin/content-review", {
-          method: "POST",
-          body: {
-            itemType: "lesson",
-            itemId: lesson.id,
-            notes: note,
-            source: adminLessonEditor?.id ? "lesson-edit" : "manual",
-          },
-        });
-        if (noteInput) {
-          noteInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Queued lesson review: ${lesson.id}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-dictionary") {
-        const dictionaryInput = app.querySelector('[data-field="dictionary-import-json"]');
-        const raw = dictionaryInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Dictionary import JSON is not valid.");
-          return;
-        }
-        const result = await apiJson("/api/dictionary/import", {
-          method: "POST",
-          body: Array.isArray(parsed) ? { entries: parsed } : parsed,
-        });
-        if (dictionaryInput) {
-          dictionaryInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Imported dictionary entries: ${result.imported}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-kanji") {
-        const kanjiInput = app.querySelector('[data-field="kanji-import-json"]');
-        const raw = kanjiInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Kanji import JSON is not valid.");
-          return;
-        }
-        const result = await apiJson("/api/kanji/import", {
-          method: "POST",
-          body: Array.isArray(parsed) ? { entries: parsed } : parsed,
-        });
-        if (kanjiInput) {
-          kanjiInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Imported kanji entries: ${result.imported}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-reviews") {
-        const reviewInput = app.querySelector('[data-field="review-import-json"]');
-        const raw = reviewInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Review import JSON is not valid.");
-          return;
-        }
-        const result = await apiJson("/api/reviews/import", {
-          method: "POST",
-          body: Array.isArray(parsed) ? { reviews: parsed } : parsed,
-        });
-        if (reviewInput) {
-          reviewInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Imported review items: ${result.imported}` },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-dataset") {
-        const datasetInput = app.querySelector('[data-field="dataset-import-json"]');
-        const datasetFileInput = app.querySelector('[data-field="dataset-import-file"]');
-        const file = datasetFileInput?.files?.[0] ?? null;
-        const raw = file ? await file.text() : datasetInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        const result = await apiJson("/api/datasets/import", {
-          method: "POST",
-          body: { bundle: raw, filename: file?.name ?? "" },
-        });
-        if (datasetInput) {
-          datasetInput.value = "";
-        }
-        if (datasetFileInput) {
-          datasetFileInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: {
-            entry: `Imported dataset bundle: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
-          },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-dataset-url") {
-        const datasetUrlInput = app.querySelector('[data-field="dataset-import-url"]');
-        const sourceUrl = datasetUrlInput?.value?.trim();
-        if (!sourceUrl) {
-          return;
-        }
-        const result = await apiJson("/api/datasets/import-url", {
-          method: "POST",
-          body: { url: sourceUrl },
-        });
-        if (datasetUrlInput) {
-          datasetUrlInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: {
-            entry: `Imported dataset from URL: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
-          },
-        });
-        await refreshState();
-      }
-
-      if (action === "run-ai-playground") {
-        const feature = app.querySelector('[data-field="ai-playground-feature"]')?.value?.trim() || "grammar";
-        const prompt = app.querySelector('[data-field="ai-playground-prompt"]')?.value?.trim() || "Explain よろしくお願いします";
-        const scenario = app.querySelector('[data-field="ai-playground-scenario"]')?.value?.trim() || "restaurant";
-        const title = app.querySelector('[data-field="ai-playground-title"]')?.value?.trim() || "Anime Dialogue";
-        const theme = app.querySelector('[data-field="ai-playground-theme"]')?.value?.trim() || "anime";
-        const result = await apiJson("/api/ai/response", {
-          method: "POST",
-          body: {
-            feature,
-            prompt,
-            context: { scenario, title, theme },
-          },
-        });
-        adminAiPlayground = {
-          feature: result.feature,
-          prompt: result.prompt,
-          provider: result.provider,
-          model: result.model,
-          context: result.context,
-          response: result.response,
-        };
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Ran AI playground: ${feature}` },
-        });
-        render();
-      }
-
-      if (action === "export-backup") {
-        const backupInput = app.querySelector('[data-field="backup-json"]');
-        const snapshot = await apiJson("/api/admin/export");
-        if (backupInput) {
-          backupInput.value = JSON.stringify(snapshot, null, 2);
-          backupInput.focus();
-          backupInput.setSelectionRange(0, backupInput.value.length);
-        }
-      }
-
-      if (action === "export-moderation-history") {
-        const history = await apiJson("/api/admin/content-review-actions?limit=100");
-        const blob = new Blob([JSON.stringify(history, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "moderation-history.json";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-      }
-
-      if (action === "import-moderation-history") {
-        const moderationInput = app.querySelector('[data-field="moderation-import-json"]');
-        const raw = moderationInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Moderation JSON is not valid.");
-          return;
-        }
-        const result = await apiJson("/api/admin/content-review-actions/import", {
-          method: "POST",
-          body: { actions: Array.isArray(parsed) ? parsed : [parsed] },
-        });
-        if (moderationInput) {
-          moderationInput.value = "";
-        }
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: `Imported moderation history: ${result.imported} actions` },
-        });
-        await refreshState();
-      }
-
-      if (action === "import-backup") {
-        const backupInput = app.querySelector('[data-field="backup-json"]');
-        const raw = backupInput?.value?.trim();
-        if (!raw) {
-          return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          window.alert("Backup JSON is not valid.");
-          return;
-        }
-        await apiJson("/api/admin/import", {
-          method: "POST",
-          body: { state: parsed },
-        });
-        await refreshState();
-      }
-
-      if (action === "delete-lesson") {
-        const lessonId = button.dataset.lessonId;
-        if (lessonId) {
-          await apiJson(`/api/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
-          if (adminLessonEditor?.id === lessonId) {
-            adminLessonEditor = null;
-          }
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Deleted lesson: ${lessonId}` },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "review-content") {
-        const reviewId = button.dataset.reviewId;
-        const status = button.dataset.status;
-        if (reviewId && status) {
-          await apiJson(`/api/admin/content-review/${encodeURIComponent(reviewId)}`, {
-            method: "PATCH",
-            body: {
-              status,
-              notes: `${status} via admin panel`,
-              decisionReason: `${status} via admin panel`,
-            },
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Content review ${status}: ${reviewId}` },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "save-permissions") {
-        const roles = (state.admin.permissions?.roles ?? []).map((role) => {
-          const nameInput = app.querySelector(`[data-field="role-name-${CSS.escape(role.id)}"]`);
-          const permissions = (state.admin.permissions?.permissions ?? [])
-            .filter((permission) => app.querySelector(`[data-field="role-permission-${CSS.escape(role.id)}-${CSS.escape(permission.id)}"]`)?.checked)
-            .map((permission) => permission.name);
-          return {
-            id: role.id,
-            name: nameInput?.value?.trim() || role.name,
-            permissions,
-          };
-        });
-        const result = await apiJson("/api/admin/permissions", {
-          method: "PATCH",
-          body: { roles, permissions: state.admin.permissions?.permissions ?? [] },
-        });
-        permissionDraft = result;
-        await apiJson("/api/audit-log", {
-          method: "POST",
-          body: { entry: "Updated admin permissions" },
-        });
-        await refreshState();
-      }
-
-      if (action === "reload-permissions") {
-        permissionDraft = null;
-        render();
-      }
-
-      if (action === "search-users") {
-        const username = app.querySelector('[data-field="user-filter-username"]')?.value?.trim() ?? "";
-        const email = app.querySelector('[data-field="user-filter-email"]')?.value?.trim() ?? "";
-        const status = app.querySelector('[data-field="user-filter-status"]')?.value?.trim() ?? "";
-        const level = app.querySelector('[data-field="user-filter-level"]')?.value?.trim() ?? "";
-        adminUserFilters = { username, email, status, level };
-        const params = new URLSearchParams();
-        if (username) params.set("username", username);
-        if (email) params.set("email", email);
-        if (status) params.set("status", status);
-        if (level) params.set("level", level);
-        adminUserDirectory = await apiJson(`/api/admin/users?${params.toString()}`);
-        render();
-      }
-
-      if (action === "clear-user-filters") {
-        adminUserFilters = { username: "", email: "", status: "", level: "" };
-        adminUserDirectory = null;
-        render();
-      }
-
-      if (action === "edit-user") {
-        const userId = button.dataset.userId;
-        const user = (state.admin.users ?? []).find((entry) => entry.id === userId)
-          ?? (adminUserDirectory ?? []).find((entry) => entry.id === userId);
-        if (user) {
-          adminUserEditor = structuredClone(user);
-          render();
-        }
-      }
-
-      if (action === "cancel-user-edit") {
-        adminUserEditor = null;
-        render();
-      }
-
-      if (action === "save-user") {
-        const username = app.querySelector('[data-field="user-username"]')?.value?.trim();
-        const email = app.querySelector('[data-field="user-email"]')?.value?.trim();
-        const level = Number(app.querySelector('[data-field="user-level"]')?.value ?? 1);
-        const status = app.querySelector('[data-field="user-status"]')?.value?.trim() || "active";
-        const credits = Number(app.querySelector('[data-field="user-credits"]')?.value ?? 0);
-        const streak = Number(app.querySelector('[data-field="user-streak"]')?.value ?? 0);
-        const payload = {
-          id: adminUserEditor?.id || undefined,
-          username: username || adminUserEditor?.username || "new-user",
-          email: email || adminUserEditor?.email || "new-user@example.com",
-          level: Number.isFinite(level) ? level : 1,
-          status,
-          credits: Number.isFinite(credits) ? credits : 0,
-          streak: Number.isFinite(streak) ? streak : 0,
-        };
-        if (adminUserEditor?.id) {
-          await apiJson(`/api/admin/users/${encodeURIComponent(adminUserEditor.id)}`, {
-            method: "PATCH",
-            body: payload,
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Updated user: ${payload.username}` },
-          });
-        } else {
-          await apiJson("/api/admin/users", {
-            method: "POST",
-            body: payload,
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Created user: ${payload.username}` },
-          });
-        }
-        adminUserEditor = null;
-        adminUserDirectory = null;
-        await refreshState();
-      }
-
-      if (action === "toggle-user-status") {
-        const userId = button.dataset.userId;
-        const status = button.dataset.status;
-        if (userId && status) {
-          await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
-            method: "PATCH",
-            body: { status },
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `User ${userId} marked ${status}` },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "adjust-user-credits") {
-        const userId = button.dataset.userId;
-        const delta = Number(button.dataset.delta || 0);
-        const user = state.admin.users?.find((entry) => entry.id === userId);
-        if (user && userId && delta) {
-          await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
-            method: "PATCH",
-            body: { credits: Math.max(0, user.credits + delta) },
-          });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Adjusted credits for ${user.username} by ${delta}` },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "delete-user") {
-        const userId = button.dataset.userId;
-        if (userId) {
-          await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
-          await apiJson("/api/audit-log", {
-            method: "POST",
-            body: { entry: `Deleted user ${userId}` },
-          });
-          await refreshState();
-        }
-      }
-
-      if (action === "reset-database") {
-        await apiJson("/api/admin/reset", { method: "POST" });
-        await refreshState();
-      }
-
-      if (action === "admin-login") {
-        const username = app.querySelector('[data-field="admin-username"]')?.value?.trim() || "admin";
-        const password = app.querySelector('[data-field="admin-password"]')?.value?.trim() || "fieldguide123";
-        const response = await fetch("/api/admin/login", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username, password }),
-        });
-        if (response.ok) {
-          state = mergeState(state, await response.json());
-        } else {
-          window.alert("Admin sign-in failed.");
-        }
-        await refreshState();
-      }
-
-      if (action === "admin-logout") {
-        await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
-        await refreshState();
-      }
+  if (action === "check-speaking") {
+    const input = app.querySelector('[data-field="speaking-input"]');
+    const output = app.querySelector('[data-output="speaking-feedback"]');
+    const prompt = speakingPrompts[speakingPromptIndex % speakingPrompts.length]?.reference ?? "";
+    const next = await apiJson("/api/practice", {
+      method: "POST",
+      body: { kind: "speaking", input: input?.value ?? "", prompt },
     });
-  });
+    setFeedbackNode(output, next.tutor?.answer ?? state.tutor.answer);
+    await refreshState();
+  }
+
+  if (action === "speaking-starter") {
+    const input = app.querySelector('[data-field="speaking-input"]');
+    if (input) {
+      input.value = button.dataset.value ?? "ラーメンをください。";
+      input.focus();
+    }
+  }
+
+  if (action === "next-speaking") {
+    speakingPromptIndex = (speakingPromptIndex + 1) % speakingPrompts.length;
+    render();
+  }
+
+  if (action === "play-sample") {
+    void speakText("ラーメンをください。");
+  }
+
+  if (action === "listening-answer") {
+    const output = app.querySelector('[data-output="listening-feedback"]');
+    const answer = button.dataset.answer ?? "";
+    const answerKey = button.dataset.answerKey ?? "";
+    const prompt = button.dataset.prompt ?? "the listening prompt";
+    await apiJson("/api/practice", {
+      method: "POST",
+      body: { kind: "listening", answer, answerKey, prompt },
+    });
+    setFeedbackNode(output, answer === answerKey ? `Correct. ${prompt}.` : `Not quite. ${prompt}.`);
+    await refreshState();
+  }
+
+  if (action === "replay-listening") {
+    const scenario = listeningScenarios[listeningScenarioIndex % listeningScenarios.length];
+    void speakText(scenario.question);
+  }
+
+  if (action === "next-listening") {
+    listeningScenarioIndex = (listeningScenarioIndex + 1) % listeningScenarios.length;
+    render();
+  }
+
+  if (action === "check-writing") {
+    const input = app.querySelector('[data-field="writing-input"]');
+    const output = app.querySelector('[data-output="writing-feedback"]');
+    const result = await apiJson("/api/practice", {
+      method: "POST",
+      body: { kind: "writing", input: input?.value ?? "" },
+    });
+    setFeedbackNode(output, result.tutor?.answer ?? state.tutor.answer);
+    await refreshState();
+  }
+
+  if (action === "writing-starter") {
+    const input = app.querySelector('[data-field="writing-input"]');
+    if (input) {
+      input.value = button.dataset.value ?? "私は毎日日本語を勉強します。";
+      input.focus();
+    }
+  }
+
+  if (action === "ask-tutor") {
+    const input = app.querySelector('[data-field="tutor-input"]');
+    const output = app.querySelector('[data-output="tutor-feedback"]');
+    const next = await apiJson("/api/practice", {
+      method: "POST",
+      body: { kind: "tutor", question: input?.value ?? state.tutor.question },
+    });
+    setFeedbackNode(output, next.tutor?.answer ?? state.tutor.answer);
+    await refreshState();
+  }
+
+  if (action === "send-roleplay") {
+    const select = app.querySelector('[data-field="roleplay-scenario"]');
+    const input = app.querySelector('[data-field="roleplay-input"]');
+    const scenario = select?.value ?? "restaurant";
+    roleplayDraft = input?.value ?? roleplayDraft;
+    await apiJson("/api/practice", {
+      method: "POST",
+      body: { kind: "roleplay", scenario, input: roleplayDraft },
+    });
+    roleplayDraft = "";
+    await refreshState();
+  }
+
+  if (action === "roleplay-reset") {
+    roleplayDraft = "";
+    const active = app.querySelector('[data-field="roleplay-input"]');
+    if (active) active.value = "";
+    await apiJson("/api/practice", {
+      method: "POST",
+      body: { kind: "roleplay", scenario: app.querySelector('[data-field="roleplay-scenario"]')?.value ?? "restaurant" },
+    });
+    await refreshState();
+  }
+
+  if (action === "lookup-word") {
+    const term = button.dataset.term ?? "";
+    dictionaryLookup = await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`);
+    readingSelection = dictionaryLookup[0] ?? null;
+    render();
+  }
+
+  if (action === "toggle-word-bookmark") {
+    await apiJson("/api/progress/bookmarks", {
+      method: "POST",
+      body: {
+        kind: "word",
+        item: {
+          word: button.dataset.word ?? "",
+          term: button.dataset.word ?? "",
+          reading: button.dataset.reading ?? "",
+          kana: button.dataset.reading ?? "",
+          meaning: button.dataset.meaning ?? "",
+          example: button.dataset.example ?? "",
+          source: button.dataset.source ?? "manual",
+          sourceLessonId: button.dataset.sourceLessonId ?? "",
+          sourceLessonTitle: button.dataset.sourceLessonTitle ?? "",
+        },
+      },
+    });
+    await refreshState();
+  }
+
+  if (action === "lookup-kanji") {
+    const term = button.dataset.term ?? "";
+    const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+    kanjiSelection = deck.find((entry) => entry.character === term)
+      ?? state.kanjiReviews?.find((entry) => entry.character === term)
+      ?? null;
+    const deckIndex = deck.findIndex((entry) => entry.character === term);
+    if (deckIndex >= 0) {
+      kanjiStudyIndex = deckIndex;
+      kanjiStudyExampleIndex = 0;
+    }
+    render();
+  }
+
+  if (action === "toggle-kanji-bookmark") {
+    let examples = [];
+    try {
+      examples = JSON.parse(button.dataset.examples ?? "[]");
+    } catch {
+      examples = [];
+    }
+    await apiJson("/api/progress/bookmarks", {
+      method: "POST",
+      body: {
+        kind: "kanji",
+        item: {
+          character: button.dataset.character ?? "",
+          meaning: button.dataset.meaning ?? "",
+          onYomi: button.dataset.onYomi ?? "",
+          kunYomi: button.dataset.kunYomi ?? "",
+          examples,
+          source: button.dataset.source ?? "manual",
+          sourceLessonId: button.dataset.sourceLessonId ?? "",
+          sourceLessonTitle: button.dataset.sourceLessonTitle ?? "",
+        },
+      },
+    });
+    await refreshState();
+  }
+
+  if (action === "save-lesson-note") {
+    const lessonId = button.dataset.lessonId ?? state.activeLessonId;
+    const input = app.querySelector('[data-field="lesson-note-input"]');
+    const note = button.dataset.clear === "true" ? "" : (input?.value ?? "");
+    const result = await apiJson("/api/progress/lesson-note", {
+      method: "POST",
+      body: { lessonId, note },
+    });
+    lessonNoteFeedback = result?.lessonNotes?.[lessonId] ? "Lesson note saved." : "Lesson note cleared.";
+    await refreshState();
+  }
+
+  if (action === "append-lesson-note") {
+    const lessonId = button.dataset.lessonId ?? state.activeLessonId;
+    const input = app.querySelector('[data-field="lesson-note-input"]');
+    if (input) {
+      const snippet = button.dataset.snippet ?? "";
+      const current = input.value.trim();
+      input.value = current ? `${current}\n${snippet}` : snippet;
+      lessonNoteFeedback = `Added a snippet for ${lessonId}.`;
+      input.focus();
+    }
+    render();
+  }
+
+  if (action === "edit-lesson-note") {
+    const lessonId = button.dataset.lessonId ?? state.activeLessonId;
+    state.activeLessonId = lessonId;
+    lessonNoteFeedback = "Editing lesson note.";
+    persist();
+    render();
+  }
+
+  if (action === "fill-lesson-note") {
+    const input = app.querySelector('[data-field="lesson-note-input"]');
+    const activeLesson = state.lessons.find((lesson) => lesson.id === state.activeLessonId) ?? state.lessons[0];
+    const prefix = button.dataset.value ?? "Note:";
+    if (input) {
+      const current = input.value.trim();
+      const line = activeLesson
+        ? `${prefix} ${activeLesson.title} · ${activeLesson.theme}`
+        : `${prefix} `;
+      input.value = current ? `${current}\n${line}` : line;
+      input.focus();
+    }
+  }
+
+  if (action === "lookup-dictionary") {
+    const input = app.querySelector('[data-field="dictionary-input"]');
+    const term = input?.value?.trim() ?? "";
+    dictionaryLookup = term ? await apiJson(`/api/dictionary?query=${encodeURIComponent(term)}`) : [];
+    readingSelection = dictionaryLookup[0] ?? null;
+    render();
+  }
+
+  if (action === "clear-dictionary") {
+    dictionaryLookup = [];
+    readingSelection = null;
+    kanjiSelection = null;
+    render();
+  }
+
+  if (action === "kanji-study-next" || action === "kanji-study-prev" || action === "kanji-study-example") {
+    const deck = Array.isArray(state.kanjiEntries) ? state.kanjiEntries : [];
+    if (deck.length) {
+      if (action === "kanji-study-next") {
+        kanjiStudyIndex = (kanjiStudyIndex + 1) % deck.length;
+        kanjiStudyExampleIndex = 0;
+      } else if (action === "kanji-study-prev") {
+        kanjiStudyIndex = (kanjiStudyIndex - 1 + deck.length) % deck.length;
+        kanjiStudyExampleIndex = 0;
+      } else {
+        const entry = deck[kanjiStudyIndex % deck.length];
+        const exampleCount = Array.isArray(entry?.examples) ? entry.examples.filter(Boolean).length : 0;
+        kanjiStudyExampleIndex = exampleCount ? (kanjiStudyExampleIndex + 1) % exampleCount : 0;
+      }
+      kanjiSelection = deck[kanjiStudyIndex % deck.length] ?? kanjiSelection;
+    }
+    render();
+  }
+
+  if (action === "claim-challenge") {
+    const challengeId = button.dataset.challengeId;
+    if (challengeId) {
+      await apiJson(`/api/challenges/${encodeURIComponent(challengeId)}/claim`, { method: "POST" });
+      await refreshState();
+    }
+  }
+
+  if (action === "open-chest") {
+    const result = await apiJson("/api/gamification/chest", { method: "POST" });
+    state.chest.lastReward = result.reward ?? state.chest.lastReward;
+    await refreshState();
+  }
+
+  if (action === "complete-task") {
+    const task = state.dailyTasks.find((entry) => entry.name === button.dataset.task);
+    if (task && !task.complete) {
+      await apiJson("/api/progress/task-complete", {
+        method: "POST",
+        body: { taskId: task.id ?? task.name },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "buy-streak-freeze") {
+    if (state.progress.credits >= 50) {
+      await apiJson("/api/gamification/streak-freeze", { method: "POST" });
+      await refreshState();
+    }
+  }
+
+  if (action === "buy-cosmetic") {
+    const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
+    if (cosmetic && !cosmetic.owned && state.progress.credits >= cosmetic.cost) {
+      await apiJson("/api/cosmetics/buy", {
+        method: "POST",
+        body: { cosmeticId: cosmetic.id ?? cosmetic.name },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "equip-cosmetic") {
+    const cosmetic = state.cosmetics.find((entry) => entry.name === button.dataset.item);
+    if (cosmetic && cosmetic.owned && !cosmetic.equipped) {
+      await apiJson("/api/cosmetics/equip", {
+        method: "POST",
+        body: { cosmeticId: cosmetic.id ?? cosmetic.name },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "toggle-maintenance") {
+    const next = await apiJson("/api/settings", {
+      method: "PATCH",
+      body: {
+        maintenanceMode: !state.admin.maintenanceMode,
+        announcements: state.admin.announcements,
+      },
+    });
+    state.admin.maintenanceMode = next.maintenanceMode;
+    state.admin.siteHealth = next.maintenanceMode ? "Amber" : "Green";
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Maintenance mode ${state.admin.maintenanceMode ? "enabled" : "disabled"}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "save-announcement") {
+    const input = app.querySelector('[data-field="announcement-input"]');
+    const next = await apiJson("/api/settings", {
+      method: "PATCH",
+      body: {
+        announcements: input?.value ?? state.admin.announcements,
+        maintenanceMode: state.admin.maintenanceMode,
+      },
+    });
+    state.admin.announcements = next.announcements;
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: "Updated homepage announcement" },
+    });
+    await refreshState();
+  }
+
+  if (action === "edit-lesson") {
+    const lessonId = button.dataset.lessonId;
+    const lesson = state.lessons.find((entry) => entry.id === lessonId);
+    if (lesson) {
+      adminLessonEditor = structuredClone(lesson);
+      render();
+    }
+  }
+
+  if (action === "cancel-lesson-edit") {
+    adminLessonEditor = null;
+    render();
+  }
+
+  if (action === "edit-kanji") {
+    const character = button.dataset.kanjiCharacter;
+    const kanji = state.kanjiEntries.find((entry) => entry.character === character);
+    if (kanji) {
+      adminKanjiEditor = buildKanjiEditorDraft(kanji);
+      render();
+    }
+  }
+
+  if (action === "new-kanji") {
+    adminKanjiEditor = buildKanjiEditorDraft();
+    render();
+  }
+
+  if (action === "cancel-kanji-edit") {
+    adminKanjiEditor = null;
+    render();
+  }
+
+  if (action === "save-lesson") {
+    const titleInput = app.querySelector('[data-field="lesson-title"]');
+    const themeInput = app.querySelector('[data-field="lesson-theme"]');
+    const difficultyInput = app.querySelector('[data-field="lesson-difficulty"]');
+    const japaneseInput = app.querySelector('[data-field="lesson-japanese"]');
+    const romajiInput = app.querySelector('[data-field="lesson-romaji"]');
+    const translationInput = app.querySelector('[data-field="lesson-translation"]');
+    const grammarInput = app.querySelector('[data-field="lesson-grammar"]');
+    const grammarPointsInput = app.querySelector('[data-field="lesson-grammar-points"]');
+    const dialogueLinesInput = app.querySelector('[data-field="lesson-dialogue-lines"]');
+    const exercisesInput = app.querySelector('[data-field="lesson-exercises"]');
+    const scenesInput = app.querySelector('[data-field="lesson-scenes"]');
+    const mediaInput = app.querySelector('[data-field="lesson-media"]');
+    const popCultureNotesInput = app.querySelector('[data-field="lesson-pop-culture-notes"]');
+    const kanjiBreakdownsInput = app.querySelector('[data-field="lesson-kanji-breakdowns"]');
+    const lessonGoalsInput = app.querySelector('[data-field="lesson-goals"]');
+    const referenceTagsInput = app.querySelector('[data-field="lesson-reference-tags"]');
+    const title = titleInput?.value?.trim();
+    if (!title && !adminLessonEditor) {
+      return;
+    }
+    const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "custom";
+    const baseLesson = buildLesson(title || adminLessonEditor?.title || "New Lesson", theme);
+    const parseCollection = (value, fallback) => {
+      if (!value) return fallback;
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const payload = {
+      ...baseLesson,
+      id: adminLessonEditor?.id ?? baseLesson.id,
+      title: title || adminLessonEditor?.title || baseLesson.title,
+      theme,
+      difficulty: difficultyInput?.value?.trim() || adminLessonEditor?.difficulty || baseLesson.difficulty,
+      japanese: japaneseInput?.value?.trim() || adminLessonEditor?.japanese || baseLesson.japanese,
+      romaji: romajiInput?.value?.trim() || adminLessonEditor?.romaji || baseLesson.romaji,
+      translation: translationInput?.value?.trim() || adminLessonEditor?.translation || baseLesson.translation,
+      grammar: grammarInput?.value?.trim() || adminLessonEditor?.grammar || baseLesson.grammar,
+      grammarPoints: parseCollection(grammarPointsInput?.value, adminLessonEditor?.grammarPoints ?? baseLesson.grammarPoints),
+      dialogueLines: parseCollection(dialogueLinesInput?.value, adminLessonEditor?.dialogueLines ?? baseLesson.dialogueLines),
+      exercises: parseCollection(exercisesInput?.value, adminLessonEditor?.exercises ?? baseLesson.exercises),
+      scenes: parseCollection(scenesInput?.value, adminLessonEditor?.scenes ?? baseLesson.scenes),
+      media: parseCollection(mediaInput?.value, adminLessonEditor?.media ?? baseLesson.media),
+      popCultureNotes: parseCollection(popCultureNotesInput?.value, adminLessonEditor?.popCultureNotes ?? baseLesson.popCultureNotes),
+      kanjiBreakdowns: parseCollection(kanjiBreakdownsInput?.value, adminLessonEditor?.kanjiBreakdowns ?? baseLesson.kanjiBreakdowns),
+      lessonGoals: parseCollection(lessonGoalsInput?.value, adminLessonEditor?.lessonGoals ?? baseLesson.lessonGoals),
+      referenceTags: parseCollection(referenceTagsInput?.value, adminLessonEditor?.referenceTags ?? baseLesson.referenceTags),
+    };
+    if (adminLessonEditor?.id) {
+      await apiJson(`/api/lessons/${encodeURIComponent(adminLessonEditor.id)}`, {
+        method: "PATCH",
+        body: payload,
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Updated lesson: ${payload.title}` },
+      });
+    } else {
+      await apiJson("/api/lessons", {
+        method: "POST",
+        body: payload,
+      });
+      await apiJson("/api/gamification/award", {
+        method: "POST",
+        body: { source: "lesson-create", delta: { xp: 25, credits: 0, streak: 0 } },
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Added lesson: ${payload.title}` },
+      });
+    }
+    adminLessonEditor = null;
+    await refreshState();
+  }
+
+  if (action === "save-kanji") {
+    const wasEditing = Boolean(adminKanjiEditor?.id);
+    const characterInput = app.querySelector('[data-field="kanji-character"]');
+    const meaningInput = app.querySelector('[data-field="kanji-meaning"]');
+    const onYomiInput = app.querySelector('[data-field="kanji-on-yomi"]');
+    const kunYomiInput = app.querySelector('[data-field="kanji-kun-yomi"]');
+    const groupNameInput = app.querySelector('[data-field="kanji-group-name"]');
+    const difficultyInput = app.querySelector('[data-field="kanji-difficulty"]');
+    const strokeCountInput = app.querySelector('[data-field="kanji-stroke-count"]');
+    const strokeOrderSourceInput = app.querySelector('[data-field="kanji-stroke-order-source"]');
+    const examplesInput = app.querySelector('[data-field="kanji-examples"]');
+    const radicalsInput = app.querySelector('[data-field="kanji-radicals"]');
+    const relatedInput = app.querySelector('[data-field="kanji-related"]');
+    const character = characterInput?.value?.trim();
+    if (!character) {
+      window.alert("Enter a kanji character before saving.");
+      return;
+    }
+    const payload = {
+      id: adminKanjiEditor?.id ?? `kanji-${character}`,
+      character,
+      meaning: meaningInput?.value?.trim() || character,
+      onYomi: onYomiInput?.value?.trim() || "",
+      kunYomi: kunYomiInput?.value?.trim() || "",
+      examples: parseLineList(examplesInput?.value, adminKanjiEditor?.examples ?? []),
+      radicals: parseLineList(radicalsInput?.value, adminKanjiEditor?.radicals ?? []),
+      strokeCount: Number(strokeCountInput?.value ?? adminKanjiEditor?.strokeCount ?? 0) || 0,
+      strokeOrderSource: strokeOrderSourceInput?.value?.trim() || adminKanjiEditor?.strokeOrderSource || "",
+      groupName: groupNameInput?.value?.trim() || adminKanjiEditor?.groupName || "",
+      difficulty: difficultyInput?.value?.trim() || adminKanjiEditor?.difficulty || "N5",
+      relatedKanji: parseLineList(relatedInput?.value, adminKanjiEditor?.relatedKanji ?? []),
+      source: adminKanjiEditor?.source ?? "manual",
+    };
+    await apiJson("/api/kanji/import", {
+      method: "POST",
+      body: { entries: [payload] },
+    });
+    adminKanjiEditor = null;
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `${wasEditing ? "Updated" : "Added"} kanji entry: ${payload.character}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "generate-lesson-draft") {
+    const titleInput = app.querySelector('[data-field="lesson-title"]');
+    const themeInput = app.querySelector('[data-field="lesson-theme"]');
+    const title = titleInput?.value?.trim() || "New Lesson";
+    const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
+    adminLessonEditor = buildLessonDraft(title, theme);
+    render();
+  }
+
+  if (action === "generate-lesson-pack") {
+    const titleInput = app.querySelector('[data-field="lesson-pack-title"]');
+    const themeInput = app.querySelector('[data-field="lesson-theme"]');
+    const countInput = app.querySelector('[data-field="lesson-pack-count"]');
+    const importInput = app.querySelector('[data-field="lesson-import-json"]');
+    const title = titleInput?.value?.trim() || adminLessonEditor?.title || "New Lesson Pack";
+    const theme = themeInput?.value?.trim() || adminLessonEditor?.theme || "travel";
+    const count = Number(countInput?.value ?? 3) || 3;
+    const lessons = buildLessonPack(title, theme, count);
+    if (importInput) {
+      importInput.value = JSON.stringify(lessons, null, 2);
+    }
+    const result = await apiJson("/api/lessons/import", {
+      method: "POST",
+      body: { lessons },
+    });
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Generated lesson pack: ${result.imported} lessons` },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-lessons") {
+    const importInput = app.querySelector('[data-field="lesson-import-json"]');
+    const raw = importInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      window.alert("Lesson import JSON is not valid.");
+      return;
+    }
+    const result = await apiJson("/api/lessons/import", {
+      method: "POST",
+      body: Array.isArray(parsed) ? { lessons: parsed } : parsed,
+    });
+    if (importInput) {
+      importInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Imported lessons: ${result.imported}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "queue-content-review") {
+    const noteInput = app.querySelector('[data-field="content-review-note"]');
+    const note = noteInput?.value?.trim() || "Manually queued from admin panel";
+    const lesson = adminLessonEditor ?? state.lessons.find((entry) => entry.id === state.activeLessonId) ?? state.lessons[0];
+    if (!lesson) {
+      return;
+    }
+    await apiJson("/api/admin/content-review", {
+      method: "POST",
+      body: {
+        itemType: "lesson",
+        itemId: lesson.id,
+        notes: note,
+        source: adminLessonEditor?.id ? "lesson-edit" : "manual",
+      },
+    });
+    if (noteInput) {
+      noteInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Queued lesson review: ${lesson.id}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-dictionary") {
+    const dictionaryInput = app.querySelector('[data-field="dictionary-import-json"]');
+    const raw = dictionaryInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      window.alert("Dictionary import JSON is not valid.");
+      return;
+    }
+    const result = await apiJson("/api/dictionary/import", {
+      method: "POST",
+      body: Array.isArray(parsed) ? { entries: parsed } : parsed,
+    });
+    if (dictionaryInput) {
+      dictionaryInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Imported dictionary entries: ${result.imported}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-kanji") {
+    const kanjiInput = app.querySelector('[data-field="kanji-import-json"]');
+    const raw = kanjiInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      window.alert("Kanji import JSON is not valid.");
+      return;
+    }
+    const result = await apiJson("/api/kanji/import", {
+      method: "POST",
+      body: Array.isArray(parsed) ? { entries: parsed } : parsed,
+    });
+    if (kanjiInput) {
+      kanjiInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Imported kanji entries: ${result.imported}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-reviews") {
+    const reviewInput = app.querySelector('[data-field="review-import-json"]');
+    const raw = reviewInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      window.alert("Review import JSON is not valid.");
+      return;
+    }
+    const result = await apiJson("/api/reviews/import", {
+      method: "POST",
+      body: Array.isArray(parsed) ? { reviews: parsed } : parsed,
+    });
+    if (reviewInput) {
+      reviewInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Imported review items: ${result.imported}` },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-dataset") {
+    const datasetInput = app.querySelector('[data-field="dataset-import-json"]');
+    const datasetFileInput = app.querySelector('[data-field="dataset-import-file"]');
+    const file = datasetFileInput?.files?.[0] ?? null;
+    const raw = file ? await file.text() : datasetInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    const result = await apiJson("/api/datasets/import", {
+      method: "POST",
+      body: { bundle: raw, filename: file?.name ?? "" },
+    });
+    if (datasetInput) {
+      datasetInput.value = "";
+    }
+    if (datasetFileInput) {
+      datasetFileInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: {
+        entry: `Imported dataset bundle: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
+      },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-dataset-url") {
+    const datasetUrlInput = app.querySelector('[data-field="dataset-import-url"]');
+    const sourceUrl = datasetUrlInput?.value?.trim();
+    if (!sourceUrl) {
+      return;
+    }
+    const result = await apiJson("/api/datasets/import-url", {
+      method: "POST",
+      body: { url: sourceUrl },
+    });
+    if (datasetUrlInput) {
+      datasetUrlInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: {
+        entry: `Imported dataset from URL: ${result.dictionaryEntries} dictionary, ${result.kanjiEntries} kanji, ${result.lessons} lessons, ${result.reviewItems} reviews`,
+      },
+    });
+    await refreshState();
+  }
+
+  if (action === "run-ai-playground") {
+    const feature = app.querySelector('[data-field="ai-playground-feature"]')?.value?.trim() || "grammar";
+    const prompt = app.querySelector('[data-field="ai-playground-prompt"]')?.value?.trim() || "Explain よろしくお願いします";
+    const scenario = app.querySelector('[data-field="ai-playground-scenario"]')?.value?.trim() || "restaurant";
+    const title = app.querySelector('[data-field="ai-playground-title"]')?.value?.trim() || "Anime Dialogue";
+    const theme = app.querySelector('[data-field="ai-playground-theme"]')?.value?.trim() || "anime";
+    const result = await apiJson("/api/ai/response", {
+      method: "POST",
+      body: {
+        feature,
+        prompt,
+        context: { scenario, title, theme },
+      },
+    });
+    adminAiPlayground = {
+      feature: result.feature,
+      prompt: result.prompt,
+      provider: result.provider,
+      model: result.model,
+      context: result.context,
+      response: result.response,
+    };
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Ran AI playground: ${feature}` },
+    });
+    render();
+  }
+
+  if (action === "export-backup") {
+    const backupInput = app.querySelector('[data-field="backup-json"]');
+    const snapshot = await apiJson("/api/admin/export");
+    if (backupInput) {
+      backupInput.value = JSON.stringify(snapshot, null, 2);
+      backupInput.focus();
+      backupInput.setSelectionRange(0, backupInput.value.length);
+    }
+  }
+
+  if (action === "export-moderation-history") {
+    const history = await apiJson("/api/admin/content-review-actions?limit=100");
+    const blob = new Blob([JSON.stringify(history, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "moderation-history.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  if (action === "import-moderation-history") {
+    const moderationInput = app.querySelector('[data-field="moderation-import-json"]');
+    const raw = moderationInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      window.alert("Moderation JSON is not valid.");
+      return;
+    }
+    const result = await apiJson("/api/admin/content-review-actions/import", {
+      method: "POST",
+      body: { actions: Array.isArray(parsed) ? parsed : [parsed] },
+    });
+    if (moderationInput) {
+      moderationInput.value = "";
+    }
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: `Imported moderation history: ${result.imported} actions` },
+    });
+    await refreshState();
+  }
+
+  if (action === "import-backup") {
+    const backupInput = app.querySelector('[data-field="backup-json"]');
+    const raw = backupInput?.value?.trim();
+    if (!raw) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      window.alert("Backup JSON is not valid.");
+      return;
+    }
+    await apiJson("/api/admin/import", {
+      method: "POST",
+      body: { state: parsed },
+    });
+    await refreshState();
+  }
+
+  if (action === "delete-lesson") {
+    const lessonId = button.dataset.lessonId;
+    if (lessonId) {
+      await apiJson(`/api/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
+      if (adminLessonEditor?.id === lessonId) {
+        adminLessonEditor = null;
+      }
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Deleted lesson: ${lessonId}` },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "review-content") {
+    const reviewId = button.dataset.reviewId;
+    const status = button.dataset.status;
+    if (reviewId && status) {
+      await apiJson(`/api/admin/content-review/${encodeURIComponent(reviewId)}`, {
+        method: "PATCH",
+        body: {
+          status,
+          notes: `${status} via admin panel`,
+          decisionReason: `${status} via admin panel`,
+        },
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Content review ${status}: ${reviewId}` },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "save-permissions") {
+    const roles = (state.admin.permissions?.roles ?? []).map((role) => {
+      const nameInput = app.querySelector(`[data-field="role-name-${CSS.escape(role.id)}"]`);
+      const permissions = (state.admin.permissions?.permissions ?? [])
+        .filter((permission) => app.querySelector(`[data-field="role-permission-${CSS.escape(role.id)}-${CSS.escape(permission.id)}"]`)?.checked)
+        .map((permission) => permission.name);
+      return {
+        id: role.id,
+        name: nameInput?.value?.trim() || role.name,
+        permissions,
+      };
+    });
+    const result = await apiJson("/api/admin/permissions", {
+      method: "PATCH",
+      body: { roles, permissions: state.admin.permissions?.permissions ?? [] },
+    });
+    permissionDraft = result;
+    await apiJson("/api/audit-log", {
+      method: "POST",
+      body: { entry: "Updated admin permissions" },
+    });
+    await refreshState();
+  }
+
+  if (action === "reload-permissions") {
+    permissionDraft = null;
+    render();
+  }
+
+  if (action === "search-users") {
+    const username = app.querySelector('[data-field="user-filter-username"]')?.value?.trim() ?? "";
+    const email = app.querySelector('[data-field="user-filter-email"]')?.value?.trim() ?? "";
+    const status = app.querySelector('[data-field="user-filter-status"]')?.value?.trim() ?? "";
+    const level = app.querySelector('[data-field="user-filter-level"]')?.value?.trim() ?? "";
+    adminUserFilters = { username, email, status, level };
+    const params = new URLSearchParams();
+    if (username) params.set("username", username);
+    if (email) params.set("email", email);
+    if (status) params.set("status", status);
+    if (level) params.set("level", level);
+    adminUserDirectory = await apiJson(`/api/admin/users?${params.toString()}`);
+    render();
+  }
+
+  if (action === "clear-user-filters") {
+    adminUserFilters = { username: "", email: "", status: "", level: "" };
+    adminUserDirectory = null;
+    render();
+  }
+
+  if (action === "edit-user") {
+    const userId = button.dataset.userId;
+    const user = (state.admin.users ?? []).find((entry) => entry.id === userId)
+      ?? (adminUserDirectory ?? []).find((entry) => entry.id === userId);
+    if (user) {
+      adminUserEditor = structuredClone(user);
+      render();
+    }
+  }
+
+  if (action === "cancel-user-edit") {
+    adminUserEditor = null;
+    render();
+  }
+
+  if (action === "save-user") {
+    const username = app.querySelector('[data-field="user-username"]')?.value?.trim();
+    const email = app.querySelector('[data-field="user-email"]')?.value?.trim();
+    const level = Number(app.querySelector('[data-field="user-level"]')?.value ?? 1);
+    const status = app.querySelector('[data-field="user-status"]')?.value?.trim() || "active";
+    const credits = Number(app.querySelector('[data-field="user-credits"]')?.value ?? 0);
+    const streak = Number(app.querySelector('[data-field="user-streak"]')?.value ?? 0);
+    const payload = {
+      id: adminUserEditor?.id || undefined,
+      username: username || adminUserEditor?.username || "new-user",
+      email: email || adminUserEditor?.email || "new-user@example.com",
+      level: Number.isFinite(level) ? level : 1,
+      status,
+      credits: Number.isFinite(credits) ? credits : 0,
+      streak: Number.isFinite(streak) ? streak : 0,
+    };
+    if (adminUserEditor?.id) {
+      await apiJson(`/api/admin/users/${encodeURIComponent(adminUserEditor.id)}`, {
+        method: "PATCH",
+        body: payload,
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Updated user: ${payload.username}` },
+      });
+    } else {
+      await apiJson("/api/admin/users", {
+        method: "POST",
+        body: payload,
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Created user: ${payload.username}` },
+      });
+    }
+    adminUserEditor = null;
+    adminUserDirectory = null;
+    await refreshState();
+  }
+
+  if (action === "toggle-user-status") {
+    const userId = button.dataset.userId;
+    const status = button.dataset.status;
+    if (userId && status) {
+      await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: { status },
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `User ${userId} marked ${status}` },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "adjust-user-credits") {
+    const userId = button.dataset.userId;
+    const delta = Number(button.dataset.delta || 0);
+    const user = state.admin.users?.find((entry) => entry.id === userId);
+    if (user && userId && delta) {
+      await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: { credits: Math.max(0, user.credits + delta) },
+      });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Adjusted credits for ${user.username} by ${delta}` },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "delete-user") {
+    const userId = button.dataset.userId;
+    if (userId) {
+      await apiJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+      await apiJson("/api/audit-log", {
+        method: "POST",
+        body: { entry: `Deleted user ${userId}` },
+      });
+      await refreshState();
+    }
+  }
+
+  if (action === "reset-database") {
+    await apiJson("/api/admin/reset", { method: "POST" });
+    await refreshState();
+  }
+
+  if (action === "admin-login") {
+    const username = app.querySelector('[data-field="admin-username"]')?.value?.trim() || "admin";
+    const password = app.querySelector('[data-field="admin-password"]')?.value?.trim() || "fieldguide123";
+    const response = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (response.ok) {
+      state = mergeState(state, await response.json());
+    } else {
+      window.alert("Admin sign-in failed.");
+    }
+    await refreshState();
+  }
+
+  if (action === "admin-logout") {
+    await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+    await refreshState();
+  }
 }
 
 function activeLessonPreview() {
@@ -4036,6 +4113,8 @@ function createSpeechRecognition() {
 }
 
 async function refreshState() {
+  // Land any waiting save first, otherwise the reload would wipe the change.
+  await settlePendingSave();
   state = await loadState();
   systemStatus = await loadSystemStatus();
   render();

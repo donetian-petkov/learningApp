@@ -4,7 +4,7 @@ Local-first Japanese learning MVP focused on pop culture modules, SQLite persist
 
 ## Screenshots
 
-The interface is a dark, card-based layout with an icon navigation bar, icon toggles for furigana, romaji and translation, and illustrated covers for each lesson theme. On phones the navigation moves to a bottom tab bar and the header stays pinned at the top.
+The interface is a dark, card-based layout with an icon navigation bar, icon toggles for furigana, romaji and translation, and illustrated covers for each lesson theme. Each lesson is split into steps (overview, scene, words and kanji, grammar, exercises, notes). On phones the navigation moves to a bottom tab bar and the header stays pinned at the top.
 
 ### Desktop
 
@@ -78,7 +78,7 @@ npm run check
 - Pop-culture lesson content for anime dialogue, food, samurai/history, manga, daily life, and school/workplace themes
 - Furigana, romaji, and translation toggles
 - Lesson dialogue scenes, grammar points, exercises, bookmarks, notes, and mastery checklist
-- Review queues for vocabulary and kanji with SM-2 scheduling
+- Review queues for vocabulary and kanji with SM-2 scheduling, with keyboard shortcuts on the flashcard (Space to reveal, 1–4 to grade, arrow keys to move)
 - Saved study deck for bookmarked words and kanji
 - XP, credits, achievements, streaks, streak freezes, daily tasks, cosmetics, and reward chests
 - Lesson import, dictionary import, kanji import, review import, and dataset bundle import
@@ -86,6 +86,10 @@ npm run check
 - Browser TTS with local system TTS fallback
 - Local Whisper-backed transcription when configured
 - The default seed starts with lesson content only; sample progress and fake users are not preloaded
+
+## Security notes
+
+The local server only hands out the files the browser needs (the page, its scripts, styles and the README screenshots). The SQLite database, backups, server code and git data are never served, even to the local machine.
 
 ## Data storage
 

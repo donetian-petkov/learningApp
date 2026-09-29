@@ -2,7 +2,9 @@ import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extname, join, normalize } from "node:path";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createStorageAdapter } from "./db.mjs";
@@ -23,6 +25,20 @@ const mimeTypes = {
   ".mjs": "text/javascript; charset=utf-8",
 };
 
+// Only the files the browser actually needs are served. Everything else under the
+// project folder (the SQLite database, backups, server code, .git) stays private.
+const publicFiles = new Set([
+  "/index.html",
+  "/app.js",
+  "/icons.js",
+  "/shared.mjs",
+  "/seed-data.mjs",
+  "/styles.css",
+]);
+const publicPrefixes = ["/docs/screenshots/"];
+const compressibleTypes = new Set([".html", ".css", ".js", ".mjs", ".json", ".svg"]);
+const staticCache = new Map();
+
 const handleApi = store ? createApiHandler(store) : null;
 
 if (store) {
@@ -32,7 +48,7 @@ if (store) {
       try {
         await handleApi(req, res, url);
       } catch (error) {
-        respondJson(res, 500, {
+        respondJson(res, error?.statusCode ?? 500, {
           error: error instanceof Error ? error.message : "Unknown server error",
         });
       }
@@ -657,39 +673,83 @@ export async function importDatasetFromUrl(store, sourceUrl, options = {}) {
   };
 }
 
-async function serveStatic(req, res, pathname) {
-  const urlPath = pathname === "/" ? "/index.html" : pathname;
-  const safePath = normalize(decodeURIComponent(urlPath)).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = join(root, safePath);
+export async function serveStatic(req, res, pathname) {
+  let urlPath = pathname === "/" ? "/index.html" : pathname;
+  try {
+    urlPath = normalize(decodeURIComponent(urlPath)).replaceAll("\\", "/");
+  } catch {
+    urlPath = "/index.html";
+  }
+  const isPublic = publicFiles.has(urlPath)
+    || (publicPrefixes.some((prefix) => urlPath.startsWith(prefix)) && !urlPath.includes(".."));
+  // Unknown paths fall back to the app shell so client-side routes still load.
+  // Anything that looks like a file but isn't on the list is a plain 404.
+  if (!isPublic && extname(urlPath) && extname(urlPath) !== ".html") {
+    respondJson(res, 404, { error: "Not found" });
+    return;
+  }
+  const servedPath = isPublic ? urlPath : "/index.html";
 
   try {
-    const data = await readFile(filePath);
-    res.writeHead(200, {
-      "content-type": mimeTypes[extname(filePath)] ?? "application/octet-stream",
-      "cache-control": "no-store",
-    });
-    res.end(data);
-  } catch {
-    try {
-      const data = await readFile(join(root, "index.html"));
-      res.writeHead(200, {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-      });
-      res.end(data);
-    } catch (error) {
-      respondJson(res, 500, {
-        error: error instanceof Error ? error.message : "Unable to load app",
-      });
+    const file = await loadStaticFile(servedPath);
+    if (req.headers?.["if-none-match"] === file.etag) {
+      res.writeHead(304, { etag: file.etag, "cache-control": "no-cache" });
+      res.end();
+      return;
     }
+    const acceptsGzip = /\bgzip\b/.test(req.headers?.["accept-encoding"] ?? "");
+    const useGzip = acceptsGzip && file.gzipped;
+    res.writeHead(200, {
+      "content-type": file.type,
+      "cache-control": "no-cache",
+      etag: file.etag,
+      vary: "accept-encoding",
+      ...(useGzip ? { "content-encoding": "gzip" } : {}),
+    });
+    res.end(req.method === "HEAD" ? undefined : useGzip ? file.gzipped : file.data);
+  } catch (error) {
+    if (error?.code === "ENOENT" && servedPath !== "/index.html") {
+      respondJson(res, 404, { error: "Not found" });
+      return;
+    }
+    respondJson(res, 500, {
+      error: error instanceof Error ? error.message : "Unable to load app",
+    });
   }
+}
+
+// Files are re-read only when they change on disk, and compressed once per change.
+async function loadStaticFile(urlPath) {
+  const filePath = join(root, urlPath);
+  const { mtimeMs, size } = await stat(filePath);
+  const cached = staticCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached;
+  const data = await readFile(filePath);
+  const extension = extname(filePath);
+  const entry = {
+    mtimeMs,
+    size,
+    data,
+    type: mimeTypes[extension] ?? "application/octet-stream",
+    etag: `"${createHash("sha1").update(data).digest("base64url")}"`,
+    gzipped: compressibleTypes.has(extension) && data.length > 1024 ? gzipSync(data) : null,
+  };
+  staticCache.set(filePath, entry);
+  return entry;
 }
 
 async function readJson(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const error = new Error("Request body is not valid JSON");
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 async function readBuffer(req) {

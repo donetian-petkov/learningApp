@@ -1258,3 +1258,23 @@ code {
     transition: none !important;
   }
 }
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: 600 0.78em/1.5 Inter, system-ui, sans-serif;
+  text-align: center;
+}
+
+/* Shortcuts only matter with a keyboard, so hide the hint on touch screens. */
+@media (hover: none) {
+  .shortcut-hint {
+    display: none;
+  }
+}
