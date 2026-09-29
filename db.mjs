@@ -2688,7 +2688,7 @@ export class SqliteStorageAdapter {
 
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      this.replaceMirrorTables(next);
+      this.replaceMirrorTables(next, current);
 
       if (xpDelta !== 0) {
         this.db.prepare("INSERT INTO xp_events (source, amount, created_at) VALUES (?, ?, ?)").run(
@@ -2748,32 +2748,34 @@ export class SqliteStorageAdapter {
     return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
   }
 
-  replaceMirrorTables(snapshot) {
-    this.db.exec(`
-      DELETE FROM app_state;
-      DELETE FROM progress_state;
-      DELETE FROM lessons;
-      DELETE FROM lesson_vocab;
-      DELETE FROM lesson_kanji;
-      DELETE FROM lesson_grammar;
-      DELETE FROM lesson_dialogue_lines;
-      DELETE FROM exercise_items;
-      DELETE FROM kanji_entries;
-      DELETE FROM achievements;
-      DELETE FROM user_achievements;
-      DELETE FROM daily_tasks;
-      DELETE FROM task_completions;
-      DELETE FROM streak_state;
-      DELETE FROM cosmetics;
-      DELETE FROM user_cosmetics;
-      DELETE FROM site_settings;
-      DELETE FROM content_review_queue;
-      DELETE FROM content_review_actions;
-      DELETE FROM dataset_imports;
-      DELETE FROM users;
-      DELETE FROM challenge_progress;
-      DELETE FROM challenge_definitions;
-    `);
+  // Writes a snapshot into the tables. Given the previously stored snapshot, sections whose
+  // data is unchanged are skipped: most saves only move the current tab or a toggle, and
+  // rewriting every lesson, kanji and review for that was most of the cost of a save.
+  replaceMirrorTables(snapshot, previous = null) {
+    const changed = (...paths) => !previous || paths.some((path) => {
+      const read = (source) => path.split(".").reduce((value, key) => value?.[key], source);
+      return toJson(read(snapshot) ?? null) !== toJson(read(previous) ?? null);
+    });
+    const lessonsChanged = changed("lessons", "kanjiEntries", "kanjiReviews");
+    // Deleting lessons clears each review card's lesson link, so reviews are rewritten with them.
+    const reviewsChanged = lessonsChanged || changed("reviews", "activeLessonId");
+    const achievementsChanged = changed("achievements");
+    const tasksChanged = changed("dailyTasks");
+    const cosmeticsChanged = changed("cosmetics");
+    const adminChanged = changed("admin.announcements", "admin.maintenanceMode", "admin.users", "admin.contentReviewQueue", "admin.datasetImports", "admin.moderationActions");
+    const challengesChanged = changed("challenges", "admin.challenges");
+
+    this.db.exec("DELETE FROM app_state; DELETE FROM progress_state; DELETE FROM streak_state;");
+    if (lessonsChanged) {
+      this.db.exec("DELETE FROM lessons; DELETE FROM lesson_vocab; DELETE FROM lesson_kanji; DELETE FROM lesson_grammar; DELETE FROM lesson_dialogue_lines; DELETE FROM exercise_items; DELETE FROM kanji_entries;");
+    }
+    if (achievementsChanged) this.db.exec("DELETE FROM achievements; DELETE FROM user_achievements;");
+    if (tasksChanged) this.db.exec("DELETE FROM daily_tasks; DELETE FROM task_completions;");
+    if (cosmeticsChanged) this.db.exec("DELETE FROM cosmetics; DELETE FROM user_cosmetics;");
+    if (adminChanged) {
+      this.db.exec("DELETE FROM site_settings; DELETE FROM content_review_queue; DELETE FROM content_review_actions; DELETE FROM dataset_imports; DELETE FROM users;");
+    }
+    if (challengesChanged) this.db.exec("DELETE FROM challenge_progress; DELETE FROM challenge_definitions;");
 
     this.db.prepare(
       "INSERT INTO app_state (id, view, active_lesson_id, toggles_json, roleplay_json, tutor_json, chest_json) VALUES (1, ?, ?, ?, ?, ?, ?)"
@@ -2807,351 +2809,369 @@ export class SqliteStorageAdapter {
       snapshot.progress.listeningExercises
     );
 
-    snapshot.lessons.forEach((lesson, orderIndex) => {
-      this.db.prepare(
-        "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, media_json, lesson_goals_json, reference_tags_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        lesson.id,
-        lesson.title,
-        lesson.theme,
-        lesson.difficulty,
-        lesson.japanese,
-        lesson.romaji,
-        lesson.translation,
-        lesson.grammar,
-        toJson(lesson.scenes ?? []),
-        toJson(lesson.popCultureNotes ?? []),
-        toJson(lesson.kanjiBreakdowns ?? []),
-        toJson(lesson.media ?? []),
-        toJson(lesson.lessonGoals ?? []),
-        toJson(lesson.referenceTags ?? []),
-        orderIndex
-      );
-      lesson.vocab.forEach((item, vocabIndex) => {
-        this.db.prepare("INSERT INTO lesson_vocab (lesson_id, word, kana, meaning, order_index) VALUES (?, ?, ?, ?, ?)")
-          .run(lesson.id, item.word, item.kana, item.meaning, vocabIndex);
-      });
-      lesson.kanji.forEach((kanji, kanjiIndex) => {
-        this.db.prepare("INSERT INTO lesson_kanji (lesson_id, kanji, order_index) VALUES (?, ?, ?)")
-          .run(lesson.id, kanji, kanjiIndex);
-      });
-      const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
-      const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
-      const exercises = lessonExerciseRows(lesson.id, lesson.exercises, fallbackMaterials.exercises);
-      const dialogueLines = Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length
-        ? lesson.dialogueLines.map((line, lineIndex) => ({
-          speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
-          text: String(line?.text ?? "").trim(),
-        }))
-        : buildLessonDialogueLines(lesson);
-      const scenes = Array.isArray(lesson.scenes) && lesson.scenes.length ? lesson.scenes.map(normalizeScene) : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
-      const popCultureNotes = Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length ? lesson.popCultureNotes.map(normalizePopCultureNote) : buildPopCultureNotes(lesson.title, lesson.theme);
-      const kanjiBreakdowns = Array.isArray(lesson.kanjiBreakdowns) && lesson.kanjiBreakdowns.length ? lesson.kanjiBreakdowns.map(normalizeKanjiBreakdown) : buildKanjiBreakdowns(lesson.kanji, lesson.title, lesson.theme, lesson.vocab);
-      grammarPoints.forEach((point, grammarIndex) => {
-        this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
-          .run(lesson.id, point.title, point.explanation, point.example, grammarIndex);
-      });
-      dialogueLines.forEach((line, dialogueIndex) => {
-        this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
-          .run(lesson.id, line.speaker, line.text, dialogueIndex);
-      });
-      exercises.forEach((exercise, exerciseIndex) => {
+    if (lessonsChanged) {
+      snapshot.lessons.forEach((lesson, orderIndex) => {
         this.db.prepare(
-          "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO lessons (id, title, theme, difficulty, japanese, romaji, translation, grammar, scenes_json, pop_culture_notes_json, kanji_breakdowns_json, media_json, lesson_goals_json, reference_tags_json, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
-          exercise.id || `${lesson.id}-exercise-${exerciseIndex + 1}`,
           lesson.id,
-          exercise.type,
-          exercise.prompt,
-          toJson(exercise.choices ?? []),
-          exercise.answer,
-          exercise.explanation,
-          exerciseIndex
+          lesson.title,
+          lesson.theme,
+          lesson.difficulty,
+          lesson.japanese,
+          lesson.romaji,
+          lesson.translation,
+          lesson.grammar,
+          toJson(lesson.scenes ?? []),
+          toJson(lesson.popCultureNotes ?? []),
+          toJson(lesson.kanjiBreakdowns ?? []),
+          toJson(lesson.media ?? []),
+          toJson(lesson.lessonGoals ?? []),
+          toJson(lesson.referenceTags ?? []),
+          orderIndex
         );
+        lesson.vocab.forEach((item, vocabIndex) => {
+          this.db.prepare("INSERT INTO lesson_vocab (lesson_id, word, kana, meaning, order_index) VALUES (?, ?, ?, ?, ?)")
+            .run(lesson.id, item.word, item.kana, item.meaning, vocabIndex);
+        });
+        lesson.kanji.forEach((kanji, kanjiIndex) => {
+          this.db.prepare("INSERT INTO lesson_kanji (lesson_id, kanji, order_index) VALUES (?, ?, ?)")
+            .run(lesson.id, kanji, kanjiIndex);
+        });
+        const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
+        const grammarPoints = lesson.grammarPoints?.length ? lesson.grammarPoints.map(normalizeGrammarPoint) : fallbackMaterials.grammarPoints;
+        const exercises = lessonExerciseRows(lesson.id, lesson.exercises, fallbackMaterials.exercises);
+        const dialogueLines = Array.isArray(lesson.dialogueLines) && lesson.dialogueLines.length
+          ? lesson.dialogueLines.map((line, lineIndex) => ({
+            speaker: String(line?.speaker ?? `Speaker ${lineIndex + 1}`).trim() || `Speaker ${lineIndex + 1}`,
+            text: String(line?.text ?? "").trim(),
+          }))
+          : buildLessonDialogueLines(lesson);
+        const scenes = Array.isArray(lesson.scenes) && lesson.scenes.length ? lesson.scenes.map(normalizeScene) : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
+        const popCultureNotes = Array.isArray(lesson.popCultureNotes) && lesson.popCultureNotes.length ? lesson.popCultureNotes.map(normalizePopCultureNote) : buildPopCultureNotes(lesson.title, lesson.theme);
+        const kanjiBreakdowns = Array.isArray(lesson.kanjiBreakdowns) && lesson.kanjiBreakdowns.length ? lesson.kanjiBreakdowns.map(normalizeKanjiBreakdown) : buildKanjiBreakdowns(lesson.kanji, lesson.title, lesson.theme, lesson.vocab);
+        grammarPoints.forEach((point, grammarIndex) => {
+          this.db.prepare("INSERT INTO lesson_grammar (lesson_id, title, explanation, example, order_index) VALUES (?, ?, ?, ?, ?)")
+            .run(lesson.id, point.title, point.explanation, point.example, grammarIndex);
+        });
+        dialogueLines.forEach((line, dialogueIndex) => {
+          this.db.prepare("INSERT INTO lesson_dialogue_lines (lesson_id, speaker, text, order_index) VALUES (?, ?, ?, ?)")
+            .run(lesson.id, line.speaker, line.text, dialogueIndex);
+        });
+        exercises.forEach((exercise, exerciseIndex) => {
+          this.db.prepare(
+            "INSERT INTO exercise_items (id, lesson_id, type, prompt, choices_json, answer, explanation, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+          ).run(
+            exercise.id || `${lesson.id}-exercise-${exerciseIndex + 1}`,
+            lesson.id,
+            exercise.type,
+            exercise.prompt,
+            toJson(exercise.choices ?? []),
+            exercise.answer,
+            exercise.explanation,
+            exerciseIndex
+          );
+        });
+        this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?")
+          .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), toJson(lesson.media ?? []), toJson(lesson.lessonGoals ?? []), toJson(lesson.referenceTags ?? []), lesson.id);
       });
-      this.db.prepare("UPDATE lessons SET scenes_json = ?, pop_culture_notes_json = ?, kanji_breakdowns_json = ?, media_json = ?, lesson_goals_json = ?, reference_tags_json = ? WHERE id = ?")
-        .run(toJson(scenes), toJson(popCultureNotes), toJson(kanjiBreakdowns), toJson(lesson.media ?? []), toJson(lesson.lessonGoals ?? []), toJson(lesson.referenceTags ?? []), lesson.id);
-    });
 
-    const kanjiSet = new Map();
-    snapshot.lessons.forEach((lesson) => {
-      lesson.kanji.forEach((character, index) => {
-        const key = `${lesson.id}-${character}`;
-        if (!kanjiSet.has(key)) {
-          kanjiSet.set(key, {
-            id: `kanji-${lesson.id}-${index + 1}`,
-            character,
-            meaning: lookupKanjiReference(character)?.meaning ?? `${character} used in ${lesson.title}`,
-            onYomi: lookupKanjiReference(character)?.onYomi ?? "",
-            kunYomi: lookupKanjiReference(character)?.kunYomi ?? "",
-            examples: [lesson.japanese, lesson.translation].filter(Boolean),
-          });
+      const kanjiSet = new Map();
+      snapshot.lessons.forEach((lesson) => {
+        lesson.kanji.forEach((character, index) => {
+          const key = `${lesson.id}-${character}`;
+          if (!kanjiSet.has(key)) {
+            kanjiSet.set(key, {
+              id: `kanji-${lesson.id}-${index + 1}`,
+              character,
+              meaning: lookupKanjiReference(character)?.meaning ?? `${character} used in ${lesson.title}`,
+              onYomi: lookupKanjiReference(character)?.onYomi ?? "",
+              kunYomi: lookupKanjiReference(character)?.kunYomi ?? "",
+              examples: [lesson.japanese, lesson.translation].filter(Boolean),
+            });
+          }
+        });
+      });
+      snapshot.kanjiEntries?.forEach((entry, index) => {
+        const normalized = normalizeKanjiEntry(entry, index);
+        kanjiSet.set(normalized.character || normalized.id, normalized);
+      });
+      Array.from(kanjiSet.values()).forEach((entry) => {
+        this.db.prepare(
+          "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, radicals_json, stroke_count, stroke_order_source, group_name, difficulty, related_kanji_json, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), toJson(entry.radicals ?? []), entry.strokeCount ?? 0, entry.strokeOrderSource ?? "", entry.groupName ?? "", entry.difficulty ?? "N5", toJson(entry.relatedKanji ?? []), entry.source ?? "seed");
+      });
+
+      const kanjiReviews = Array.isArray(snapshot.kanjiReviews) && snapshot.kanjiReviews.length
+        ? snapshot.kanjiReviews
+        : Array.from(kanjiSet.values()).map((entry, index) => buildKanjiReviewItem(entry, index));
+      const existingKanjiReviewIds = new Set(
+        this.db.prepare("SELECT id FROM kanji_review_items").all().map((row) => row.id)
+      );
+      kanjiReviews.forEach((item, index) => {
+        const normalized = normalizeKanjiReviewItem(item, index);
+        this.db.prepare(
+          `
+            INSERT INTO kanji_review_items (
+              id, character, prompt, answer, meaning, on_yomi, kun_yomi, examples_json, due, ease,
+              interval_days, repetitions, mistakes, source_entry_id, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(character) DO UPDATE SET
+              id = excluded.id,
+              prompt = excluded.prompt,
+              answer = excluded.answer,
+              meaning = excluded.meaning,
+              on_yomi = excluded.on_yomi,
+              kun_yomi = excluded.kun_yomi,
+              examples_json = excluded.examples_json,
+              due = excluded.due,
+              ease = excluded.ease,
+              interval_days = excluded.interval_days,
+              repetitions = excluded.repetitions,
+              mistakes = excluded.mistakes,
+              source_entry_id = excluded.source_entry_id,
+              source = excluded.source
+          `
+        ).run(
+          normalized.id,
+          normalized.character,
+          normalized.prompt,
+          normalized.answer,
+          normalized.meaning,
+          normalized.onYomi,
+          normalized.kunYomi,
+          toJson(normalized.examples ?? []),
+          normalized.due,
+          normalized.ease,
+          normalized.interval_days,
+          normalized.repetitions,
+          normalized.mistakes,
+          normalized.source_entry_id,
+          normalized.source
+        );
+        existingKanjiReviewIds.delete(normalized.id);
+      });
+      existingKanjiReviewIds.forEach((reviewId) => {
+        this.db.prepare("DELETE FROM kanji_review_items WHERE id = ?").run(reviewId);
+      });
+    }
+
+    if (reviewsChanged) {
+      const existingReviewIds = new Set(
+        this.db.prepare("SELECT id FROM review_items").all().map((row) => row.id)
+      );
+      snapshot.reviews.forEach((item) => {
+        this.db.prepare(
+          `
+            INSERT INTO review_items (id, prompt, answer, meaning, due, ease, interval_days, repetitions, mistakes, source_lesson_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              prompt = excluded.prompt,
+              answer = excluded.answer,
+              meaning = excluded.meaning,
+              due = excluded.due,
+              ease = excluded.ease,
+              interval_days = excluded.interval_days,
+              repetitions = excluded.repetitions,
+              mistakes = excluded.mistakes,
+              source_lesson_id = excluded.source_lesson_id
+          `
+        ).run(
+          item.id,
+          item.prompt,
+          item.answer,
+          item.meaning,
+          item.due,
+          item.ease,
+          item.interval_days ?? 1,
+          item.repetitions ?? 0,
+          item.mistakes ?? 0,
+          item.source_lesson_id ?? snapshot.lessons.find((lesson) => lesson.id === snapshot.activeLessonId)?.id ?? null
+        );
+        existingReviewIds.delete(item.id);
+      });
+      existingReviewIds.forEach((reviewId) => {
+        this.db.prepare("DELETE FROM review_items WHERE id = ?").run(reviewId);
+      });
+    }
+
+    if (achievementsChanged) {
+      snapshot.achievements.forEach((achievement, index) => {
+        const id = `achievement-${index + 1}`;
+        this.db.prepare("INSERT INTO achievements (id, name, description, sort_order) VALUES (?, ?, ?, ?)")
+          .run(id, achievement.name, `${achievement.name} milestone`, index);
+        if (achievement.unlocked) {
+          this.db.prepare("INSERT INTO user_achievements (achievement_id, unlocked_at) VALUES (?, ?)")
+            .run(id, nowIso());
         }
       });
-    });
-    snapshot.kanjiEntries?.forEach((entry, index) => {
-      const normalized = normalizeKanjiEntry(entry, index);
-      kanjiSet.set(normalized.character || normalized.id, normalized);
-    });
-    Array.from(kanjiSet.values()).forEach((entry) => {
-      this.db.prepare(
-        "INSERT OR REPLACE INTO kanji_entries (id, character, meaning, on_yomi, kun_yomi, examples_json, radicals_json, stroke_count, stroke_order_source, group_name, difficulty, related_kanji_json, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(entry.id, entry.character, entry.meaning, entry.onYomi, entry.kunYomi, toJson(entry.examples ?? []), toJson(entry.radicals ?? []), entry.strokeCount ?? 0, entry.strokeOrderSource ?? "", entry.groupName ?? "", entry.difficulty ?? "N5", toJson(entry.relatedKanji ?? []), entry.source ?? "seed");
-    });
+    }
 
-    const kanjiReviews = Array.isArray(snapshot.kanjiReviews) && snapshot.kanjiReviews.length
-      ? snapshot.kanjiReviews
-      : Array.from(kanjiSet.values()).map((entry, index) => buildKanjiReviewItem(entry, index));
-    const existingKanjiReviewIds = new Set(
-      this.db.prepare("SELECT id FROM kanji_review_items").all().map((row) => row.id)
-    );
-    kanjiReviews.forEach((item, index) => {
-      const normalized = normalizeKanjiReviewItem(item, index);
-      this.db.prepare(
-        `
-          INSERT INTO kanji_review_items (
-            id, character, prompt, answer, meaning, on_yomi, kun_yomi, examples_json, due, ease,
-            interval_days, repetitions, mistakes, source_entry_id, source
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(character) DO UPDATE SET
-            id = excluded.id,
-            prompt = excluded.prompt,
-            answer = excluded.answer,
-            meaning = excluded.meaning,
-            on_yomi = excluded.on_yomi,
-            kun_yomi = excluded.kun_yomi,
-            examples_json = excluded.examples_json,
-            due = excluded.due,
-            ease = excluded.ease,
-            interval_days = excluded.interval_days,
-            repetitions = excluded.repetitions,
-            mistakes = excluded.mistakes,
-            source_entry_id = excluded.source_entry_id,
-            source = excluded.source
-        `
-      ).run(
-        normalized.id,
-        normalized.character,
-        normalized.prompt,
-        normalized.answer,
-        normalized.meaning,
-        normalized.onYomi,
-        normalized.kunYomi,
-        toJson(normalized.examples ?? []),
-        normalized.due,
-        normalized.ease,
-        normalized.interval_days,
-        normalized.repetitions,
-        normalized.mistakes,
-        normalized.source_entry_id,
-        normalized.source
-      );
-      existingKanjiReviewIds.delete(normalized.id);
-    });
-    existingKanjiReviewIds.forEach((reviewId) => {
-      this.db.prepare("DELETE FROM kanji_review_items WHERE id = ?").run(reviewId);
-    });
+    if (tasksChanged) {
+      snapshot.dailyTasks.forEach((task, index) => {
+        const id = task.id ?? `task-${index + 1}`;
+        const rewardXp = Number((task.reward.match(/\+(\d+)\s*XP/i) || [0, 0])[1]);
+        const rewardCredits = Number((task.reward.match(/\+(\d+)\s*credits?/i) || [0, 0])[1]);
+        this.db.prepare(
+          "INSERT INTO daily_tasks (id, name, reward, reward_xp, reward_credits, target_count, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(id, task.name, task.reward, rewardXp, rewardCredits, index === 0 ? 1 : 3, index);
+        if (task.complete) {
+          this.db.prepare("INSERT INTO task_completions (task_id, completed_at, date_key) VALUES (?, ?, ?)")
+            .run(id, nowIso(), currentDateKey());
+        }
+      });
+    }
 
-    const existingReviewIds = new Set(
-      this.db.prepare("SELECT id FROM review_items").all().map((row) => row.id)
-    );
-    snapshot.reviews.forEach((item) => {
-      this.db.prepare(
-        `
-          INSERT INTO review_items (id, prompt, answer, meaning, due, ease, interval_days, repetitions, mistakes, source_lesson_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            prompt = excluded.prompt,
-            answer = excluded.answer,
-            meaning = excluded.meaning,
-            due = excluded.due,
-            ease = excluded.ease,
-            interval_days = excluded.interval_days,
-            repetitions = excluded.repetitions,
-            mistakes = excluded.mistakes,
-            source_lesson_id = excluded.source_lesson_id
-        `
-      ).run(
-        item.id,
-        item.prompt,
-        item.answer,
-        item.meaning,
-        item.due,
-        item.ease,
-        item.interval_days ?? 1,
-        item.repetitions ?? 0,
-        item.mistakes ?? 0,
-        item.source_lesson_id ?? snapshot.lessons.find((lesson) => lesson.id === snapshot.activeLessonId)?.id ?? null
-      );
-      existingReviewIds.delete(item.id);
-    });
-    existingReviewIds.forEach((reviewId) => {
-      this.db.prepare("DELETE FROM review_items WHERE id = ?").run(reviewId);
-    });
-
-    snapshot.achievements.forEach((achievement, index) => {
-      const id = `achievement-${index + 1}`;
-      this.db.prepare("INSERT INTO achievements (id, name, description, sort_order) VALUES (?, ?, ?, ?)")
-        .run(id, achievement.name, `${achievement.name} milestone`, index);
-      if (achievement.unlocked) {
-        this.db.prepare("INSERT INTO user_achievements (achievement_id, unlocked_at) VALUES (?, ?)")
-          .run(id, nowIso());
-      }
-    });
-
-    snapshot.dailyTasks.forEach((task, index) => {
-      const id = task.id ?? `task-${index + 1}`;
-      const rewardXp = Number((task.reward.match(/\+(\d+)\s*XP/i) || [0, 0])[1]);
-      const rewardCredits = Number((task.reward.match(/\+(\d+)\s*credits?/i) || [0, 0])[1]);
-      this.db.prepare(
-        "INSERT INTO daily_tasks (id, name, reward, reward_xp, reward_credits, target_count, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(id, task.name, task.reward, rewardXp, rewardCredits, index === 0 ? 1 : 3, index);
-      if (task.complete) {
-        this.db.prepare("INSERT INTO task_completions (task_id, completed_at, date_key) VALUES (?, ?, ?)")
-          .run(id, nowIso(), currentDateKey());
-      }
-    });
-
-    snapshot.cosmetics.forEach((cosmetic, index) => {
-      const id = cosmetic.id ?? `cosmetic-${index + 1}`;
-      this.db.prepare("INSERT INTO cosmetics (id, name, cost, sort_order) VALUES (?, ?, ?, ?)")
-        .run(id, cosmetic.name, cosmetic.cost, index);
-      if (cosmetic.owned) {
-        this.db.prepare("INSERT INTO user_cosmetics (cosmetic_id, owned_at, equipped) VALUES (?, ?, ?)")
-          .run(id, nowIso(), cosmetic.equipped ? 1 : 0);
-      }
-    });
+    if (cosmeticsChanged) {
+      snapshot.cosmetics.forEach((cosmetic, index) => {
+        const id = cosmetic.id ?? `cosmetic-${index + 1}`;
+        this.db.prepare("INSERT INTO cosmetics (id, name, cost, sort_order) VALUES (?, ?, ?, ?)")
+          .run(id, cosmetic.name, cosmetic.cost, index);
+        if (cosmetic.owned) {
+          this.db.prepare("INSERT INTO user_cosmetics (cosmetic_id, owned_at, equipped) VALUES (?, ?, ?)")
+            .run(id, nowIso(), cosmetic.equipped ? 1 : 0);
+        }
+      });
+    }
 
     this.db.prepare("INSERT INTO streak_state (id, current_streak, last_active_date, freeze_count) VALUES (1, ?, ?, ?)")
       .run(snapshot.progress.streak, snapshot.progress.streakLastActiveDate ?? currentDateKey(), Number(snapshot.progress.streakFreezeCount ?? 0));
 
-    this.db.prepare("INSERT INTO site_settings (id, announcements, maintenance_mode) VALUES (1, ?, ?)")
-      .run(snapshot.admin.announcements, snapshot.admin.maintenanceMode ? 1 : 0);
+    if (adminChanged) {
+      this.db.prepare("INSERT INTO site_settings (id, announcements, maintenance_mode) VALUES (1, ?, ?)")
+        .run(snapshot.admin.announcements, snapshot.admin.maintenanceMode ? 1 : 0);
+    }
 
     // The audit log is append-only: entries are written when the action happens, so a
     // state save must not re-insert the copies it was sent (that duplicated them every save).
 
-    snapshot.admin.users.forEach((user, index) => {
-      const normalized = normalizeUser(user, index);
-      this.db.prepare(
-        "INSERT INTO users (id, username, email, level, status, credits, streak, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        normalized.id,
-        normalized.username,
-        normalized.email,
-        normalized.level,
-        normalized.status,
-        normalized.credits,
-        normalized.streak,
-        normalized.createdAt,
-        normalized.updatedAt
-      );
-    });
-
-    const challengeSource = Array.isArray(snapshot.challenges)
-      ? snapshot.challenges
-      : Array.isArray(snapshot.admin?.challenges)
-        ? snapshot.admin.challenges
-        : [];
-    const challenges = challengeSource.map(normalizeChallenge);
-    challenges.forEach((challenge) => {
-      this.db.prepare(
-        "INSERT INTO challenge_definitions (id, title, description, category, target_count, reward_xp, reward_credits) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        challenge.id,
-        challenge.title,
-        challenge.description,
-        challenge.category,
-        challenge.targetCount,
-        challenge.rewardXp,
-        challenge.rewardCredits
-      );
-      this.db.prepare(
-        "INSERT INTO challenge_progress (challenge_id, progress_count, claimed, completed_at, claimed_at) VALUES (?, ?, ?, ?, ?)"
-      ).run(
-        challenge.id,
-        challenge.progress,
-        challenge.claimed ? 1 : 0,
-        challenge.progress >= challenge.targetCount ? nowIso() : null,
-        challenge.claimed ? nowIso() : null
-      );
-    });
-
-    const reviewQueue = snapshot.admin.contentReviewQueue.length
-      ? snapshot.admin.contentReviewQueue
-      : [{
-          id: "content-review-1",
-          itemType: "lesson",
-          itemId: snapshot.lessons[0]?.id ?? "anime-intro",
-          status: "pending",
-          notes: "Seeded review queue",
-        }];
-    reviewQueue.forEach((item) => {
-      this.enqueueContentReviewRow({
-        id: item.id,
-        itemType: item.itemType,
-        itemId: item.itemId,
-        status: item.status,
-        notes: item.notes,
-        source: item.source ?? "seed",
-        createdAt: nowIso(),
+    if (adminChanged) {
+      snapshot.admin.users.forEach((user, index) => {
+        const normalized = normalizeUser(user, index);
+        this.db.prepare(
+          "INSERT INTO users (id, username, email, level, status, credits, streak, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          normalized.id,
+          normalized.username,
+          normalized.email,
+          normalized.level,
+          normalized.status,
+          normalized.credits,
+          normalized.streak,
+          normalized.createdAt,
+          normalized.updatedAt
+        );
       });
-    });
+    }
 
-    (Array.isArray(snapshot.admin?.datasetImports) ? snapshot.admin.datasetImports : []).forEach((item, index) => {
-      this.db.prepare(
-        `
-          INSERT INTO dataset_imports (id, source_type, label, source_uri, counts_json, notes, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            source_type = excluded.source_type,
-            label = excluded.label,
-            source_uri = excluded.source_uri,
-            counts_json = excluded.counts_json,
-            notes = excluded.notes,
-            created_at = excluded.created_at
-        `
-      ).run(
-        item.id ?? `dataset-import-${index + 1}`,
-        item.sourceType ?? "bundle",
-        item.label ?? "Dataset import",
-        item.sourceUri ?? "",
-        toJson(item.counts ?? {}),
-        item.notes ?? "",
-        item.createdAt ?? nowIso()
-      );
-    });
+    if (challengesChanged) {
+      const challengeSource = Array.isArray(snapshot.challenges)
+        ? snapshot.challenges
+        : Array.isArray(snapshot.admin?.challenges)
+          ? snapshot.admin.challenges
+          : [];
+      const challenges = challengeSource.map(normalizeChallenge);
+      challenges.forEach((challenge) => {
+        this.db.prepare(
+          "INSERT INTO challenge_definitions (id, title, description, category, target_count, reward_xp, reward_credits) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          challenge.id,
+          challenge.title,
+          challenge.description,
+          challenge.category,
+          challenge.targetCount,
+          challenge.rewardXp,
+          challenge.rewardCredits
+        );
+        this.db.prepare(
+          "INSERT INTO challenge_progress (challenge_id, progress_count, claimed, completed_at, claimed_at) VALUES (?, ?, ?, ?, ?)"
+        ).run(
+          challenge.id,
+          challenge.progress,
+          challenge.claimed ? 1 : 0,
+          challenge.progress >= challenge.targetCount ? nowIso() : null,
+          challenge.claimed ? nowIso() : null
+        );
+      });
+    }
 
-    (Array.isArray(snapshot.admin?.moderationActions) ? snapshot.admin.moderationActions : []).forEach((item, index) => {
-      this.db.prepare(
-        `
-          INSERT INTO content_review_actions (
-            id, queue_item_id, item_type, item_id, status, decision_reason, reviewed_by, reviewed_at, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            queue_item_id = excluded.queue_item_id,
-            item_type = excluded.item_type,
-            item_id = excluded.item_id,
-            status = excluded.status,
-            decision_reason = excluded.decision_reason,
-            reviewed_by = excluded.reviewed_by,
-            reviewed_at = excluded.reviewed_at,
-            notes = excluded.notes,
-            created_at = excluded.created_at
-        `
-      ).run(
-        item.id ?? index + 1,
-        item.queueItemId ?? "",
-        item.itemType ?? "lesson",
-        item.itemId ?? "",
-        item.status ?? "pending",
-        item.decisionReason ?? "",
-        item.reviewedBy ?? "",
-        item.reviewedAt ?? item.createdAt ?? nowIso(),
-        item.notes ?? "",
-        item.createdAt ?? nowIso()
-      );
-    });
+    if (adminChanged) {
+      const reviewQueue = snapshot.admin.contentReviewQueue.length
+        ? snapshot.admin.contentReviewQueue
+        : [{
+            id: "content-review-1",
+            itemType: "lesson",
+            itemId: snapshot.lessons[0]?.id ?? "anime-intro",
+            status: "pending",
+            notes: "Seeded review queue",
+          }];
+      reviewQueue.forEach((item) => {
+        this.enqueueContentReviewRow({
+          id: item.id,
+          itemType: item.itemType,
+          itemId: item.itemId,
+          status: item.status,
+          notes: item.notes,
+          source: item.source ?? "seed",
+          createdAt: nowIso(),
+        });
+      });
+
+      (Array.isArray(snapshot.admin?.datasetImports) ? snapshot.admin.datasetImports : []).forEach((item, index) => {
+        this.db.prepare(
+          `
+            INSERT INTO dataset_imports (id, source_type, label, source_uri, counts_json, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              source_type = excluded.source_type,
+              label = excluded.label,
+              source_uri = excluded.source_uri,
+              counts_json = excluded.counts_json,
+              notes = excluded.notes,
+              created_at = excluded.created_at
+          `
+        ).run(
+          item.id ?? `dataset-import-${index + 1}`,
+          item.sourceType ?? "bundle",
+          item.label ?? "Dataset import",
+          item.sourceUri ?? "",
+          toJson(item.counts ?? {}),
+          item.notes ?? "",
+          item.createdAt ?? nowIso()
+        );
+      });
+
+      (Array.isArray(snapshot.admin?.moderationActions) ? snapshot.admin.moderationActions : []).forEach((item, index) => {
+        this.db.prepare(
+          `
+            INSERT INTO content_review_actions (
+              id, queue_item_id, item_type, item_id, status, decision_reason, reviewed_by, reviewed_at, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              queue_item_id = excluded.queue_item_id,
+              item_type = excluded.item_type,
+              item_id = excluded.item_id,
+              status = excluded.status,
+              decision_reason = excluded.decision_reason,
+              reviewed_by = excluded.reviewed_by,
+              reviewed_at = excluded.reviewed_at,
+              notes = excluded.notes,
+              created_at = excluded.created_at
+          `
+        ).run(
+          item.id ?? index + 1,
+          item.queueItemId ?? "",
+          item.itemType ?? "lesson",
+          item.itemId ?? "",
+          item.status ?? "pending",
+          item.decisionReason ?? "",
+          item.reviewedBy ?? "",
+          item.reviewedAt ?? item.createdAt ?? nowIso(),
+          item.notes ?? "",
+          item.createdAt ?? nowIso()
+        );
+      });
+    }
   }
 
   // The built-in starter dictionary: a few core words plus every lesson's vocab and kanji.

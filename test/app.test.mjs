@@ -1374,3 +1374,36 @@ test("an emptied dictionary is restored with the starter entries on startup", ()
     cleanupTempStore(temp);
   }
 });
+
+test("state saves skip unchanged sections but still persist real edits", () => {
+  const temp = createTempStore();
+  try {
+    const rowsWritten = () => temp.store.db.prepare("SELECT total_changes() AS n").get().n;
+    const before = rowsWritten();
+
+    // Only a toggle and the tab change: lesson rows are left alone.
+    const toggled = temp.store.getSnapshot();
+    toggled.toggles.romaji = !toggled.toggles.romaji;
+    toggled.view = "review";
+    temp.store.saveAppState(toggled);
+    assert.ok(rowsWritten() - before < 20, `a toggle save wrote ${rowsWritten() - before} rows`);
+    assert.equal(temp.store.getSnapshot().view, "review");
+    assert.equal(temp.store.getSnapshot().toggles.romaji, toggled.toggles.romaji);
+
+    // Edits in each section still land.
+    const edited = temp.store.getSnapshot();
+    edited.lessons[0].title = "Renamed lesson";
+    edited.reviews[0].ease = 1.7;
+    edited.cosmetics[0].owned = true;
+    edited.admin.announcements = "Maintenance tonight";
+    temp.store.saveAppState(edited);
+    const after = temp.store.getSnapshot();
+    assert.equal(after.lessons[0].title, "Renamed lesson");
+    assert.equal(after.reviews.find((item) => item.id === edited.reviews[0].id).ease, 1.7);
+    assert.equal(after.reviews.find((item) => item.id === edited.reviews[0].id).source_lesson_id, edited.reviews[0].source_lesson_id);
+    assert.equal(after.cosmetics[0].owned, true);
+    assert.equal(after.admin.announcements, "Maintenance tonight");
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
