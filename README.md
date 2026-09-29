@@ -4,6 +4,8 @@ Local-first Japanese learning MVP focused on pop culture modules, SQLite persist
 
 ## Screenshots
 
+![A 25-second tour: reading toggles, lesson steps, lesson cards, a review flashcard graded with the keyboard, progress, and the admin screen](docs/screenshots/app-tour.gif)
+
 The interface is a dark, card-based layout with an icon navigation bar, icon toggles for furigana, romaji and translation, and illustrated covers for each lesson theme. Each lesson is split into steps (overview, scene, words and kanji, grammar, exercises, notes). On phones the navigation moves to a bottom tab bar and the header stays pinned at the top.
 
 ### Desktop
