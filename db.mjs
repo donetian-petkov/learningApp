@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
-import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonPack, buildLessonStudyMaterials, buildMediaSlots, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
+import { answerAiFeature, answerTutor, buildKanjiBreakdowns, buildLessonPack, buildLessonStudyMaterials, buildMediaSlots, buildPopCultureNotes, buildRoleplayFollowUp, buildRoleplayTranscript, buildSceneBlueprint, calculateLevel, evaluateLessonExercise, lookupKanjiReference, evaluateListeningAnswer, evaluateSpeakingSubmission, evaluateWritingSubmission, normalizeSentence, sm2Next } from "./shared.mjs";
 
 const DB_PATH = resolve(process.cwd(), "data", "learning-app.sqlite");
 
@@ -123,8 +123,9 @@ function mergeLessonExercises(primaryExercises = [], fallbackExercises = []) {
   const seen = new Set();
   const push = (exercise) => {
     const normalized = normalizeExerciseItem(exercise, merged.length);
+    // Compare by content only: saved exercises are renumbered on write, so their ids never
+    // match the generated fallbacks and including the id let duplicates pile up on every save.
     const signature = [
-      normalized.id,
       normalized.type,
       normalized.prompt,
       normalized.answer,
@@ -1602,9 +1603,9 @@ export class SqliteStorageAdapter {
           kanjiRows.set(key, {
             id: `kanji-${lesson.id}-${index + 1}`,
             character: kanji,
-            meaning: `${kanji} used in ${lesson.title}`,
-            onYomi: "",
-            kunYomi: "",
+            meaning: lookupKanjiReference(kanji)?.meaning ?? `${kanji} used in ${lesson.title}`,
+            onYomi: lookupKanjiReference(kanji)?.onYomi ?? "",
+            kunYomi: lookupKanjiReference(kanji)?.kunYomi ?? "",
             examples: [lesson.japanese, lesson.translation].filter(Boolean),
             source: "seed",
           });
@@ -2907,9 +2908,9 @@ export class SqliteStorageAdapter {
           kanjiSet.set(key, {
             id: `kanji-${lesson.id}-${index + 1}`,
             character,
-            meaning: `${character} used in ${lesson.title}`,
-            onYomi: "",
-            kunYomi: "",
+            meaning: lookupKanjiReference(character)?.meaning ?? `${character} used in ${lesson.title}`,
+            onYomi: lookupKanjiReference(character)?.onYomi ?? "",
+            kunYomi: lookupKanjiReference(character)?.kunYomi ?? "",
             examples: [lesson.japanese, lesson.translation].filter(Boolean),
           });
         }
@@ -3352,7 +3353,16 @@ export class SqliteStorageAdapter {
         const tags = parseJson(lesson.reference_tags_json, []);
         const nextScenes = scenes.length ? scenes : buildSceneBlueprint(lesson.theme, lesson.title, lesson.japanese, lesson.translation, lesson.grammar);
         const nextNotes = notes.length ? notes : buildPopCultureNotes(lesson.title, lesson.theme);
-        const nextBreakdowns = breakdowns.length ? breakdowns : buildKanjiBreakdowns(kanji, lesson.title, lesson.theme, vocab);
+        const nextBreakdowns = (breakdowns.length ? breakdowns : buildKanjiBreakdowns(kanji, lesson.title, lesson.theme, vocab)).map((item) => {
+          const reference = lookupKanjiReference(item?.character);
+          if (!reference) return item;
+          return {
+            ...item,
+            onYomi: item.onYomi || reference.onYomi,
+            kunYomi: item.kunYomi || reference.kunYomi,
+            strokeCount: reference.strokeCount || item.strokeCount,
+          };
+        });
         const fallbackMaterials = buildLessonStudyMaterials(lesson.japanese, lesson.translation, lesson.grammar, lesson.title, lesson.theme);
         const nextExercises = lessonExerciseRows(lesson.id, exercises, fallbackMaterials.exercises);
         if (nextExercises.length !== exercises.length) {
@@ -3772,11 +3782,23 @@ export class SqliteStorageAdapter {
         });
         const derived = buildKanjiBreakdowns([current.character], current.character, current.groupName || current.difficulty || "kanji", []);
         const richer = derived[0] ?? {};
+        // Older databases stored placeholder meanings ("X used in <lesson>"), blank readings and a
+        // stroke count of 1 for lesson kanji; replace those with the reference data when we have it.
+        const reference = lookupKanjiReference(current.character);
+        const placeholderMeaning = !current.meaning || current.meaning.startsWith(`${current.character} used in`);
+        this.db.prepare(
+          "UPDATE kanji_entries SET meaning = ?, on_yomi = ?, kun_yomi = ? WHERE id = ?"
+        ).run(
+          placeholderMeaning && reference?.meaning ? reference.meaning : current.meaning,
+          current.onYomi || reference?.onYomi || "",
+          current.kunYomi || reference?.kunYomi || "",
+          row.id
+        );
         this.db.prepare(
           "UPDATE kanji_entries SET radicals_json = ?, stroke_count = ?, stroke_order_source = ?, group_name = ?, difficulty = ?, related_kanji_json = ? WHERE id = ?"
         ).run(
           toJson(current.radicals?.length ? current.radicals : richer.radicals ?? []),
-          current.strokeCount || richer.strokeCount || 0,
+          reference?.strokeCount || current.strokeCount || richer.strokeCount || 0,
           current.strokeOrderSource || richer.strokeOrderSource || "",
           current.groupName || richer.group || "",
           current.difficulty || richer.difficulty || "N5",

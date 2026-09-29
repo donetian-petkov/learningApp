@@ -977,6 +977,19 @@ test("roleplay follow-up generates a learner turn and reply", () => {
   assert.ok(transcript[2].text.includes("左"));
 });
 
+test("saving app state repeatedly keeps lesson exercise counts stable", () => {
+  const temp = createTempStore();
+  try {
+    const counts = () => temp.store.getSnapshot().lessons.map((lesson) => lesson.exercises.length);
+    const before = counts();
+    temp.store.saveAppState(temp.store.getSnapshot());
+    temp.store.saveAppState(temp.store.getSnapshot());
+    assert.deepEqual(counts(), before);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
 test("lesson exercise evaluation handles multiple choice and translation", () => {
   const choice = evaluateLessonExercise(
     {

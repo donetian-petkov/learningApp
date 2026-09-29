@@ -514,8 +514,30 @@ const KANJI_BREAKDOWN_LIBRARY = {
   楽: { meaning: "fun / music", onYomi: "ガク / ラク", kunYomi: "たの", components: "木 + 白 + 幺", mnemonic: "Music and enjoyment make a scene feel light.", examples: ["楽しみ", "音楽"], lessonContext: "Useful in festival scenes.", radicals: ["木"], strokeCount: 13, strokeOrderSource: "lesson-derived", group: "festival", difficulty: "N5", relatedKanji: ["祭", "友"] },
   交: { meaning: "exchange / mingle", onYomi: "コウ", kunYomi: "まじ", components: "亠 + 八 + 乂", mnemonic: "People crossing paths exchange words.", examples: ["交流", "交わる"], lessonContext: "Useful in friendship scenes.", radicals: ["亠", "儿"], strokeCount: 6, strokeOrderSource: "lesson-derived", group: "friendship", difficulty: "N5", relatedKanji: ["友", "会"] },
   通: { meaning: "go through / commute", onYomi: "ツウ", kunYomi: "とお", components: "辶 + 用", mnemonic: "Movement through a path becomes commuting.", examples: ["通勤", "交通"], lessonContext: "Useful in transit scenes.", radicals: ["辶"], strokeCount: 10, strokeOrderSource: "lesson-derived", group: "transit", difficulty: "N5", relatedKanji: ["駅", "電"] },
+  夜: { meaning: "night", onYomi: "ヤ", kunYomi: "よる / よ", components: "亠 + 亻 + 夕", mnemonic: "A person under the roof as the evening moon rises: night.", examples: ["夜店", "今夜"], lessonContext: "Useful in festival and night-market scenes.", group: "festival" },
+  友: { meaning: "friend", onYomi: "ユウ", kunYomi: "とも", components: "𠂇 + 又", mnemonic: "Two hands reaching toward each other become friends.", examples: ["友達", "友人"], lessonContext: "Useful in friendship scenes.", group: "friendship" },
+  添: { meaning: "attach / add", onYomi: "テン", kunYomi: "そ", components: "氵 + 忝", mnemonic: "Water added alongside something attaches to it.", examples: ["添付", "添える"], lessonContext: "Common in business email attachments.", group: "workplace" },
   案: { meaning: "plan / idea", onYomi: "アン", kunYomi: "", components: "木 + 安", mnemonic: "A safe idea becomes a plan.", examples: ["案内", "案"], lessonContext: "Useful in transit announcements and directions.", radicals: ["木"], strokeCount: 10, strokeOrderSource: "lesson-derived", group: "transit", difficulty: "N5", relatedKanji: ["通", "駅"] },
 };
+
+const KANJI_STROKE_COUNTS = {
+  今: 4, 名: 6, 願: 19, 一: 1, 店: 8, 汁: 5, 武: 8, 行: 6, 示: 5, 本: 5, 真: 10, 無: 12, 電: 13, 車: 7, 毎: 6,
+  確: 15, 資: 13, 料: 10, 授: 11, 業: 13, 宿: 11, 朝: 12, 駅: 14, 歩: 8, 会: 6, 手: 4, 度: 9, 商: 11, 買: 12,
+  祭: 11, 楽: 13, 交: 6, 通: 10, 案: 10, 夜: 8, 友: 4, 添: 11,
+};
+
+// Real meaning, readings and stroke count for a kanji the app knows about, or null.
+export function lookupKanjiReference(character) {
+  const key = String(character ?? "").trim();
+  const entry = KANJI_BREAKDOWN_LIBRARY[key];
+  if (!entry) return null;
+  return {
+    meaning: entry.meaning,
+    onYomi: entry.onYomi ?? "",
+    kunYomi: entry.kunYomi ?? "",
+    strokeCount: KANJI_STROKE_COUNTS[key] ?? Number(entry.strokeCount ?? 0),
+  };
+}
 
 function buildKanjiBreakdown(character, title, theme, vocab = []) {
   const safeCharacter = String(character ?? "").trim();
@@ -534,7 +556,7 @@ function buildKanjiBreakdown(character, title, theme, vocab = []) {
     kunYomi: entry?.kunYomi ?? "",
     components: entry?.components ?? "Simple lesson component breakdown.",
     radicals,
-    strokeCount: Number(entry?.strokeCount ?? 1) || 1,
+    strokeCount: KANJI_STROKE_COUNTS[safeCharacter] ?? (Number(entry?.strokeCount ?? 0) || 0),
     strokeOrderSource: entry?.strokeOrderSource ?? "lesson-derived",
     mnemonic: entry?.mnemonic ?? `Link ${safeCharacter} to the ${theme} scene.`,
     examples: entry?.examples ?? [],

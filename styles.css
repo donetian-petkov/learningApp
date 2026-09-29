@@ -444,6 +444,87 @@ h3 {
   align-items: start;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+.lesson-layout {
+  grid-template-columns: 1fr;
+  scroll-margin-top: 16px;
+}
+
+.lesson-steps {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0 4px;
+  padding: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.lesson-steps::-webkit-scrollbar {
+  display: none;
+}
+
+.lesson-step {
+  flex: 1 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.lesson-step:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.lesson-step-index {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lesson-step .icon {
+  display: none;
+}
+
+.lesson-step.active {
+  color: #fff;
+  background: rgba(124, 140, 255, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(124, 140, 255, 0.45);
+}
+
+.lesson-step.active .lesson-step-index {
+  background: var(--accent-2);
+  color: #0a0e1a;
+}
+
+.lesson-words > .list {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.lesson-step-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .chest-row {
   margin-top: 18px;
 }
@@ -920,7 +1001,6 @@ code {
 @media (max-width: 1080px) {
   .hero,
   .module-grid,
-  .lesson-layout,
   .practice-grid,
   .review-grid,
   .progress-grid,
@@ -938,9 +1018,6 @@ code {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .lesson-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 960px) {
@@ -1052,7 +1129,6 @@ code {
   .hero,
   .stats-grid,
   .module-grid,
-  .lesson-layout,
   .practice-grid,
   .review-grid,
   .progress-grid,
@@ -1138,6 +1214,24 @@ code {
 
   .exercise-choice {
     width: 100%;
+  }
+
+  .lesson-layout {
+    scroll-margin-top: 84px;
+  }
+
+  .lesson-steps {
+    margin-left: -4px;
+    margin-right: -4px;
+  }
+
+  .lesson-step {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+  }
+
+  .lesson-step-footer > * {
+    flex: 1 1 0;
   }
 
   .kanji-focus {

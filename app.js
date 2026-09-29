@@ -42,6 +42,15 @@ let savedStudyFeedback = "";
 let lessonNoteFeedback = "";
 let lessonCatalogQuery = "";
 let lessonCatalogTheme = "";
+let lessonStep = "overview";
+const LESSON_STEPS = [
+  { id: "overview", label: "Overview", icon: "sparkles" },
+  { id: "scene", label: "Scene", icon: "tv" },
+  { id: "words", label: "Words & kanji", icon: "book" },
+  { id: "grammar", label: "Grammar", icon: "lightbulb" },
+  { id: "practice", label: "Exercises", icon: "target" },
+  { id: "notes", label: "Notes", icon: "pen" },
+];
 let lessonCatalogDifficulty = "";
 let moderationFilters = {
   query: "",
@@ -371,7 +380,6 @@ function renderLearn() {
   const lessonNotes = state.progress.lessonNotes ?? {};
   const lessonNoteValue = lessonNotes[activeLesson.id] ?? "";
   const filteredLessons = filterLessonCatalog(state.lessons, lessonCatalogQuery, lessonCatalogTheme, lessonCatalogDifficulty);
-  const filteredModerationActions = filterModerationActions(state.admin.moderationActions ?? [], moderationFilters);
   const nextLessonId = findNextLessonId(state.lessons, state.progress.completedLessons, state.activeLessonId);
   const popCultureNotes = Array.isArray(activeLesson.popCultureNotes) && activeLesson.popCultureNotes.length
     ? activeLesson.popCultureNotes
@@ -387,7 +395,14 @@ function renderLearn() {
         <h3>${escapeHtml(lesson.title)}</h3>
         <p class="muted">${escapeHtml(lesson.difficulty)} · ${state.progress.completedLessons.includes(lesson.id) ? "Completed" : "In progress"}</p>
         <p class="muted">${Array.isArray(lesson.scenes) ? lesson.scenes.length : 0} scenes · ${Array.isArray(lesson.exercises) ? lesson.exercises.length : 0} exercises</p>
-        <p class="muted">${Array.isArray(lesson.media) ? lesson.media.length : 0} media slots · ${Array.isArray(lesson.lessonGoals) ? lesson.lessonGoals.length : 0} goals · ${Array.isArray(lesson.referenceTags) ? lesson.referenceTags.length : 0} tags</p>
+        ${(() => {
+          const extras = [
+            [Array.isArray(lesson.media) ? lesson.media.length : 0, "media slot"],
+            [Array.isArray(lesson.lessonGoals) ? lesson.lessonGoals.length : 0, "goal"],
+            [Array.isArray(lesson.referenceTags) ? lesson.referenceTags.length : 0, "tag"],
+          ].filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}${count === 1 ? "" : "s"}`);
+          return extras.length ? `<p class="muted">${extras.join(" · ")}</p>` : "";
+        })()}
         <div class="kana">${escapeHtml(state.toggles.furigana ? lesson.japanese : lesson.translation)}</div>
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(lesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(lesson.translation)}</p>` : ""}
@@ -435,7 +450,7 @@ function renderLearn() {
         ${renderStat("Streak", `${state.progress.streak} days`)}
       </div>
     </section>
-    <section class="panel lesson-layout">
+    <section class="panel lesson-layout" id="featured-lesson">
       <div class="grid-card">
         <p class="eyebrow">Featured lesson</p>
         <h2>${escapeHtml(activeLesson.title)}</h2>
@@ -444,7 +459,8 @@ function renderLearn() {
         ${state.toggles.romaji ? `<p class="muted">${escapeHtml(activeLesson.romaji)}</p>` : ""}
         ${state.toggles.translation ? `<p>${escapeHtml(activeLesson.translation)}</p>` : ""}
         <p>${escapeHtml(activeLesson.grammar)}</p>
-        <div class="grid-card spaced lesson-blueprint">
+        ${renderLessonSteps()}
+        <div class="grid-card spaced lesson-blueprint" ${lessonStepAttr("overview")}>
           <h3>What this lesson contains</h3>
           <p class="muted">A complete lesson combines a scene, grammar notes, vocabulary, kanji, exercises, and a note-taking area.</p>
           <div class="tag-row">
@@ -474,7 +490,7 @@ function renderLearn() {
               : ""
           }
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("overview")}>
           <h3>Scenario pack</h3>
           <p class="muted">Each lesson can move through multiple scenes instead of staying on one line.</p>
           <div class="tag-row">
@@ -508,7 +524,7 @@ function renderLearn() {
               : "<p class='muted'>The current lesson has one scene. Add more scenes in Admin to make it a full pack.</p>"
           }
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("overview")}>
           <h3>Media references</h3>
           <p class="muted">These slots can point to screenshots, source clips, or the reference image you want learners to connect to the scene.</p>
           <div class="list">
@@ -527,7 +543,7 @@ function renderLearn() {
               }
           </div>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("overview")}>
           <h3>Pop-culture notes</h3>
           <p class="muted">These notes explain why the lesson feels natural in anime, manga, workplace, or everyday Japanese context.</p>
           <div class="list">
@@ -546,7 +562,7 @@ function renderLearn() {
             }
           </div>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("overview")}>
           <h3>Lesson mastery</h3>
           <p class="muted">${lessonChecklistCompleteCount}/${lessonChecklist.length} goals complete</p>
           <div class="meter"><span style="width: ${Math.round((lessonChecklistCompleteCount / Math.max(lessonChecklist.length, 1)) * 100)}%"></span></div>
@@ -563,7 +579,7 @@ function renderLearn() {
               .join("")}
           </div>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("grammar")}>
           <h3>Grammar points</h3>
           <div class="list">
             ${grammarPoints
@@ -584,7 +600,7 @@ function renderLearn() {
               .join("")}
           </div>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("grammar")}>
           <h3>Pop culture context</h3>
           <p class="muted">This is the scene-specific context that connects the line to anime, manga, food, travel, school, or office life.</p>
           <div class="list">
@@ -603,7 +619,7 @@ function renderLearn() {
               .join("")}
           </div>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("notes")}>
           <h3>Lesson notes</h3>
           <p class="muted">Capture a reminder, grammar note, or translation trick for this lesson.</p>
           <label class="field">
@@ -621,7 +637,7 @@ function renderLearn() {
           </div>
           <p class="muted" data-output="lesson-note-feedback">${escapeHtml(lessonNoteFeedback || "No note saved yet.")}</p>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("scene")}>
           <h3>Dialogue scene</h3>
           <p class="muted">Step through the current scene instead of reading it as a single block.</p>
           <div class="chat">
@@ -656,13 +672,14 @@ function renderLearn() {
               : ""
           }
         </div>
-        <div class="button-row">
-          <button class="primary" data-action="complete-lesson" data-id="${activeLesson.id}">Complete lesson</button>
-          <button class="secondary" data-action="speak-lesson" data-id="${activeLesson.id}">Listen to line</button>
-          <button class="secondary" data-action="explain-grammar" data-id="${activeLesson.id}">Explain grammar</button>
+        <div ${lessonStepAttr("scene")}>
+          <div class="button-row">
+            <button class="secondary" data-action="speak-lesson" data-id="${activeLesson.id}">Listen to line</button>
+            <button class="secondary" data-action="explain-grammar" data-id="${activeLesson.id}">Explain grammar</button>
+          </div>
+          <p class="${feedbackClass(state.tutor.answer)}" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
         </div>
-        <p class="${feedbackClass(state.tutor.answer)}" data-output="grammar-feedback">${escapeHtml(state.tutor.answer)}</p>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("practice")}>
           <h3>Lesson exercises</h3>
           <p class="muted">${completedExercises.size}/${exercises.length} completed</p>
           <div class="detail-card">
@@ -709,7 +726,7 @@ function renderLearn() {
             }
           </div>
         </div>
-        <div class="grid-card spaced">
+        <div class="grid-card spaced" ${lessonStepAttr("scene")}>
           <h3>Tap-through reading</h3>
           <div class="list">
             ${activeLesson.vocab
@@ -726,7 +743,7 @@ function renderLearn() {
           </div>
         </div>
       </div>
-        <div class="grid-card">
+        <div class="grid-card lesson-words" ${lessonStepAttr("words")}>
         <h3>Vocabulary</h3>
         <div class="list">
           ${activeLesson.vocab
@@ -862,6 +879,7 @@ function renderLearn() {
           }
         </div>
       </div>
+      ${renderLessonStepFooter(activeLesson.id)}
     </section>
     <section class="panel spaced">
       <div class="section-title">
@@ -1655,6 +1673,7 @@ function renderAdmin() {
   };
   const permissionState = permissionDraft ?? structuredClone(state.admin.permissions ?? { roles: [], permissions: [] });
   const availablePermissions = permissionState.permissions ?? [];
+  const filteredModerationActions = filterModerationActions(state.admin.moderationActions ?? [], moderationFilters);
 
   return `
     <section class="panel">
@@ -2268,6 +2287,36 @@ function renderAdmin() {
 }
 
 
+function lessonStepAttr(step) {
+  return `data-step="${step}"${lessonStep === step ? "" : " hidden"}`;
+}
+
+function renderLessonSteps() {
+  return `
+    <div class="lesson-steps" role="tablist" aria-label="Lesson steps">
+      ${LESSON_STEPS.map((step, index) => `
+        <button class="lesson-step${lessonStep === step.id ? " active" : ""}" role="tab" aria-selected="${lessonStep === step.id}" data-lesson-step="${step.id}">
+          <span class="lesson-step-index">${index + 1}</span>${icon(step.icon)}<span>${step.label}</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderLessonStepFooter(lessonId) {
+  const index = LESSON_STEPS.findIndex((step) => step.id === lessonStep);
+  const prev = LESSON_STEPS[index - 1];
+  const next = LESSON_STEPS[index + 1];
+  return `
+    <div class="lesson-step-footer">
+      ${prev ? `<button class="secondary" data-lesson-step="${prev.id}">${icon("left")}<span>${prev.label}</span></button>` : "<span></span>"}
+      ${next
+        ? `<button class="primary" data-lesson-step="${next.id}"><span>Next: ${next.label}</span>${icon("right")}</button>`
+        : `<button class="primary" data-action="complete-lesson" data-id="${escapeHtml(lessonId)}">Complete lesson</button>`}
+    </div>
+  `;
+}
+
 function renderStat(label, value) {
   const STAT_ICONS = {
     XP: "zap",
@@ -2377,6 +2426,16 @@ function buildSavedStudyChoices(activeItem, wordDeck = [], kanjiDeck = [], revie
 }
 
 function wireActions() {
+  document.querySelectorAll("[data-lesson-step]").forEach((button) => {
+    button.addEventListener("click", () => {
+      lessonStep = button.dataset.lessonStep;
+      render();
+      document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const strip = document.querySelector(".lesson-steps");
+      const active = strip?.querySelector(".lesson-step.active");
+      if (strip && active) strip.scrollLeft = active.offsetLeft - (strip.clientWidth - active.clientWidth) / 2;
+    });
+  });
   document.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const action = button.dataset.action;
@@ -2388,8 +2447,10 @@ function wireActions() {
         lessonExerciseResult = null;
         lessonDialogueIndex = 0;
         lessonSceneIndex = 0;
+        lessonStep = "overview";
         persist();
         render();
+        document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
 
       if (action === "complete-lesson") {
@@ -2640,8 +2701,10 @@ function wireActions() {
           lessonExerciseResult = null;
           lessonDialogueIndex = 0;
           lessonSceneIndex = 0;
+          lessonStep = "overview";
           persist();
           render();
+          document.querySelector("#featured-lesson")?.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       }
 
