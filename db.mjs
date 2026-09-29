@@ -744,6 +744,18 @@ export class SqliteStorageAdapter {
     this.filePath = filePath;
     mkdirSync(dirname(filePath), { recursive: true });
     this.db = new DatabaseSync(filePath);
+    // Reuse compiled statements: a single state save runs a few hundred of the same
+    // queries, and compiling each one from scratch was most of the time spent.
+    const prepare = this.db.prepare.bind(this.db);
+    const statements = new Map();
+    this.db.prepare = (sql) => {
+      let statement = statements.get(sql);
+      if (!statement) {
+        statement = prepare(sql);
+        statements.set(sql, statement);
+      }
+      return statement;
+    };
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.migrate();
@@ -1454,10 +1466,18 @@ export class SqliteStorageAdapter {
       }
       this.backfillRichLessonContent();
       this.backfillKanjiMetadata();
+      // Older versions emptied the dictionary on every save; put the starter entries back.
+      if (this.db.prepare("SELECT COUNT(*) AS count FROM dictionary_entries").get().count === 0) {
+        this.seedDictionaryEntries(this.getLessons());
+      }
       return;
     }
     const snapshot = normalizeState(INITIAL_APP_STATE);
     this.replaceMirrorTables(snapshot);
+    // Newest first in the snapshot, so insert in reverse to keep the original order.
+    [...snapshot.admin.auditLog.slice(0, 25)].reverse().forEach((entry) => {
+      this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)").run(entry, nowIso());
+    });
     this.seedAdminAccount();
     snapshot.admin.users.forEach((user, index) => {
       const normalized = normalizeUser(user, index);
@@ -1540,61 +1560,8 @@ export class SqliteStorageAdapter {
       ).run("initial-seed", "local", 1, 120, nowIso());
     }
 
-    const dictionaryRows = new Map();
+    this.seedDictionaryEntries(snapshot.lessons);
     const kanjiRows = new Map();
-    const coreDictionaryEntries = [
-      { id: "dict-core-ha", term: "は", reading: "は", meaning: "topic marker", part_of_speech: "particle", example: "今日はよろしくお願いします。" },
-      { id: "dict-core-ga", term: "が", reading: "が", meaning: "subject marker / contrast", part_of_speech: "particle", example: "武士は言葉より行動で示す。" },
-      { id: "dict-core-o", term: "を", reading: "を", meaning: "direct object marker", part_of_speech: "particle", example: "ラーメンをください。" },
-      { id: "dict-core-ni", term: "に", reading: "に", meaning: "destination / direction marker", part_of_speech: "particle", example: "駅に行きます。" },
-      { id: "dict-core-de", term: "で", reading: "で", meaning: "location of action / means", part_of_speech: "particle", example: "店で食べます。" },
-      { id: "dict-core-to", term: "と", reading: "と", meaning: "and / with / quoted content marker", part_of_speech: "particle", example: "友だちと話します。" },
-      { id: "dict-core-desu", term: "です", reading: "です", meaning: "polite copula", part_of_speech: "auxiliary verb", example: "今日は雨です。" },
-      { id: "dict-core-masu", term: "ます", reading: "ます", meaning: "polite verb ending", part_of_speech: "auxiliary verb", example: "勉強します。" },
-      { id: "dict-core-kudasai", term: "ください", reading: "ください", meaning: "please give / please do", part_of_speech: "auxiliary verb", example: "ラーメンをください。" },
-      { id: "dict-core-yoroshiku", term: "よろしくお願いします", reading: "よろしくおねがいします", meaning: "please take care of me / best regards", part_of_speech: "expression", example: "今日はよろしくお願いします。" },
-      { id: "dict-core-doko", term: "どこ", reading: "どこ", meaning: "where", part_of_speech: "adverb", example: "切符売り場はどこですか。" },
-      { id: "dict-core-one", term: "一つ", reading: "ひとつ", meaning: "one item", part_of_speech: "counter", example: "ラーメンを一つください。" },
-    ];
-    coreDictionaryEntries.forEach((entry) => {
-      dictionaryRows.set(entry.id, {
-        id: entry.id,
-        term: entry.term,
-        reading: entry.reading,
-        meaning: entry.meaning,
-        part_of_speech: entry.part_of_speech ?? entry.partOfSpeech ?? "noun",
-        example: entry.example ?? "",
-      });
-    });
-    snapshot.lessons.forEach((lesson) => {
-      lesson.vocab.forEach((item, index) => {
-        const key = `${item.word}-${item.kana}`.toLowerCase();
-        dictionaryRows.set(key, {
-          id: `dict-${lesson.id}-${index + 1}`,
-          term: item.word,
-          reading: item.kana,
-          meaning: item.meaning,
-          part_of_speech: "noun",
-          example: lesson.translation,
-        });
-      });
-      lesson.kanji.forEach((kanji, index) => {
-        const key = `${kanji}-kanji`;
-        dictionaryRows.set(key, {
-          id: `dict-${lesson.id}-kanji-${index + 1}`,
-          term: kanji,
-          reading: "",
-          meaning: `${kanji} used in lesson context`,
-          part_of_speech: "kanji",
-          example: lesson.japanese,
-        });
-      });
-    });
-    Array.from(dictionaryRows.values()).forEach((entry) => {
-      this.db.prepare(
-        "INSERT OR REPLACE INTO dictionary_entries (id, term, reading, meaning, part_of_speech, example, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(entry.id, entry.term, entry.reading, entry.meaning, entry.part_of_speech, entry.example, "seed");
-    });
 
     snapshot.lessons.forEach((lesson) => {
       lesson.kanji.forEach((kanji, index) => {
@@ -2737,34 +2704,41 @@ export class SqliteStorageAdapter {
           now
         );
       }
-      this.db.prepare(
-      "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, completed_exercises_json, saved_words_json, saved_kanji_json, lesson_notes_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      next.progress.xp,
-      next.progress.level,
-      next.progress.credits,
-        next.progress.streak,
-        next.progress.kanji,
-        next.progress.vocab,
-        next.progress.speakingMinutes,
-        next.progress.listeningMinutes,
-        next.progress.reviewedWords,
-        next.progress.speakingSessions,
-        next.progress.listeningExercises,
-      toJson(next.progress.completedLessons),
-      toJson(next.progress.completedExercises),
-      toJson(next.progress.savedWords),
-      toJson(next.progress.savedKanji),
-      toJson(next.progress.lessonNotes),
-      now
-    );
-      this.db.prepare(
-        "INSERT INTO leaderboard_snapshots (week_key, payload_json, created_at) VALUES (?, ?, ?)"
+      // History rows are only worth keeping when progress actually moved; saving an
+      // unchanged state (switching tabs, toggling furigana) used to add a row each time.
+      if (progressChanged(current.progress, next.progress)) {
+        this.db.prepare(
+        "INSERT INTO progress_snapshots (xp, level, credits, streak, kanji, vocab, speaking_minutes, listening_minutes, reviewed_words, speaking_sessions, listening_exercises, completed_lessons_json, completed_exercises_json, saved_words_json, saved_kanji_json, lesson_notes_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
-        currentWeekKey(),
-        toJson(leaderboardRows),
+        next.progress.xp,
+        next.progress.level,
+        next.progress.credits,
+          next.progress.streak,
+          next.progress.kanji,
+          next.progress.vocab,
+          next.progress.speakingMinutes,
+          next.progress.listeningMinutes,
+          next.progress.reviewedWords,
+          next.progress.speakingSessions,
+          next.progress.listeningExercises,
+        toJson(next.progress.completedLessons),
+        toJson(next.progress.completedExercises),
+        toJson(next.progress.savedWords),
+        toJson(next.progress.savedKanji),
+        toJson(next.progress.lessonNotes),
         now
       );
+      }
+      const latestLeaderboard = this.db.prepare("SELECT week_key, payload_json FROM leaderboard_snapshots ORDER BY id DESC LIMIT 1").get();
+      if (latestLeaderboard?.week_key !== currentWeekKey() || latestLeaderboard?.payload_json !== toJson(leaderboardRows)) {
+        this.db.prepare(
+          "INSERT INTO leaderboard_snapshots (week_key, payload_json, created_at) VALUES (?, ?, ?)"
+        ).run(
+          currentWeekKey(),
+          toJson(leaderboardRows),
+          now
+        );
+      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -2797,7 +2771,6 @@ export class SqliteStorageAdapter {
       DELETE FROM content_review_actions;
       DELETE FROM dataset_imports;
       DELETE FROM users;
-      DELETE FROM dictionary_entries;
       DELETE FROM challenge_progress;
       DELETE FROM challenge_definitions;
     `);
@@ -3055,10 +3028,8 @@ export class SqliteStorageAdapter {
     this.db.prepare("INSERT INTO site_settings (id, announcements, maintenance_mode) VALUES (1, ?, ?)")
       .run(snapshot.admin.announcements, snapshot.admin.maintenanceMode ? 1 : 0);
 
-    snapshot.admin.auditLog.slice(0, 25).forEach((entry) => {
-      this.db.prepare("INSERT INTO audit_log (entry, created_at) VALUES (?, ?)")
-        .run(entry, nowIso());
-    });
+    // The audit log is append-only: entries are written when the action happens, so a
+    // state save must not re-insert the copies it was sent (that duplicated them every save).
 
     snapshot.admin.users.forEach((user, index) => {
       const normalized = normalizeUser(user, index);
@@ -3180,6 +3151,64 @@ export class SqliteStorageAdapter {
         item.notes ?? "",
         item.createdAt ?? nowIso()
       );
+    });
+  }
+
+  // The built-in starter dictionary: a few core words plus every lesson's vocab and kanji.
+  seedDictionaryEntries(lessons) {
+    const dictionaryRows = new Map();
+    const coreDictionaryEntries = [
+      { id: "dict-core-ha", term: "は", reading: "は", meaning: "topic marker", part_of_speech: "particle", example: "今日はよろしくお願いします。" },
+      { id: "dict-core-ga", term: "が", reading: "が", meaning: "subject marker / contrast", part_of_speech: "particle", example: "武士は言葉より行動で示す。" },
+      { id: "dict-core-o", term: "を", reading: "を", meaning: "direct object marker", part_of_speech: "particle", example: "ラーメンをください。" },
+      { id: "dict-core-ni", term: "に", reading: "に", meaning: "destination / direction marker", part_of_speech: "particle", example: "駅に行きます。" },
+      { id: "dict-core-de", term: "で", reading: "で", meaning: "location of action / means", part_of_speech: "particle", example: "店で食べます。" },
+      { id: "dict-core-to", term: "と", reading: "と", meaning: "and / with / quoted content marker", part_of_speech: "particle", example: "友だちと話します。" },
+      { id: "dict-core-desu", term: "です", reading: "です", meaning: "polite copula", part_of_speech: "auxiliary verb", example: "今日は雨です。" },
+      { id: "dict-core-masu", term: "ます", reading: "ます", meaning: "polite verb ending", part_of_speech: "auxiliary verb", example: "勉強します。" },
+      { id: "dict-core-kudasai", term: "ください", reading: "ください", meaning: "please give / please do", part_of_speech: "auxiliary verb", example: "ラーメンをください。" },
+      { id: "dict-core-yoroshiku", term: "よろしくお願いします", reading: "よろしくおねがいします", meaning: "please take care of me / best regards", part_of_speech: "expression", example: "今日はよろしくお願いします。" },
+      { id: "dict-core-doko", term: "どこ", reading: "どこ", meaning: "where", part_of_speech: "adverb", example: "切符売り場はどこですか。" },
+      { id: "dict-core-one", term: "一つ", reading: "ひとつ", meaning: "one item", part_of_speech: "counter", example: "ラーメンを一つください。" },
+    ];
+    coreDictionaryEntries.forEach((entry) => {
+      dictionaryRows.set(entry.id, {
+        id: entry.id,
+        term: entry.term,
+        reading: entry.reading,
+        meaning: entry.meaning,
+        part_of_speech: entry.part_of_speech ?? entry.partOfSpeech ?? "noun",
+        example: entry.example ?? "",
+      });
+    });
+    lessons.forEach((lesson) => {
+      lesson.vocab.forEach((item, index) => {
+        const key = `${item.word}-${item.kana}`.toLowerCase();
+        dictionaryRows.set(key, {
+          id: `dict-${lesson.id}-${index + 1}`,
+          term: item.word,
+          reading: item.kana,
+          meaning: item.meaning,
+          part_of_speech: "noun",
+          example: lesson.translation,
+        });
+      });
+      lesson.kanji.forEach((kanji, index) => {
+        const key = `${kanji}-kanji`;
+        dictionaryRows.set(key, {
+          id: `dict-${lesson.id}-kanji-${index + 1}`,
+          term: kanji,
+          reading: "",
+          meaning: `${kanji} used in lesson context`,
+          part_of_speech: "kanji",
+          example: lesson.japanese,
+        });
+      });
+    });
+    Array.from(dictionaryRows.values()).forEach((entry) => {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO dictionary_entries (id, term, reading, meaning, part_of_speech, example, source) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(entry.id, entry.term, entry.reading, entry.meaning, entry.part_of_speech, entry.example, "seed");
     });
   }
 
@@ -4578,6 +4607,12 @@ export class SqliteStorageAdapter {
     );
     return this.getContentReviewActions();
   }
+}
+
+const TRACKED_PROGRESS_FIELDS = ["xp", "level", "credits", "streak", "kanji", "vocab", "speakingMinutes", "listeningMinutes", "reviewedWords", "speakingSessions", "listeningExercises", "completedLessons", "completedExercises", "savedWords", "savedKanji", "lessonNotes"];
+
+function progressChanged(before = {}, after = {}) {
+  return TRACKED_PROGRESS_FIELDS.some((field) => toJson(before[field] ?? null) !== toJson(after[field] ?? null));
 }
 
 export function createStorageAdapter(filePath) {

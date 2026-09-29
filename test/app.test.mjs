@@ -1327,3 +1327,50 @@ test("shared helpers are deterministic and safe", () => {
   assert.equal(sm2Easy.repetitions, 1);
   assert.equal(sm2Easy.ease > sm2Hard.ease, true);
 });
+
+test("saving app state keeps the dictionary, audit log and history tables intact", () => {
+  const temp = createTempStore();
+  try {
+    const count = (table) => temp.store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+    temp.store.importDictionaryEntries([{ term: "猫", reading: "ねこ", meaning: "cat" }]);
+    temp.store.appendAudit("Checked the dictionary");
+    const before = {
+      dictionary: count("dictionary_entries"),
+      audit: count("audit_log"),
+      progress: count("progress_snapshots"),
+      leaderboard: count("leaderboard_snapshots"),
+    };
+    assert.ok(before.dictionary > 1);
+
+    // An unchanged save (e.g. switching tabs) must not wipe, duplicate or grow anything.
+    temp.store.saveAppState(temp.store.getSnapshot());
+    temp.store.saveAppState(temp.store.getSnapshot());
+    assert.deepEqual({
+      dictionary: count("dictionary_entries"),
+      audit: count("audit_log"),
+      progress: count("progress_snapshots"),
+      leaderboard: count("leaderboard_snapshots"),
+    }, before);
+    assert.equal(temp.store.getDictionary("猫")[0]?.meaning, "cat");
+
+    // A real progress change is still recorded.
+    const snapshot = temp.store.getSnapshot();
+    snapshot.progress.xp += 25;
+    temp.store.saveAppState(snapshot);
+    assert.equal(count("progress_snapshots"), before.progress + 1);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
+test("an emptied dictionary is restored with the starter entries on startup", () => {
+  const temp = createTempStore();
+  try {
+    temp.store.db.exec("DELETE FROM dictionary_entries");
+    temp.store.close();
+    temp.store = createStorageAdapter(join(temp.dir, "learning.sqlite"));
+    assert.ok(temp.store.getDictionary("").length > 0);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
