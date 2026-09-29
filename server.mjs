@@ -72,7 +72,15 @@ export function createApiHandler(store) {
 
   if (req.method === "POST" && url.pathname === "/api/state") {
     const body = await readJson(req);
-    const next = store.saveAppState(body, session?.sessionUser ?? null);
+    // The app's background saves send "Prefer: return=minimal": they don't use the reply,
+    // so skip rebuilding and sending the whole state (over 100 KB) back.
+    const minimal = /return=minimal/i.test(req.headers?.prefer ?? "");
+    const next = store.saveAppState(body, session?.sessionUser ?? null, { returnSnapshot: !minimal });
+    if (minimal) {
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
+      return;
+    }
     respondJson(res, 200, next);
     return;
   }

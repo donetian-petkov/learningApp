@@ -2677,7 +2677,7 @@ export class SqliteStorageAdapter {
     });
   }
 
-  saveAppState(nextSnapshot, sessionUser = null) {
+  saveAppState(nextSnapshot, sessionUser = null, { returnSnapshot = true } = {}) {
     const next = applyAchievementRules(normalizeState(nextSnapshot));
     next.progress.level = calculateLevel(next.progress.xp);
     const current = this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
@@ -2745,7 +2745,7 @@ export class SqliteStorageAdapter {
       throw error;
     }
 
-    return this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser });
+    return returnSnapshot ? this.getSnapshot({ authenticated: Boolean(sessionUser), sessionUser }) : null;
   }
 
   // Writes a snapshot into the tables. Given the previously stored snapshot, sections whose

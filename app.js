@@ -355,7 +355,7 @@ async function flushPersist() {
 function postState(options = {}) {
   return fetch("/api/state", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", prefer: "return=minimal" },
     body: JSON.stringify(state),
     ...options,
   }).catch(() => {});

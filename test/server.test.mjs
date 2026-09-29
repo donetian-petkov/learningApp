@@ -3,7 +3,7 @@ import { gunzipSync } from "node:zlib";
 import test from "node:test";
 
 process.env.LEARNINGAPP_DISABLE_SERVER = "1";
-const { serveStatic } = await import("../server.mjs");
+const { createApiHandler, serveStatic } = await import("../server.mjs");
 
 function createMockResponse() {
   return {
@@ -71,4 +71,37 @@ test("static server supports ETag revalidation and gzip", async () => {
   const again = await get("/app.js", { "if-none-match": first.headers.etag });
   assert.equal(again.statusCode, 304);
   assert.equal(again.body, null);
+});
+
+test("background state saves get an empty reply instead of the whole state", async () => {
+  const calls = [];
+  const handler = createApiHandler({
+    getSession: () => null,
+    saveAppState(body, user, options) {
+      calls.push(options);
+      return options?.returnSnapshot === false ? null : { view: "learn" };
+    },
+  });
+  const post = async (headers) => {
+    const res = createMockResponse();
+    const req = {
+      method: "POST",
+      headers,
+      url: "/api/state",
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(JSON.stringify({ view: "learn" }));
+      },
+    };
+    await handler(req, res, new URL("http://127.0.0.1/api/state"));
+    return res;
+  };
+
+  const minimal = await post({ prefer: "return=minimal" });
+  assert.equal(minimal.statusCode, 204);
+  assert.equal(minimal.body, null);
+  assert.deepEqual(calls[0], { returnSnapshot: false });
+
+  const full = await post({});
+  assert.equal(full.statusCode, 200);
+  assert.deepEqual(JSON.parse(full.body), { view: "learn" });
 });
