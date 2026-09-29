@@ -42,6 +42,7 @@ let savedStudyFeedback = "";
 let lessonNoteFeedback = "";
 let lessonCatalogQuery = "";
 let renderedView = null;
+let adminPasswordFeedback = "";
 let consumedFields = new Set();
 let persistTimer = null;
 let persistInFlight = null;
@@ -1734,13 +1735,14 @@ function renderSettings() {
         </div>
         <div class="grid-card">
           <h3>Admin access</h3>
-          <p class="muted">The local bootstrap admin account is created on startup, even on an existing database.</p>
+          <p class="muted">A local admin account is created on first start.</p>
           <ul class="feature-list">
             <li>Username: <code>admin</code></li>
-            <li>Password: <code>fieldguide123</code></li>
+            ${state.admin.defaultPassword
+              ? `<li>Starter password: <code>fieldguide123</code>. Change it in Admin after signing in.</li>`
+              : "<li>Password: changed from the starter one.</li>"}
             <li>Role: Super Admin</li>
           </ul>
-          <p class="muted">If login still fails, reset the local database from Admin and let the bootstrap seed run again.</p>
         </div>
         <div class="grid-card">
           <h3>What settings are for</h3>
@@ -1776,12 +1778,14 @@ function renderAdmin() {
           </label>
           <label class="field">
             <span>Password</span>
-            <input type="password" data-field="admin-password" value="fieldguide123" />
+            <input type="password" data-field="admin-password" autocomplete="current-password" />
           </label>
           <div class="button-row">
             <button class="primary" data-action="admin-login">Sign in</button>
           </div>
-          <p class="muted">Local bootstrap credentials are seeded on startup: <code>admin</code> / <code>fieldguide123</code>.</p>
+          ${state.admin.defaultPassword
+            ? `<p class="muted">First time? Sign in with <code>admin</code> / <code>fieldguide123</code>, then change the password.</p>`
+            : ""}
         </div>
       </section>
     `;
@@ -1814,6 +1818,26 @@ function renderAdmin() {
         <div class="button-row">
           <button class="secondary" data-action="admin-logout">Sign out</button>
         </div>
+      </div>
+      <div class="grid-card spaced password-card${state.admin.defaultPassword ? " is-warning" : ""}">
+        <h3>${state.admin.defaultPassword ? "You're still using the starter password" : "Change admin password"}</h3>
+        ${state.admin.defaultPassword
+          ? `<p class="muted">Anyone who has read the README knows it. Pick a new one with at least 10 characters.</p>`
+          : ""}
+        <div class="field-row">
+          <label class="field">
+            <span>Current password</span>
+            <input type="password" data-field="admin-current-password" autocomplete="current-password" />
+          </label>
+          <label class="field">
+            <span>New password</span>
+            <input type="password" data-field="admin-new-password" autocomplete="new-password" minlength="10" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button class="primary" data-action="admin-change-password">Change password</button>
+        </div>
+        <p class="muted" data-output="admin-password-feedback">${escapeHtml(adminPasswordFeedback)}</p>
       </div>
       <div class="admin-grid">
         <div class="grid-card">
@@ -4041,7 +4065,9 @@ async function handleAction(button) {
 
   if (action === "admin-login") {
     const username = app.querySelector('[data-field="admin-username"]')?.value?.trim() || "admin";
-    const password = app.querySelector('[data-field="admin-password"]')?.value?.trim() || "fieldguide123";
+    const password = app.querySelector('[data-field="admin-password"]')?.value ?? "";
+    // Land the waiting save first; the sign-in reply would otherwise replace it.
+    await settlePendingSave();
     const response = await fetch("/api/admin/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -4055,7 +4081,20 @@ async function handleAction(button) {
     await refreshState();
   }
 
+  if (action === "admin-change-password") {
+    const currentPassword = app.querySelector('[data-field="admin-current-password"]')?.value ?? "";
+    const newPassword = app.querySelector('[data-field="admin-new-password"]')?.value ?? "";
+    try {
+      await apiJson("/api/admin/password", { method: "POST", body: { currentPassword, newPassword } });
+      adminPasswordFeedback = "Password changed.";
+    } catch (error) {
+      adminPasswordFeedback = error.message;
+    }
+    await refreshState();
+  }
+
   if (action === "admin-logout") {
+    await settlePendingSave();
     await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
     await refreshState();
   }

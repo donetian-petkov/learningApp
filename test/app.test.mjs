@@ -1407,3 +1407,43 @@ test("state saves skip unchanged sections but still persist real edits", () => {
     cleanupTempStore(temp);
   }
 });
+
+test("admin passwords are salted, legacy hashes upgrade, and the password can be changed", async () => {
+  const { createHash } = await import("node:crypto");
+  const temp = createTempStore();
+  try {
+    const storedHash = () => temp.store.db.prepare("SELECT password_hash FROM admin_users WHERE username = 'admin'").get().password_hash;
+    assert.match(storedHash(), /^scrypt\$/);
+    assert.equal(temp.store.getSnapshot().admin.defaultPassword, true);
+
+    // A database from before this change holds a bare SHA-256 hash: it still works and gets upgraded.
+    temp.store.db.prepare("UPDATE admin_users SET password_hash = ?").run(createHash("sha256").update("fieldguide123").digest("hex"));
+    assert.equal(temp.store.verifyAdminCredentials("admin", "fieldguide123"), true);
+    assert.match(storedHash(), /^scrypt\$/);
+    assert.equal(temp.store.verifyAdminCredentials("admin", "wrong"), false);
+
+    assert.equal(temp.store.changeAdminPassword("admin", "wrong", "a-much-better-one").ok, false);
+    assert.equal(temp.store.changeAdminPassword("admin", "fieldguide123", "short").ok, false);
+    assert.equal(temp.store.changeAdminPassword("admin", "fieldguide123", "a-much-better-one").ok, true);
+    assert.equal(temp.store.verifyAdminCredentials("admin", "fieldguide123"), false);
+    assert.equal(temp.store.verifyAdminCredentials("admin", "a-much-better-one"), true);
+    assert.equal(temp.store.getSnapshot().admin.defaultPassword, false);
+  } finally {
+    cleanupTempStore(temp);
+  }
+});
+
+test("ADMIN_PASSWORD sets the starter admin password on a new database", () => {
+  const previous = process.env.ADMIN_PASSWORD;
+  process.env.ADMIN_PASSWORD = "set-from-the-environment";
+  const temp = createTempStore();
+  try {
+    assert.equal(temp.store.verifyAdminCredentials("admin", "set-from-the-environment"), true);
+    assert.equal(temp.store.verifyAdminCredentials("admin", "fieldguide123"), false);
+    assert.equal(temp.store.getSnapshot().admin.defaultPassword, false);
+  } finally {
+    if (previous === undefined) delete process.env.ADMIN_PASSWORD;
+    else process.env.ADMIN_PASSWORD = previous;
+    cleanupTempStore(temp);
+  }
+});

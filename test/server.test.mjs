@@ -109,3 +109,21 @@ test("background state saves get an empty reply instead of the whole state", asy
   assert.equal(full.statusCode, 200);
   assert.deepEqual(JSON.parse(full.body), { view: "learn" });
 });
+
+test("changing the admin password requires a signed-in admin", async () => {
+  const handler = createApiHandler({
+    getSession: () => null,
+    changeAdminPassword: () => assert.fail("should not be called without a session"),
+  });
+  const res = createMockResponse();
+  const req = {
+    method: "POST",
+    headers: {},
+    url: "/api/admin/password",
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify({ currentPassword: "x", newPassword: "y" }));
+    },
+  };
+  await handler(req, res, new URL("http://127.0.0.1/api/admin/password"));
+  assert.equal(res.statusCode, 401);
+});

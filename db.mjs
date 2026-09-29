@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { ADMIN_CREDENTIALS, INITIAL_APP_STATE } from "./seed-data.mjs";
@@ -32,6 +32,26 @@ function currentDateDiffDays(laterKey, earlierKey) {
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
+
+// Passwords are stored as "scrypt$salt$hash": salted and deliberately slow to guess.
+// Older databases hold a plain SHA-256 hash; those still verify and are upgraded on sign-in.
+function hashPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  return `scrypt$${salt}$${scryptSync(String(password), salt, 32).toString("hex")}`;
+}
+
+function verifyPasswordHash(password, stored) {
+  const [scheme, salt, hash] = String(stored ?? "").split("$");
+  const expected = scheme === "scrypt" && salt && hash
+    ? Buffer.from(hash, "hex")
+    : Buffer.from(String(stored ?? ""), "hex");
+  const actual = scheme === "scrypt" && salt && hash
+    ? scryptSync(String(password), salt, 32)
+    : Buffer.from(sha256(String(password)), "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+export const MIN_ADMIN_PASSWORD_LENGTH = 10;
 
 function parseJson(value, fallback) {
   if (value == null || value === "") return fallback;
@@ -2554,6 +2574,7 @@ export class SqliteStorageAdapter {
       maintenanceMode: siteSettings.maintenanceMode,
       announcements: siteSettings.announcements,
       authenticated: Boolean(session?.authenticated),
+      defaultPassword: this.usesDefaultAdminPassword(),
       sessionUser: session?.sessionUser ?? null,
       auditLog,
       contentReviewQueue,
@@ -3298,7 +3319,36 @@ export class SqliteStorageAdapter {
   seedAdminAccount() {
     this.db.prepare(
       "INSERT OR REPLACE INTO admin_users (id, username, password_hash, role_name, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run("admin-1", ADMIN_CREDENTIALS.username, sha256(ADMIN_CREDENTIALS.password), "Super Admin", nowIso());
+    ).run("admin-1", ADMIN_CREDENTIALS.username, hashPassword(process.env.ADMIN_PASSWORD || ADMIN_CREDENTIALS.password), "Super Admin", nowIso());
+  }
+
+  // True while an admin account still uses the published starter password.
+  // Checking a hash is slow on purpose, so the answer is remembered until a hash changes.
+  usesDefaultAdminPassword() {
+    const hashes = this.db.prepare("SELECT password_hash FROM admin_users ORDER BY id").all().map((row) => row.password_hash).join("\n");
+    if (this.defaultPasswordCheck?.hashes !== hashes) {
+      this.defaultPasswordCheck = {
+        hashes,
+        result: hashes.split("\n").some((hash) => hash && verifyPasswordHash(ADMIN_CREDENTIALS.password, hash)),
+      };
+    }
+    return this.defaultPasswordCheck.result;
+  }
+
+  changeAdminPassword(username, currentPassword, nextPassword) {
+    if (!this.verifyAdminCredentials(username, currentPassword)) {
+      return { ok: false, error: "The current password is wrong." };
+    }
+    const next = String(nextPassword ?? "");
+    if (next.length < MIN_ADMIN_PASSWORD_LENGTH) {
+      return { ok: false, error: `The new password needs at least ${MIN_ADMIN_PASSWORD_LENGTH} characters.` };
+    }
+    if (next === ADMIN_CREDENTIALS.password) {
+      return { ok: false, error: "Pick a password other than the starter one." };
+    }
+    this.db.prepare("UPDATE admin_users SET password_hash = ? WHERE username = ?").run(hashPassword(next), username);
+    this.appendAudit(`Changed admin password: ${username}`);
+    return { ok: true };
   }
 
   seedAdditionalLessons(lessons) {
@@ -3528,8 +3578,11 @@ export class SqliteStorageAdapter {
 
   verifyAdminCredentials(username, password) {
     const user = this.db.prepare("SELECT * FROM admin_users WHERE username = ?").get(username);
-    if (!user) return false;
-    return user.password_hash === sha256(password);
+    if (!user || !verifyPasswordHash(password, user.password_hash)) return false;
+    if (!String(user.password_hash).startsWith("scrypt$")) {
+      this.db.prepare("UPDATE admin_users SET password_hash = ? WHERE id = ?").run(hashPassword(password), user.id);
+    }
+    return true;
   }
 
   getLessons() {

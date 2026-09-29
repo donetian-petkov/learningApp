@@ -1300,3 +1300,13 @@ kbd {
     display: none;
   }
 }
+
+/* Admin password card turns amber while the published starter password is in use. */
+.password-card.is-warning {
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface));
+}
+
+.password-card.is-warning h3 {
+  color: var(--warn);
+}

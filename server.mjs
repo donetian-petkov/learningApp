@@ -566,6 +566,17 @@ export function createApiHandler(store) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/admin/password") {
+    if (!session?.authenticated) {
+      respondJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const body = await readJson(req);
+    const result = store.changeAdminPassword(session.sessionUser, body.currentPassword ?? "", body.newPassword ?? "");
+    respondJson(res, result.ok ? 200 : 400, result);
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/admin/logout") {
     const sessionId = getCookie(req, "admin_session");
     if (sessionId) {

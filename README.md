@@ -108,6 +108,9 @@ It is created automatically on first run.
 - `PORT`: HTTP port, default `4173`
 - `LEARNINGAPP_DISABLE_SERVER=1`: import the API handler without starting the HTTP server
 
+### Admin
+- `ADMIN_PASSWORD`: starter admin password used when a new database is created
+
 ### Local AI
 - `AI_PROVIDER`: set to `ollama` or `openai-compatible`
 - `OLLAMA_HOST`: Ollama host URL, if different from the default
@@ -143,4 +146,4 @@ The admin tools accept:
 - Browser TTS remains the default if system TTS is unavailable.
 - Whisper and local AI providers are optional, not required for the MVP.
 - Cosmetics are cosmetic only and do not unlock core learning content.
-- The local bootstrap admin account is `admin` / `fieldguide123`.
+- On a new database the admin account is `admin` / `fieldguide123`, or whatever `ADMIN_PASSWORD` is set to on first start. The Admin screen warns you until the starter password is changed, and passwords are stored salted and hashed with scrypt.
